@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hood Global Offensive - screenshot gallery</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 40px 24px 72px;
+    background: #0e1014; color: #e8ecf2;
+    font: 15px/1.6 ui-sans-serif, system-ui, "Segoe UI", Roboto, sans-serif;
+  }
+  header { max-width: 1100px; margin: 0 auto 36px; border-top: 6px solid #ffba38; padding-top: 20px; }
+  h1 { margin: 0 0 6px; font-size: 34px; letter-spacing: .06em; }
+  .sub { color: #94a0b0; margin: 0 0 4px; }
+  main { max-width: 1100px; margin: 0 auto; }
+  figure { margin: 0 0 40px; }
+  figure img {
+    width: 100%; height: auto; display: block;
+    border: 1px solid #262c36; border-radius: 6px; background: #000;
+  }
+  figcaption { margin-top: 10px; color: #94a0b0; font-size: 14px; }
+  figcaption b { color: #e8ecf2; font-weight: 600; }
+  code { background: #1b2029; padding: 1px 5px; border-radius: 3px; font-size: 13px; }
+  .note {
+    margin-top: 8px; padding: 14px 16px; border-left: 3px solid #ffba38;
+    background: #14181f; color: #b6c0cd; font-size: 14px; border-radius: 0 6px 6px 0;
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>HOOD GLOBAL OFFENSIVE</h1>
+  <p class="sub">Early access v0.1.0 &middot; a Counter-Strike style deathmatch FPS in C# on Raylib-cs &middot; map: <b>Crossfire</b></p>
+  <p class="sub">Every frame below is rendered by the real game. Regenerate with <code>bash tools/capture_shots.sh</code>, then check them with <code>python tools/verify_shots.py</code>.</p>
+</header>
+
+<main>
+  <figure>
+    <img src="shots/00-menu.png" alt="Main menu" loading="lazy">
+    <figcaption><b>Main menu.</b> Bot count, bot skill, kill limit and mouse sensitivity are all set here before you start.</figcaption>
+  </figure>
+
+  <figure>
+    <img src="shots/01-ak47.png" alt="AK-47 in a firefight" loading="lazy">
+    <figcaption><b>AK-47 in a firefight.</b> The view model is rendered in its own pass, so level geometry can never hide it, even pressed against a wall.</figcaption>
+  </figure>
+
+  <figure>
+    <img src="shots/02-deagle.png" alt="Desert Eagle" loading="lazy">
+    <figcaption><b>Desert Eagle.</b> The crosshair gap is driven by the live spread value, so it opens as you move and tightens when you crouch.</figcaption>
+  </figure>
+
+  <figure>
+    <img src="shots/03-awp-scoped.png" alt="AWP scoped" loading="lazy">
+    <figcaption><b>AWP scoped.</b> Right click raises the scope, the weapon is fully stowed while it is up, and the mask darkens everything outside the circle.</figcaption>
+  </figure>
+
+  <figure>
+    <img src="shots/04-buy-menu.png" alt="Buy menu" loading="lazy">
+    <figcaption><b>Buy menu (<code>B</code>).</b> Money comes from kills, so buying is a real decision rather than a formality.</figcaption>
+  </figure>
+
+  <figure>
+    <img src="shots/05-scoreboard.png" alt="Scoreboard" loading="lazy">
+    <figcaption><b>Scoreboard (hold <code>Tab</code>).</b> Kills, deaths, accuracy and headshot counts for you and every bot.</figcaption>
+  </figure>
+
+  <p class="note">
+    These captures are produced by running real matches and rendering a single frame, so nothing here is a mock-up. The scoped frame in particular waits until the scope is at least 97% raised before capturing.
+  </p>
+</main>
+</body>
+</html>

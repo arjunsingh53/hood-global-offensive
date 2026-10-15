@@ -1,0 +1,26 @@
+# ---------------------------------------------------------------- build output
+bin/
+obj/
+*.user
+*.suo
+*.userprefs
+
+# ---------------------------------------------------------------- run artifacts
+# --screenshot writes these next to the project by default.
+/shot.png
+/screenshot.png
+/screenshot-*.png
+
+# ---------------------------------------------------------------- tooling scratch
+__pycache__/
+*.pyc
+.venv/
+tools/out/
+
+# ---------------------------------------------------------------- editor / OS
+.vs/
+.vscode/
+.idea/
+*.swp
+Thumbs.db
+desktop.ini

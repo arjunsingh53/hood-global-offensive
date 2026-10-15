@@ -1,0 +1,44 @@
+name: verify
+
+# The headless match needs no window and no GPU, so the strongest check in this
+# project runs on a plain CI runner. It plays a complete match with a scripted
+# player and asserts the gameplay invariants, which catches regressions in
+# movement, collision, combat, damage, scoring and respawning.
+#
+# The visual checks (tools/verify_shots.py, tools/sweep_weapons.py) need a real
+# GL context, so they are run locally rather than here -- see docs/BUILDING.md.
+# If you have a runner with a software GL stack, `xvfb-run -a bash
+# tools/capture_shots.sh && python tools/verify_shots.py` is the command to add.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build-and-verify:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Build (warnings are errors)
+        run: dotnet build --nologo -warnaserror
+
+      - name: Headless match -- full length, invariant gate
+        # Exits non-zero when an invariant breaks, so this is a real gate rather
+        # than a "did it crash" smoke test.
+        run: dotnet run --no-build -- --headless --seconds 300 --bots 9 --skill Normal --seed 20260114
+
+      - name: Headless match -- crowded map, different skill and seed
+        # A second configuration: 15 actors at once exercises spawn selection and
+        # collision under crowding, and Hard skill changes bot behaviour.
+        run: dotnet run --no-build -- --headless --seconds 60 --bots 15 --skill Hard --seed 7331

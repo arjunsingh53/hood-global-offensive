@@ -1,0 +1,17 @@
+# Normalise line endings on checkout/commit; the game ships on Windows.
+* text=auto
+
+*.cs      text diff=csharp
+*.csproj  text
+*.cmd     text eol=crlf
+*.sh      text eol=lf
+
+# Binary assets must never be line-ending converted.
+*.png     binary
+*.jpg     binary
+*.wav     binary
+*.exe     binary
+*.dll     binary
+
+# Keep generated screenshots out of language statistics.
+shots/*.png linguist-documentation
