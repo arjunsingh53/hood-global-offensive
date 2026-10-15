@@ -14,7 +14,7 @@ public static class CharacterMover
     private const float SubStep = 6f;
 
     public static void Move(GameMap map, Actor actor, Vector3 wishDir, float wishSpeed,
-        bool jump, bool crouchHeld, bool walk, float dt)
+        bool jump, bool crouchHeld, bool walk, float dt, float groundAccelerationMultiplier = 1f)
     {
         Vector3 vel = actor.Velocity;
 
@@ -47,7 +47,8 @@ public static class CharacterMover
         if (actor.OnGround)
         {
             ApplyFriction(ref vel, dt);
-            Accelerate(ref vel, wishDir, speedCap, Cfg.Accelerate, dt);
+            float groundAcceleration = Cfg.Accelerate * MathF.Max(0f, groundAccelerationMultiplier);
+            Accelerate(ref vel, wishDir, speedCap, groundAcceleration, dt);
         }
         else
         {

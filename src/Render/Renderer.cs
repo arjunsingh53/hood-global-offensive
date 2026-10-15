@@ -14,9 +14,11 @@ public static class Renderer
     private static readonly Color Sky = U.Rgb(96, 118, 148);
     private static readonly Color Horizon = U.Rgb(150, 158, 168);
 
-    public static Camera3D BuildCamera(Simulation sim, float aspectUnused = 1f)
+    /// <summary>Small viewmodel-local translation only; it never changes the aim direction.</summary>
+    private readonly record struct FeedbackOffset(float Right, float Up, float Forward);
+
+    public static Camera3D BuildCamera(Simulation sim, float feedbackStrength = 1f)
     {
-        _ = aspectUnused;
         Player p = sim.Player;
 
         float yaw = p.Yaw + p.Punch.X;
@@ -24,19 +26,23 @@ public static class Renderer
         Vector3 dir = U.DirFromAngles(yaw, pitch);
         Vector3 right = U.RightFromYaw(yaw);
 
-        float bobX = MathF.Sin(p.BobPhase) * 1.7f * p.BobAmount;
-        float bobY = MathF.Cos(p.BobPhase * 2f) * -1.4f * p.BobAmount;
+        float bobX = MathF.Sin(p.BobPhase) * Cfg.ViewBobSide * p.BobAmount;
+        float bobY = MathF.Cos(p.BobPhase * 2f) * -Cfg.ViewBobVertical * p.BobAmount;
+        float roll = MathF.Sin(p.BobPhase) * Cfg.ViewBobRollDeg * p.BobAmount * U.Deg2Rad;
+        Vector3 baseUp = Vector3.Normalize(Vector3.Cross(right, dir));
+        Vector3 up = Vector3.Normalize(baseUp * MathF.Cos(roll) + right * MathF.Sin(roll));
+        float feedbackFov = GetFeedbackFovKick(p, feedbackStrength);
 
         Vector3 eye = p.EyePosition
             + right * bobX
-            + new Vector3(0f, bobY - p.LandDip * 9f, 0f);
+            + baseUp * (bobY - p.LandDip * Cfg.ViewLandDipDistance);
 
         return new Camera3D
         {
             Position = eye,
             Target = eye + dir * 120f,
-            Up = new Vector3(0f, 1f, 0f),
-            FovY = p.CurrentFov,
+            Up = up,
+            FovY = p.CurrentFov + feedbackFov,
             Projection = CameraProjection.Perspective,
         };
     }
@@ -59,62 +65,66 @@ public static class Renderer
         }
     }
 
+    /// <summary>
+    /// Converts the independent event envelopes into a restrained viewmodel-local
+    /// offset. The world camera is deliberately not translated by this layer:
+    /// physical camera origin, direction and hit-scan origin stay identical.
+    /// </summary>
+    private static FeedbackOffset GetFeedbackOffset(Player p, float viewYaw, float strength)
+    {
+        strength = U.Clamp01(strength);
+        if (strength <= 0f) return default;
+
+        // Scope use deliberately dampens the effect instead of muting the game
+        // state. This keeps the sight picture stable while preserving feedback in
+        // hip fire and while zoom transitions are in progress.
+        float adsScale = U.Lerp(1f, Cfg.FeedbackAdsScale, p.ZoomBlend);
+        float scale = strength * adsScale;
+
+        float footstep = p.FootstepFeedback * scale;
+        float landing = p.LandingFeedback * scale;
+        float damage = p.DamageFeedback * scale;
+
+        float cadence = 0.68f + 0.32f * MathF.Cos(p.BobPhase);
+        float incomingRadians = (p.DamageFeedbackYaw - viewYaw) * U.Deg2Rad;
+        float incomingSide = MathF.Sin(incomingRadians);
+
+        return new FeedbackOffset(
+            -footstep * cadence * Cfg.FeedbackFootstepSideDistance
+                - incomingSide * damage * Cfg.FeedbackDamageSideDistance,
+            -footstep * Cfg.FeedbackFootstepDropDistance
+                - landing * Cfg.FeedbackLandingDropDistance
+                - damage * Cfg.FeedbackDamageDropDistance,
+            -damage * Cfg.FeedbackDamagePushDistance);
+    }
+
+    /// <summary>
+    /// A small lens response is the world-camera portion of the feedback. Unlike
+    /// a positional shake, changing FOV preserves the same centre ray at every
+    /// range, so a user preference cannot introduce shot/reticle parallax.
+    /// </summary>
+    private static float GetFeedbackFovKick(Player p, float strength)
+    {
+        strength = U.Clamp01(strength);
+        if (strength <= 0f) return 0f;
+
+        float adsScale = U.Lerp(1f, Cfg.FeedbackAdsScale, p.ZoomBlend);
+        float scale = strength * adsScale;
+        return (p.FootstepFeedback * Cfg.FeedbackFootstepFovDegrees
+            + p.LandingFeedback * Cfg.FeedbackLandingFovDegrees
+            + p.DamageFeedback * Cfg.FeedbackDamageFovDegrees) * scale;
+    }
+
     public static void DrawWorld(Simulation sim, Camera3D cam)
     {
-        DrawBrushes(sim, cam);
-        DrawFloorGrid(cam);
+        // The supplied Industrial Zone GLB is the complete visible map. Physics
+        // brushes still exist in GameMap, but they are an invisible traversal
+        // sidecar and must never be drawn as replacement crates, walls or grids.
+        IndustrialZoneModel.TryDraw();
         DrawDecals(sim);
         DrawActors(sim, cam);
         DrawParticles(sim);
         DrawTracers(sim);
-    }
-
-    private static void DrawBrushes(Simulation sim, Camera3D cam)
-    {
-        foreach (Brush brush in sim.Map.Brushes)
-        {
-            Vector3 center = brush.Box.Center;
-            Vector3 size = brush.Box.Size;
-
-            float distance = (center - cam.Position).Length();
-            if (distance > 4800f) continue;
-
-            Raylib.DrawCubeV(center, size, brush.Color);
-
-            // Top cap in a lighter tone fakes a directional light.
-            Color cap = Shade(brush.Color, 1.20f);
-            Raylib.DrawCubeV(
-                new Vector3(center.X, brush.Box.Max.Y + 0.5f, center.Z),
-                new Vector3(size.X - 0.4f, 1.0f, size.Z - 0.4f),
-                cap);
-
-            // Darken the lower skirt so boxes read as solid volumes.
-            Color skirt = Shade(brush.Color, 0.72f);
-            Raylib.DrawCubeV(
-                new Vector3(center.X, brush.Box.Min.Y + 3f, center.Z),
-                new Vector3(size.X + 0.6f, 6f, size.Z + 0.6f),
-                skirt);
-
-            Raylib.DrawCubeWiresV(center, size, Shade(brush.Color, 0.55f));
-        }
-    }
-
-    private static void DrawFloorGrid(Camera3D cam)
-    {
-        Color line = U.Rgba(96, 90, 78, 70);
-        const float half = Cfg.MapHalf - 42f;
-        const int step = 200;
-
-        for (float x = -half; x <= half; x += step)
-        {
-            if (MathF.Abs(x - cam.Position.X) > 2200f) continue;
-            Raylib.DrawLine3D(new Vector3(x, 0.12f, -half), new Vector3(x, 0.12f, half), line);
-        }
-        for (float z = -half; z <= half; z += step)
-        {
-            if (MathF.Abs(z - cam.Position.Z) > 2200f) continue;
-            Raylib.DrawLine3D(new Vector3(-half, 0.12f, z), new Vector3(half, 0.12f, z), line);
-        }
     }
 
     private static void DrawDecals(Simulation sim)
@@ -139,22 +149,46 @@ public static class Renderer
     {
         foreach (Actor actor in sim.Actors)
         {
-            if (!actor.Alive || actor.IsPlayer) continue;
-            DrawCharacter(actor, cam);
+            if (!actor.Alive) continue;
+
+            if (actor.IsPlayer)
+            {
+                // The local player uses the same skinned model as every bot, but a
+                // first-person camera must not draw the full body around its own eyes.
+                // This keeps the actor's pose ready for a future remote/third-person pass.
+                CharacterModels.UpdateHiddenPose(actor, sim.Time);
+                continue;
+            }
+
+            DrawCharacter(actor, cam, sim.Time);
         }
     }
 
-    private static void DrawCharacter(Actor actor, Camera3D cam)
+    private static void DrawCharacter(Actor actor, Camera3D cam, float simTime)
     {
         Vector3 feet = actor.Position;
-        if ((feet - cam.Position).Length() > 5200f) return;
+        if ((feet - cam.Position).Length() > Cfg.CharacterCullDistance) return;
+
+        // Ground contact keeps the character readable against bright floors even
+        // though the default Raylib material has no dynamic shadow map.
+        Raylib.DrawCubeV(
+            new Vector3(feet.X, feet.Y + 0.4f, feet.Z),
+            new Vector3(Cfg.CharacterShadowDiameter, 0.5f, Cfg.CharacterShadowDiameter),
+            U.Rgba(0, 0, 0, 70));
+
+        if (CharacterModels.TryDraw(actor, simTime)) return;
+
+        DrawFallbackCharacter(actor);
+    }
+
+    /// <summary>Temporary no-asset fallback so a bad local art file never hides a bot.</summary>
+    private static void DrawFallbackCharacter(Actor actor)
+    {
+        Vector3 feet = actor.Position;
 
         float h = actor.HeadHeight;
         Vector3 forward = U.DirFromAngles(actor.Yaw, 0f);
         Vector3 right = U.RightFromYaw(actor.Yaw);
-
-        // Ground contact shadow.
-        Raylib.DrawCubeV(new Vector3(feet.X, feet.Y + 0.4f, feet.Z), new Vector3(30f, 0.5f, 30f), U.Rgba(0, 0, 0, 70));
 
         Color palette = BotPalette(actor.Id);
         Color pants = U.Rgb(58, 58, 66);
@@ -239,7 +273,7 @@ public static class Renderer
     /// transform -Z is forward, +X right and +Y up, so the gun inherits the view
     /// angles and every part can be an axis-aligned box.
     /// </summary>
-    public static void DrawViewModel(Simulation sim, int width, int height)
+    public static void DrawViewModel(Simulation sim, int width, int height, float feedbackStrength = 1f)
     {
         // Cleared first: if the weapon is stowed this frame the render target still
         // holds the previous frame's image, which must not be composited or the
@@ -248,17 +282,22 @@ public static class Renderer
 
         if (sim.MatchOver) return;
         Player p = sim.Player;
-        WeaponDef def = p.Current.Def;
+        Weapon weapon = p.Current;
+        WeaponDef def = weapon.Def;
 
         // Zooming stows the weapon: it is gone well before the scope is fully up.
         if (p.ZoomBlend > 0.70f) return;
 
         float reloadDip = 0f;
-        if (p.Current.Reloading)
+        if (weapon.Reloading)
         {
             float duration = MathF.Max(0.001f, def.ReloadTime);
-            float reloadT = U.Clamp01((sim.Time - p.Current.ReloadStartTime) / duration);
+            float reloadT = U.Clamp01((sim.Time - weapon.ReloadStartTime) / duration);
             reloadDip = MathF.Sin(reloadT * MathF.PI);
+            // HGO's own readability cue: an empty reload carries a slightly
+            // fuller flourish, while the simulation timing/ammo transfer stays
+            // exactly the same.
+            reloadDip *= weapon.ReloadStartedEmpty ? 1.13f : 0.86f;
         }
 
         // Meshes are slimmer than the boxes the reload flourish was tuned against, so
@@ -266,16 +305,22 @@ public static class Renderer
         if (Artwork.TryGetValue(def.Name, out WeaponArtwork art)) reloadDip *= art.ReloadSwing;
 
         float kick = p.ViewKick;
-        float bobX = MathF.Sin(p.BobPhase) * 2.4f * p.BobAmount;
-        float bobY = MathF.Cos(p.BobPhase * 2f) * 1.8f * p.BobAmount;
+        float bobX = MathF.Sin(p.BobPhase) * Cfg.ViewModelBobSide * p.BobAmount;
+        float bobY = MathF.Cos(p.BobPhase * 2f) * Cfg.ViewModelBobVertical * p.BobAmount;
+        FeedbackOffset feedback = GetFeedbackOffset(p, p.Yaw + p.Punch.X, feedbackStrength);
+        float inspectPose = p.InspectPose;
+        float sprintPose = p.SprintWeaponBlend;
 
         ViewModelPose pose = PoseFor(def);
 
         // Local offsets: -Z is forward, +X right, +Y up.
         Vector3 offset = AnchorFor(pose) + new Vector3(
-            p.Sway.X * 2.4f + bobX,
-            -p.Sway.Y * 2.4f + bobY - p.LandDip * 6f - reloadDip * 3f,
-            kick * 0.22f);
+            p.Sway.X * 2.4f + bobX + feedback.Right * Cfg.FeedbackViewModelScale
+                + inspectPose * 5.5f + sprintPose * 7.0f,
+            -p.Sway.Y * 2.4f + bobY - p.LandDip * 6f - reloadDip * 3f
+                + feedback.Up * Cfg.FeedbackViewModelScale,
+            kick * 0.22f - feedback.Forward * Cfg.FeedbackViewModelScale
+                + inspectPose * 4.5f + sprintPose * 11.0f);
 
         // The weapon is drawn into its own render target and composited on top of the
         // scene. In the world's pass a wall closer than the barrel would hide the
@@ -306,9 +351,11 @@ public static class Renderer
         Rlgl.SetClipPlanes(0.5, 600.0);
         Raylib.BeginMode3D(viewModelCamera);
 
-        PushViewModelTransform(sim, offset, pose, kick, reloadDip);
+        PushViewModelTransform(sim, offset, pose, kick, reloadDip, inspectPose, sprintPose);
         Vector3? muzzle = DrawWeaponShape(def, p, kick, reloadDip);
-        if (p.MuzzleFlash > 0f) DrawMuzzleFlash(sim, pose, muzzle);
+        // The knife already uses the simulation's melee slot; it must not inherit
+        // the firearm-only flash just because it shares the general weapon pipeline.
+        if (p.MuzzleFlash > 0f && def.Class != "Melee") DrawMuzzleFlash(sim, pose, muzzle);
         Rlgl.PopMatrix();
 
         Raylib.EndMode3D();
@@ -359,7 +406,9 @@ public static class Renderer
             _viewModelHeight = 0;
         }
 
+        IndustrialZoneModel.Shutdown();
         WeaponModels.Shutdown();
+        CharacterModels.Shutdown();
     }
 
     /// <summary>
@@ -367,7 +416,7 @@ public static class Renderer
     /// inward yaw means the player sees the side of the weapon rather than its muzzle.
     /// </summary>
     private static void PushViewModelTransform(Simulation sim, Vector3 localOffset,
-        in ViewModelPose pose, float kick, float reloadDip)
+        in ViewModelPose pose, float kick, float reloadDip, float inspectPose, float sprintPose)
     {
         Player p = sim.Player;
         float yaw = p.Yaw + p.Punch.X;
@@ -387,6 +436,13 @@ public static class Renderer
         Rlgl.Rotatef(kick * 0.30f - reloadDip * 22f, 1f, 0f, 0f);
         Rlgl.Rotatef(reloadDip * 15f, 0f, 0f, 1f);
 
+        // These are local viewmodel transforms only. Sprint lowers the weapon
+        // into a ready pose, while inspect briefly rolls it into view. Neither
+        // transform reaches BuildCamera, Player.AimDirection or hit-scan.
+        Rlgl.Rotatef(-sprintPose * 24f + inspectPose * 10f, 1f, 0f, 0f);
+        Rlgl.Rotatef(sprintPose * 17f - inspectPose * 31f, 0f, 1f, 0f);
+        Rlgl.Rotatef(-sprintPose * 12f - inspectPose * 17f, 0f, 0f, 1f);
+
         // A few degrees of inward yaw shows the side of the weapon without
         // swinging the muzzle across the screen centre.
         Rlgl.Rotatef(3f, 0f, 1f, 0f);
@@ -399,7 +455,7 @@ public static class Renderer
     /// flourish to apply. The pose values are tuned so the weapon occupies the same
     /// space on screen as the box shapes it replaces.
     /// </summary>
-    private readonly record struct WeaponArtwork(string Path, float Length, Vector3 Centre, float ReloadSwing);
+    private readonly record struct WeaponArtwork(string Path, float Length, Vector3 Centre, float ReloadSwing, float YawDegrees);
 
     /// <summary>
     /// Weapons that have a real mesh. Anything not listed here is drawn from boxes,
@@ -411,7 +467,15 @@ public static class Renderer
         // chunkier than a real pistol: at their full angle this mesh swings almost
         // entirely below the frame. The sweep measured it at 1.0% of the lower-right
         // region mid-reload against 9.3% while idle, so the flourish is halved.
-        ["Glock 17"] = new("assets/weapons/glock17.glb", 25f, new Vector3(-1f, -9.5f, -10.5f), 0.45f),
+        ["Glock 17"] = new("assets/weapons/glock17.glb", 25f, new Vector3(-1f, -9.5f, -10.5f), 0.45f, 0f),
+        // Original low-poly AK-pattern model.  It carries its own stock, wood
+        // furniture, curved magazine, gas tube and sight silhouette; this is a
+        // presentation-only replacement for the old generic Rifle boxes.  Its
+        // deliberately restrained reload swing keeps the full stock in frame.
+        ["AK-47"] = new("assets/weapons/ak47-viewmodel.glb", 47f, new Vector3(-2.8f, 7.0f, -24.0f), 0.42f, 11f),
+        // Side-on presentation keeps the label, top loop, linked chain and split ring
+        // readable; the compact cap remains the negative-X striking end of the mesh.
+        ["Knife"] = new("assets/weapons/inhaler-keychain.glb", 15f, new Vector3(0.0f, 7.0f, -18.0f), 0.20f, 90f),
     };
 
     /// <summary>
@@ -422,7 +486,7 @@ public static class Renderer
     private static Vector3? DrawWeaponShape(WeaponDef def, Player p, float kick, float reloadDip)
     {
         if (Artwork.TryGetValue(def.Name, out WeaponArtwork art)
-            && WeaponModels.TryDraw(art.Path, art.Length, art.Centre, out Vector3 muzzle))
+            && WeaponModels.TryDraw(art.Path, art.Length, art.Centre, art.YawDegrees, out Vector3 muzzle))
         {
             return muzzle;
         }

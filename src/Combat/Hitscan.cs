@@ -154,7 +154,11 @@ public static class Hitscan
         bestGroup = group;
     }
 
-    private static float DamageAtRange(WeaponDef def, float distance, HitGroup group)
+    /// <summary>
+    /// Returns post-falloff damage before the target applies armour. Kept public
+    /// so the deterministic reach check exercises the same curve as live shots.
+    /// </summary>
+    public static float DamageAtRange(WeaponDef def, float distance, HitGroup group)
     {
         float damage = def.Damage;
         if (def.Falloff > 0f && distance > 0f)

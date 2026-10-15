@@ -2,10 +2,10 @@
 
 **A Counter-Strike style first-person shooter, written from scratch in C#.**
 
-Free-for-all deathmatch against bots on a hand-built arena, with CS-derived movement physics,
+Free-for-all deathmatch against bots in the supplied Low Poly Industrial Zone, with CS-derived movement physics,
 hitscan gunplay with authored per-weapon spray patterns, a buy economy and a full first-person HUD.
-No game engine: every sound effect is synthesised at startup, all level geometry is code, and the
-single file the game reads from disk is one optimised weapon mesh.
+No game engine: every sound effect is synthesised at startup, while the authored static map and
+art meshes are loaded directly from local GLB assets.
 
 ![status](https://img.shields.io/badge/status-early%20access%20v0.1.0-ffba38)
 ![language](https://img.shields.io/badge/C%23-.NET%2010-512bd4)
@@ -78,10 +78,15 @@ dotnet run -- --screenshot shot.png         # render one gameplay frame to a PNG
 | Right click | Toggle scope (**AWP only**) |
 | `R` | Reload |
 | `1` `2` `3` | Knife / pistol / primary |
-| `Shift` | Walk (quiet, slower) |
-| `Ctrl` | Crouch (smaller hitbox, tighter spread) |
+| `Shift` (tap while moving forward) | Cycle **Sprint → Tactical Sprint → off** |
+| `Alt` (hold) | Walk (quiet, slower) |
+| `Ctrl` (hold) / `C` (tap) | Crouch (smaller hitbox, tighter spread) |
 | `Space` | Jump |
 | `B` | Buy menu |
+| `X` | Inspect the current weapon (visual only; firing, ADS, sprinting, reloading or switching cancels it) |
+| `V` | Toggle **AUTO / SEMI** on supported rifles (AK-47 and M4A4) |
+| `G` | Open the read-only weapon dossier during a match |
+| `F2` | Open crosshair options (also available from the main and pause menus) |
 | `Tab` (hold) | Scoreboard |
 | `Esc` | Pause |
 
@@ -91,10 +96,55 @@ dotnet run -- --screenshot shot.png         # render one gameplay frame to a PNG
 
 ### Movement
 
-A faithful port of the Quake/CS character controller: ground friction, run acceleration, a
+The deterministic Quake/CS character controller supplies ground friction, run acceleration, a
 30 unit/s air-acceleration cap (this is the thing that makes strafe-jumping work), 800 unit/s²
 gravity, crouch that refuses to stand up under a low ceiling, and swept AABB collision with
-automatic step-up onto ledges up to 20 units.
+automatic step-up onto ledges up to 20 units. On top of that, the player now has a forward-only,
+press-cycled **Sprint → Tactical Sprint → off** state: normal sprint targets 1.4× run speed;
+tactical sprint targets 1.7× for three seconds and visibly consumes/recharges its HUD meter.
+ADS, reloading, crouching, stopping forward movement and leaving the ground cancel it while keeping
+earned air momentum intact.
+
+The sprint state semantics are an independent C# port of the supplied
+[Call of Duty Movement in Godot 4 reference](https://github.com/TheHyper-Dev/Call-of-Duty-Movement-in-Godot-4)
+(MIT). HGO deliberately retains its stronger deterministic collision and controlled air-speed cap;
+the reference does not contain slide, mantle or wall-run code, so those are not represented as part
+of this port.
+
+### Camera feedback
+
+The first-person presentation now layers short responses for real footsteps, hard landings and
+incoming damage. **CAMERA FEEDBACK** in the main or pause menu switches the session-local strength
+between Normal, Low and Off. The new layer uses a tiny FOV response plus matching first-person
+weapon movement; it does not move the physical shot origin, alter `AimDirection`, change recoil or
+spread, or replace the Soldier and Gun Game weapon models.
+
+Its behaviour was designed independently after studying the public
+[CoDMW19 tracking repository](https://github.com/Syampuuh/CoDMW19/tree/15126f1fd21c15b5a17a0d5b84e2cd6acbf91b0a). That repository describes
+extracted client data rather than a buildable, licensed game source tree, so HGO copies no MW assets,
+configs, code, UI, animation or audio from it. Slide, mantle and mount remain deliberately out of
+scope until HGO has dedicated collision and animation systems for them.
+
+### Weapon readiness
+
+The first-person layer adds a small, clean-room weapon-readiness pass without changing HGO's
+Gun Game weapon models, progression, bot loadouts, ballistic tuning or hit-scan. Press `X` for a
+local inspect pose; it automatically yields to fire, ADS, reload, sprint and a weapon switch.
+Sprint also lowers the viewmodel locally, while the physical camera, shot origin and aim direction
+remain untouched. The HUD distinguishes an empty reload from a tactical reload as presentation
+feedback only.
+
+The AK-47 and M4A4 begin in **AUTO**. `V` toggles **AUTO / SEMI** only on the live player weapon
+instance, so its definition and bots retain their default automatic behavior. `G` opens a read-only
+weapon dossier built from HGO's existing weapon data; it exposes fire control, damage, reach,
+handling and control without introducing a new balance system.
+
+This is an independent, high-level interpretation after reviewing
+[ARC9-COD2019](https://github.com/Seulyy/ARC9-COD2019/tree/cf55bd861ce2272b9dcc587febd843832a21ef70).
+That reference is a Garry's Mod/ARC9 add-on and its repository contains asset-heavy game content;
+no upstream assets, Lua, attachment definitions, tuning tables, UI, sounds or animations are used
+in HGO. A full Gunsmith-style attachment system, copied weapon roster, launchers, mounting and
+akimbo are deliberately deferred rather than simulated with incompatible systems.
 
 ### Gunplay
 
@@ -129,10 +179,11 @@ Full damage model, hitbox multipliers and armour maths are documented in the
 
 ### Weapon meshes
 
-Seven of the eight weapons are drawn from boxes: a few `DrawCubeV` calls posed in camera-local
+Six of the eight weapons are drawn from boxes: a few `DrawCubeV` calls posed in camera-local
 space, which cost nothing and always frame correctly. The Glock 17 is drawn from an actual mesh
-(`assets/weapons/glock17.glb`, 17,546 triangles) because the view model is the one piece of art the
-player stares at for a whole match.
+(`assets/weapons/glock17.glb`, 17,546 triangles), and the AK-47 uses the project-authored low-poly
+mesh at `assets/weapons/ak47-viewmodel.glb`, because those two view models receive the closest
+inspection in play.
 
 That file is generated, not committed as-is: the source asset was 145 MB (1,169,840 triangles and
 an 8K albedo). `tools/build_weapon_asset.py` runs it through [gltfpack](https://github.com/zeux/meshoptimizer)
@@ -149,7 +200,7 @@ muzzle flash hangs on. Re-export the asset and the framing follows.
 
 Bots perceive through a ~65° view cone plus a close-range "hearing" radius, gated by real
 line-of-sight raycasts. They react after a difficulty-dependent delay, path with A* over a
-895-node navigation graph sampled from the map geometry, strafe and hold range bands while
+grid-sampled navigation graph matched to the Industrial Zone's deterministic collision layout, strafe and hold range bands while
 duelling, take cover when hurt, and compensate for their own accumulated recoil so their barrels
 actually point at you. Four difficulty tiers vary reaction time, turn rate, aim error, burst
 length and engagement range.
@@ -168,9 +219,10 @@ overlay with respawn countdown, and a low-health pulse.
 
 ### Audio
 
-Every sound effect — gunshots, hits, headshots, footsteps, reloads, the buy blip, spawn and
-match-end stingers — is synthesised to WAV at startup. The repository contains no binary audio
-assets at all.
+Every sound event has an original generated fallback — gunshots, hits, headshots, footsteps,
+reloads, the buy blip, spawn and match-end stingers. Licensed local WAV/OGG/MP3 replacements can
+be added under `assets/audio/` using the documented event names; the game never fetches web media
+at runtime. See [`assets/audio/README.md`](assets/audio/README.md).
 
 ---
 
@@ -189,7 +241,8 @@ src/
     Game.cs                    window, state machine, frame loop
   World/
     Geometry.cs                AABB primitive with ray/box intersection
-    GameMap.cs                 the "Crossfire" arena: brushes, spawns, world queries
+    GameMap.cs                 Industrial Zone collision, spawns, world queries
+    IndustrialZoneLayout.cs    measured static collision sidecar for the supplied GLB
     CharacterMover.cs          Quake-derived physics + swept collision + step-up
     NavGraph.cs                grid-sampled waypoint graph and A*
   Combat/
@@ -206,14 +259,17 @@ src/
   Render/
     Renderer.cs                3D world, characters, effects, transformed view model
     WeaponModels.cs            loads and measures the art-mesh weapons
+    IndustrialZoneModel.cs     loads the supplied static GLB map
     ScreenshotCapture.cs       renders one real gameplay frame to a PNG
   UI/
-    Ui.cs, Hud.cs, Screens.cs  immediate-mode drawing, HUD, menus, buy menu, scoreboard
+    Ui.cs, Hud.cs, Screens.cs, CrosshairSettings.cs, CameraFeedbackSettings.cs
+                                      immediate-mode drawing, HUD, menus, reticle and feedback options
   Audio/
     WavGen.cs                  procedural WAV synthesis
     AudioBank.cs               sound bank with distance attenuation
 assets/
-  weapons/glock17.glb          the one mesh the game loads (generated, see below)
+  maps/low-poly-industrial-zone.glb  supplied static map (CC-BY attribution retained alongside it)
+  weapons/glock17.glb          generated first-person weapon mesh
 tools/
   capture_shots.sh             regenerates every screenshot artifact in shots/
   build_weapon_asset.py        turns a source weapon model into the shipped asset
@@ -240,8 +296,8 @@ invariants. A representative run:
 ```
  simulated ticks      : 18000  (300.0s of 300.0s budget)
  wall clock           : 4985 ms  (3611 ticks/s)
- nav nodes            : 895
- map brushes          : 36
+ nav nodes            : 764
+ map brushes          : 55
  player kills/deaths  : 29 / 10
  player accuracy      : 34.9%
  peak horizontal speed: 251 units/s  (run speed 250)
@@ -348,8 +404,13 @@ speed, air acceleration, friction, jump velocity, respawn delay, kill limit, mat
 sensitivity. Per-weapon numbers — including the 30-entry recoil patterns — are in
 [`src/Combat/Weapons.cs`](src/Combat/Weapons.cs).
 
-The map is defined as data in [`src/World/GameMap.cs`](src/World/GameMap.cs); adding a brush is one
-`Add(...)` call and the navigation graph rebuilds itself from the geometry at startup.
+The playable environment is the supplied
+[`assets/maps/low-poly-industrial-zone.glb`](assets/maps/low-poly-industrial-zone.glb). Its
+invisible, deterministic movement/hit-scan/nav sidecar is in
+[`src/World/IndustrialZoneLayout.cs`](src/World/IndustrialZoneLayout.cs); the GLB remains the only
+rendered level geometry. See the [integration note](docs/LOW-POLY-INDUSTRIAL-ZONE-INTEGRATION.md)
+and retain the required [CC-BY attribution](assets/maps/LOW-POLY-INDUSTRIAL-ZONE-ATTRIBUTION.md)
+when sharing a build.
 
 ---
 

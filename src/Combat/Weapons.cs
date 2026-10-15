@@ -11,6 +11,16 @@ public enum WeaponSlot
     Primary = 2,
 }
 
+/// <summary>
+/// Per-instance fire-control state. Definitions retain their original default
+/// behaviour; only a runtime weapon can change its selected mode.
+/// </summary>
+public enum WeaponFireMode
+{
+    Semi,
+    Auto,
+}
+
 /// <summary>Immutable description of a weapon. Runtime state lives in <see cref="Weapon"/>.</summary>
 public sealed class WeaponDef
 {
@@ -24,12 +34,18 @@ public sealed class WeaponDef
     public float ArmorPenetration = 0.75f;
     public float HeadshotMultiplier = 4f;
     public float LegMultiplier = 0.75f;
-    /// <summary>Damage multiplier lost once the target is beyond <see cref="Range"/>.</summary>
+    /// <summary>Fraction of damage lost for each 1,000 world units travelled.</summary>
     public float Falloff;
+    /// <summary>Hard cap for the hit-scan ray, independent of damage falloff.</summary>
     public float Range = 3000f;
 
     public float CycleTime = 0.1f;
     public bool Automatic;
+    /// <summary>
+    /// Supported fire controls in default-first order. Empty means to inherit the
+    /// legacy <see cref="Automatic"/> value, preserving all existing weapons.
+    /// </summary>
+    public WeaponFireMode[] FireModes = Array.Empty<WeaponFireMode>();
     public int Magazine = 30;
     public int Reserve = 90;
     public float ReloadTime = 2.5f;
@@ -60,6 +76,10 @@ public sealed class WeaponDef
     public int KillAward = Cfg.KillReward;
 
     public bool HasZoom => ZoomFov > 0f;
+
+    public WeaponFireMode DefaultFireMode => FireModes.Length > 0
+        ? FireModes[0]
+        : Automatic ? WeaponFireMode.Auto : WeaponFireMode.Semi;
 }
 
 /// <summary>Runtime weapon instance carried by an actor.</summary>
@@ -74,10 +94,15 @@ public sealed class Weapon
     public float ReloadStartTime;
     public int ShotIndex;
     public float Bloom;
+    /// <summary>Whether the current reload started on an empty magazine.</summary>
+    public bool ReloadStartedEmpty;
+    /// <summary>Player-controlled fire control. Bots retain their definition default.</summary>
+    public WeaponFireMode FireMode;
 
     public Weapon(WeaponDef def, int? reserveOverride = null, int? magOverride = null)
     {
         Def = def;
+        FireMode = def.DefaultFireMode;
         Mag = magOverride ?? def.Magazine;
         Reserve = reserveOverride ?? def.Reserve;
     }
@@ -85,6 +110,24 @@ public sealed class Weapon
     public bool IsEmpty => Mag <= 0 && Reserve <= 0;
 
     public bool CanFire(float now) => !Reloading && Mag > 0 && now >= NextShotTime;
+
+    public bool IsAutomatic => FireMode == WeaponFireMode.Auto;
+    public bool HasSelectableFireMode => Def.FireModes.Length > 1;
+    public string FireModeLabel => IsAutomatic ? "AUTO" : "SEMI";
+
+    /// <summary>
+    /// Advances this weapon's own selector. The static registry definition is never
+    /// mutated, so other actors and later spawns keep their original defaults.
+    /// </summary>
+    public bool CycleFireMode()
+    {
+        if (!HasSelectableFireMode || Reloading) return false;
+
+        int current = Array.IndexOf(Def.FireModes, FireMode);
+        if (current < 0) current = 0;
+        FireMode = Def.FireModes[(current + 1) % Def.FireModes.Length];
+        return true;
+    }
 
     public float SpreadFor(float horizontalSpeed, bool onGround, bool crouching)
     {
@@ -107,6 +150,7 @@ public sealed class Weapon
     {
         if (Reloading || Mag >= Def.Magazine || Reserve <= 0) return false;
         Reloading = true;
+        ReloadStartedEmpty = Mag == 0;
         ReloadStartTime = now;
         ReloadEndTime = now + Def.ReloadTime;
         ShotIndex = 0;
@@ -120,6 +164,7 @@ public sealed class Weapon
         int moved = Math.Min(needed, Reserve);
         Mag += moved;
         Reserve -= moved;
+        ReloadStartedEmpty = false;
     }
 
     /// <summary>Recoil offset for the next shot, in (yaw, pitch) degrees.</summary>
@@ -168,7 +213,7 @@ public static class WeaponRegistry
     public static readonly WeaponDef Glock = new()
     {
         Name = "Glock 17", Class = "Pistol", Slot = WeaponSlot.Secondary, Price = 200,
-        Damage = 28f, ArmorPenetration = 0.47f, HeadshotMultiplier = 4f, Falloff = 0.35f, Range = 1500f,
+        Damage = 28f, ArmorPenetration = 0.47f, HeadshotMultiplier = 4f, Falloff = 0.22f, Range = 3600f,
         CycleTime = 0.15f, Automatic = false, Magazine = 20, Reserve = 120, ReloadTime = 2.2f,
         MoveScale = 1f, SpreadIdle = 0.35f, SpreadMove = 4.5f, SpreadAir = 14f,
         SpreadBloom = 0.32f, SpreadBloomMax = 5f, SpreadDecay = 5.5f,
@@ -180,7 +225,7 @@ public static class WeaponRegistry
     public static readonly WeaponDef Deagle = new()
     {
         Name = "Desert Eagle", Class = "Pistol", Slot = WeaponSlot.Secondary, Price = 700,
-        Damage = 63f, ArmorPenetration = 0.93f, HeadshotMultiplier = 4f, Falloff = 0.25f, Range = 2000f,
+        Damage = 63f, ArmorPenetration = 0.93f, HeadshotMultiplier = 4f, Falloff = 0.16f, Range = 4200f,
         CycleTime = 0.225f, Automatic = false, Magazine = 7, Reserve = 35, ReloadTime = 2.2f,
         MoveScale = 1f, SpreadIdle = 0.4f, SpreadMove = 6.5f, SpreadAir = 18f,
         SpreadBloom = 1.9f, SpreadBloomMax = 6f, SpreadDecay = 6.5f,
@@ -193,7 +238,7 @@ public static class WeaponRegistry
     public static readonly WeaponDef Mp5 = new()
     {
         Name = "MP5-SD", Class = "SMG", Slot = WeaponSlot.Primary, Price = 1500,
-        Damage = 27f, ArmorPenetration = 0.62f, HeadshotMultiplier = 4f, Falloff = 0.32f, Range = 1800f,
+        Damage = 27f, ArmorPenetration = 0.62f, HeadshotMultiplier = 4f, Falloff = 0.22f, Range = 3400f,
         CycleTime = 0.08f, Automatic = true, Magazine = 30, Reserve = 120, ReloadTime = 2.6f,
         MoveScale = 0.96f, SpreadIdle = 0.4f, SpreadMove = 3.2f, SpreadAir = 11f,
         SpreadBloom = 0.20f, SpreadBloomMax = 5f, SpreadDecay = 5.5f,
@@ -204,8 +249,9 @@ public static class WeaponRegistry
     public static readonly WeaponDef Ak47 = new()
     {
         Name = "AK-47", Class = "Rifle", Slot = WeaponSlot.Primary, Price = 2700,
-        Damage = 36f, ArmorPenetration = 0.775f, HeadshotMultiplier = 4f, Falloff = 0.25f, Range = 4000f,
+        Damage = 36f, ArmorPenetration = 0.775f, HeadshotMultiplier = 4f, Falloff = 0.15f, Range = 5200f,
         CycleTime = 0.1f, Automatic = true, Magazine = 30, Reserve = 90, ReloadTime = 2.5f,
+        FireModes = new[] { WeaponFireMode.Auto, WeaponFireMode.Semi },
         MoveScale = 0.9f, SpreadIdle = 0.28f, SpreadMove = 6.5f, SpreadAir = 16f,
         SpreadBloom = 0.30f, SpreadBloomMax = 6f, SpreadDecay = 4.6f,
         Pattern = new[]
@@ -227,8 +273,9 @@ public static class WeaponRegistry
     public static readonly WeaponDef M4A4 = new()
     {
         Name = "M4A4", Class = "Rifle", Slot = WeaponSlot.Primary, Price = 3100,
-        Damage = 33f, ArmorPenetration = 0.70f, HeadshotMultiplier = 4f, Falloff = 0.26f, Range = 4000f,
+        Damage = 33f, ArmorPenetration = 0.70f, HeadshotMultiplier = 4f, Falloff = 0.16f, Range = 5200f,
         CycleTime = 0.09f, Automatic = true, Magazine = 30, Reserve = 90, ReloadTime = 3.1f,
+        FireModes = new[] { WeaponFireMode.Auto, WeaponFireMode.Semi },
         MoveScale = 0.9f, SpreadIdle = 0.24f, SpreadMove = 6f, SpreadAir = 15f,
         SpreadBloom = 0.26f, SpreadBloomMax = 5.5f, SpreadDecay = 4.8f,
         Pattern = new[]
@@ -250,7 +297,7 @@ public static class WeaponRegistry
     public static readonly WeaponDef Nova = new()
     {
         Name = "Nova", Class = "Shotgun", Slot = WeaponSlot.Primary, Price = 1050,
-        Damage = 24f, ArmorPenetration = 0.5f, HeadshotMultiplier = 3f, Falloff = 0.72f, Range = 700f,
+        Damage = 24f, ArmorPenetration = 0.5f, HeadshotMultiplier = 3f, Falloff = 0.55f, Range = 1500f,
         CycleTime = 0.88f, Automatic = false, Magazine = 8, Reserve = 32, ReloadTime = 3.4f,
         MoveScale = 0.95f, SpreadIdle = 4.4f, SpreadMove = 3f, SpreadAir = 8f,
         SpreadBloom = 1.2f, SpreadBloomMax = 4f, SpreadDecay = 6f,
@@ -262,7 +309,7 @@ public static class WeaponRegistry
     public static readonly WeaponDef Awp = new()
     {
         Name = "AWP", Class = "Sniper", Slot = WeaponSlot.Primary, Price = 4750,
-        Damage = 115f, ArmorPenetration = 0.975f, HeadshotMultiplier = 1.5f, Falloff = 0.15f, Range = 6000f,
+        Damage = 115f, ArmorPenetration = 0.975f, HeadshotMultiplier = 1.5f, Falloff = 0.08f, Range = 7200f,
         CycleTime = 1.46f, Automatic = false, Magazine = 10, Reserve = 30, ReloadTime = 3.7f,
         MoveScale = 0.83f, SpreadIdle = 5.5f, SpreadMove = 8f, SpreadAir = 22f,
         SpreadBloom = 3.5f, SpreadBloomMax = 9f, SpreadDecay = 8f,

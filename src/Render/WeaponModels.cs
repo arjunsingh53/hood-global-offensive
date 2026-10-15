@@ -38,12 +38,14 @@ public static class WeaponModels
     /// Draws an art weapon in the current view-model space and reports where its
     /// muzzle ended up. The mesh is scaled so its barrel is <paramref name="length"/>
     /// game units long and its centre is placed on <paramref name="centre"/>; the
-    /// mesh's muzzle (-X) ends up pointing along -Z, which is forward in this space.
+    /// mesh's muzzle (-X) ends up pointing along -Z, which is forward in this space
+    /// when <paramref name="yawDegrees"/> is zero. A melee model can deliberately
+    /// turn sideways to keep its distinguishing silhouette readable on screen.
     ///
     /// Returns false when the mesh is missing or unloadable, so the caller can fall
     /// back to drawing boxes instead of leaving the player with no weapon.
     /// </summary>
-    public static bool TryDraw(string path, float length, Vector3 centre, out Vector3 muzzle)
+    public static bool TryDraw(string path, float length, Vector3 centre, float yawDegrees, out Vector3 muzzle)
     {
         muzzle = default;
 
@@ -51,12 +53,12 @@ public static class WeaponModels
         if (mesh is null) return false;
 
         float scale = length / MathF.Max(1e-4f, mesh.Max.X - mesh.Min.X);
-        Vector3 pivot = centre - RotateToView(mesh.Centre * scale);
-        muzzle = pivot + RotateToView(mesh.Muzzle * scale);
+        Vector3 pivot = centre - RotateToView(mesh.Centre * scale, yawDegrees);
+        muzzle = pivot + RotateToView(mesh.Muzzle * scale, yawDegrees);
 
         Rlgl.PushMatrix();
         Rlgl.Translatef(pivot.X, pivot.Y, pivot.Z);
-        Rlgl.Rotatef(-90f, 0f, 1f, 0f);
+        Rlgl.Rotatef(-90f + yawDegrees, 0f, 1f, 0f);
         Rlgl.Scalef(scale, scale, scale);
         Raylib.DrawModel(mesh.Model, Vector3.Zero, 1f, Color.White);
         Rlgl.PopMatrix();
@@ -74,8 +76,14 @@ public static class WeaponModels
         Cache.Clear();
     }
 
-    /// <summary>A quarter turn about Y: the mesh's own axes into the view's.</summary>
-    private static Vector3 RotateToView(Vector3 v) => new(-v.Z, v.Y, v.X);
+    /// <summary>Transforms the mesh's own axes into the view with an optional presentation yaw.</summary>
+    private static Vector3 RotateToView(Vector3 v, float yawDegrees)
+    {
+        float radians = (-90f + yawDegrees) * (MathF.PI / 180f);
+        float cosine = MathF.Cos(radians);
+        float sine = MathF.Sin(radians);
+        return new(v.X * cosine + v.Z * sine, v.Y, -v.X * sine + v.Z * cosine);
+    }
 
     private static LoadedMesh? Get(string path)
     {

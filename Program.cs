@@ -7,6 +7,23 @@ using Raylib_cs;
 
 if (HasFlag("--help") || HasFlag("-h")) return PrintHelp();
 
+if (HasFlag("--movement-check"))
+{
+    ulong seed = (ulong)IntArg("--seed", 20260114);
+    return MovementVerifier.Run(seed);
+}
+
+if (HasFlag("--weapon-check"))
+{
+    ulong seed = (ulong)IntArg("--seed", 20260114);
+    return WeaponReadinessVerifier.Run(seed);
+}
+
+if (HasFlag("--gameplay-check"))
+{
+    return GameplayInputAndReachVerifier.Run();
+}
+
 if (HasFlag("--headless"))
 {
     float seconds = FloatArg("--seconds", 90f);
@@ -66,6 +83,9 @@ int PrintHelp()
         Usage:
           dotnet run                              play the game
           dotnet run -- --headless [options]       run a full match with no window and report
+          dotnet run -- --movement-check           run deterministic movement and visual-aim contract checks
+          dotnet run -- --weapon-check             run deterministic weapon-readiness contract checks
+          dotnet run -- --gameplay-check           run input-routing and firearm-reach regression checks
           dotnet run -- --screenshot <file>        render one gameplay frame to a PNG
 
         Options:
@@ -77,14 +97,16 @@ int PrintHelp()
           --width <n>      screenshot: window width (default 1280)
           --height <n>     screenshot: window height (default 720)
           --weapon <name>  screenshot: equip a weapon, e.g. "AK-47", "AWP", "Desert Eagle"
-          --screen <name>  screenshot: play | scoreboard | buy | menu
+          --screen <name>  screenshot: play | scoreboard | buy | menu | character[-idle|-walk|-run|-crouch] | crosshair | dossier
           --zoom           screenshot: hold the scope before capturing
           --verbose        headless: also dump the kill feed
 
         Controls:
           WASD move      mouse aim      left click fire      R reload      1/2/3 weapons
-          SHIFT walk     CTRL crouch    SPACE jump           right click zoom (AWP)
-          B buy menu     TAB scoreboard ESC pause
+          SHIFT cycle sprint/tac/off    ALT walk             CTRL hold-crouch / C toggle crouch
+          SPACE jump     right click zoom (AWP)
+          B buy menu     X inspect weapon    V fire mode     G weapon dossier
+          F2 crosshair options                              TAB scoreboard ESC pause
         """);
     return 0;
 }

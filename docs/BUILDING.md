@@ -12,10 +12,53 @@
 The sole NuGet dependency is [`Raylib-cs`](https://github.com/ChrisDill/Raylib-cs) 8.1.0, which
 carries the native raylib binaries for Windows, Linux and macOS. There is nothing else to install.
 
-The one binary file in the repository is `assets/weapons/glock17.glb` (2.7 MB), and the build copies
-`assets/**` next to the executable so the game finds it whichever directory it is launched from. To
-regenerate it from a source model you need [gltfpack](https://github.com/zeux/meshoptimizer/releases)
-and Pillow; see [tools/build_weapon_asset.py](../tools/build_weapon_asset.py).
+The runtime art assets include `assets/maps/low-poly-industrial-zone.glb`,
+`assets/weapons/glock17.glb`, `assets/weapons/ak47-viewmodel.glb`,
+`assets/weapons/inhaler-keychain.glb`, the preserved fallback `assets/characters/soldier.glb`, and
+`assets/characters/tactical-soldier-02.glb`; the build
+copies `assets/**` next to the executable so the game finds them whichever directory it is launched
+from. The weapon source is optimised with [gltfpack](https://github.com/zeux/meshoptimizer/releases)
+and Pillow; see [tools/build_weapon_asset.py](../tools/build_weapon_asset.py). The Soldier conversion
+uses Pillow only and preserves its skinning/animation data; see
+[tools/build_character_asset.py](../tools/build_character_asset.py).
+The original project-authored AK source and axis contract are documented in
+[ak47-viewmodel-README.md](../assets/weapons/ak47-viewmodel-README.md), with its rebuild recipe at
+[build_ak47_viewmodel.py](../tools/build_ak47_viewmodel.py).
+
+### Industrial Zone map attribution
+
+`assets/maps/low-poly-industrial-zone.glb` is the project-owner-supplied Low Poly Industrial Zone
+by novikto, licensed CC-BY 4.0. It is copied byte-for-byte from the supplied source rather than
+regenerated. Keep the bundled [attribution and provenance record](../assets/maps/LOW-POLY-INDUSTRIAL-ZONE-ATTRIBUTION.md)
+with any distributed build; see the [collision/render integration note](LOW-POLY-INDUSTRIAL-ZONE-INTEGRATION.md)
+for the deterministic sidecar design.
+
+### Tactical Soldier 02 rebuild
+
+The Tactical Soldier runtime GLB is generated from the user-supplied FBX, never
+from the incomplete OBJ. It needs Blender because the upload has a skeleton and
+textures but no playable locomotion clips. The conversion recipe uses a portable
+Blender build in a temporary `F:` workspace, creates HGO-local presentation
+loops, bakes the FBX armature's 0.01 scale (required for correct Raylib
+animation), and then transcodes every embedded image to PNG.
+
+```powershell
+$blender = 'F:\WORK\cli-gui\.tooling\blender-5.2.2\blender-5.2.2-windows-x64\blender.exe'
+$stage = 'F:\WORK\cli-gui\.tmp-model-import\tactical-soldier-02'
+
+& $blender --factory-startup --disable-autoexec --background `
+  --python tools\convert_tactical_soldier.py -- `
+  "$stage\source\Tactical_Soldier_02.fbx" "$stage\textures" "$stage\tactical-soldier-02.raw.glb"
+
+python tools\finalize_tactical_soldier.py `
+  --input "$stage\tactical-soldier-02.raw.glb" `
+  --output assets\characters\tactical-soldier-02.glb
+```
+
+The finalizer rejects a package with other than one skin, required glTF
+extensions, morph targets, additional UV/influence attributes, non-PNG maps, or
+missing `Idle`/`Walk`/`Run`/`Crouch` actions. See the source and licence boundary
+in [Tactical-Soldier-02-SOURCE.md](../assets/characters/Tactical-Soldier-02-SOURCE.md).
 
 ---
 
@@ -32,10 +75,21 @@ dotnet run -- --help         # list every option
 ```bash
 # full match, no window, asserts invariants and exits non-zero on failure
 dotnet run -- --headless --seconds 300 --bots 9 --skill Normal --seed 20260114
+
+# focused deterministic movement trace: sprint/tactical timing, stance, air transition and replay
+dotnet run -- --movement-check --seed 20260114
+
+# focused deterministic weapon-readiness trace: selector, inspect cancellation, sprint pose and replay
+dotnet run -- --weapon-check --seed 20260114
 ```
 
-The report ends in `RESULT: PASS` or `RESULT: FAIL`. This is the single most useful check in the
-project: it exercises movement, collision, combat, damage, scoring and respawning in one run.
+The full-match report ends in `RESULT: PASS` or `RESULT: FAIL`. Pair it with the movement and weapon-readiness checks
+whenever changing player physics or first-person feedback: that focused trace proves sprint input
+edges, tactical-sprint duration/stamina, crouch cancellation, jump/air cancellation, collision
+safety, a real landing-feedback envelope, render-only FOV feedback, aim-direction preservation and
+deterministic replay; the weapon trace separately proves selector defaults, semi/automatic behavior,
+inspect cancellation, local sprint pose, aim preservation and deterministic replay before the
+match-level check exercises combat, scoring and respawning.
 
 ---
 

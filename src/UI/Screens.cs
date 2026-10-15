@@ -11,6 +11,10 @@ public enum ScreenAction
 {
     None,
     StartMatch,
+    OpenCrosshairOptions,
+    CloseCrosshairOptions,
+    OpenWeaponDossier,
+    CloseWeaponDossier,
     Resume,
     Restart,
     QuitToMenu,
@@ -25,6 +29,8 @@ public sealed class MatchSettings
     public float Sensitivity = Cfg.Sensitivity;
     public int KillsToWin = Cfg.KillsToWin;
     public ulong Seed = 20260114;
+    public readonly CrosshairSettings Crosshair = new();
+    public readonly CameraFeedbackSettings CameraFeedback = new();
 }
 
 /// <summary>Interactive text menus built from a small immediate-mode list.</summary>
@@ -126,6 +132,10 @@ public static class Screens
             y += rowH + gap;
             Add("sens", "MOUSE SENSITIVITY", $"{settings.Sensitivity:0.0}", x, y, panelW, rowH);
             y += rowH + gap;
+            Add("crosshair", "CROSSHAIR OPTIONS", settings.Crosshair.PresetLabel, x, y, panelW, rowH);
+            y += rowH + gap;
+            Add("feedback", "CAMERA FEEDBACK", settings.CameraFeedback.Label, x, y, panelW, rowH);
+            y += rowH + gap;
             Add("quit", "QUIT", "", x, y, panelW, rowH);
 
             Navigate(ref _selected);
@@ -148,6 +158,9 @@ public static class Screens
                     case "sens":
                         settings.Sensitivity = U.Clamp(settings.Sensitivity + axis * 0.1f, 0.3f, 8f);
                         break;
+                    case "feedback":
+                        settings.CameraFeedback.Cycle(axis);
+                        break;
                 }
             }
 
@@ -157,13 +170,14 @@ public static class Screens
                 switch (Rows[_selected].Id)
                 {
                     case "play": return ScreenAction.StartMatch;
+                    case "crosshair": return ScreenAction.OpenCrosshairOptions;
                     case "quit": return ScreenAction.QuitApp;
                 }
             }
 
             Ui.Text("WASD to move    MOUSE to aim    CLICK to fire    R reload    1/2/3 weapons",
                 64, h - 96, 10, Ui.Faint);
-            Ui.Text("SHIFT walk    CTRL crouch    SPACE jump    B buy menu    TAB scores    ESC pause",
+            Ui.Text("SHIFT sprint/tac/off    ALT walk    CTRL/C crouch    SPACE jump    B buy    F2 crosshair    TAB scores    ESC pause",
                 64, h - 80, 10, Ui.Faint);
             Ui.Text("Tip: crouch and tap-fire for accuracy, and drag down to fight AK recoil.",
                 64, h - 56, 10, Ui.Dim);
@@ -184,7 +198,7 @@ public static class Screens
 
             const int panelW = 420;
             int x = (w - panelW) / 2;
-            int y = (int)(h * 0.3f);
+            int y = (int)(h * 0.25f);
             const int rowH = 42;
             const int gap = 8;
 
@@ -196,6 +210,12 @@ public static class Screens
             Add("resume", "RESUME", "", x, y, panelW, rowH);
             y += rowH + gap;
             Add("sens", "MOUSE SENSITIVITY", $"{settings.Sensitivity:0.0}", x, y, panelW, rowH);
+            y += rowH + gap;
+            Add("crosshair", "CROSSHAIR OPTIONS", settings.Crosshair.PresetLabel, x, y, panelW, rowH);
+            y += rowH + gap;
+            Add("feedback", "CAMERA FEEDBACK", settings.CameraFeedback.Label, x, y, panelW, rowH);
+            y += rowH + gap;
+            Add("dossier", "WEAPON DOSSIER", sim.Player.Current.Def.Name, x, y, panelW, rowH);
             y += rowH + gap;
             Add("restart", "RESTART MATCH", "", x, y, panelW, rowH);
             y += rowH + gap;
@@ -210,18 +230,199 @@ public static class Screens
                 settings.Sensitivity = U.Clamp(settings.Sensitivity + axis * 0.1f, 0.3f, 8f);
                 sim.Player.Sensitivity = settings.Sensitivity;
             }
+            else if (axis != 0 && Rows[_selected].Id == "feedback")
+            {
+                settings.CameraFeedback.Cycle(axis);
+            }
 
             if (Activated())
             {
                 switch (Rows[_selected].Id)
                 {
                     case "resume": return ScreenAction.Resume;
+                    case "crosshair": return ScreenAction.OpenCrosshairOptions;
+                    case "dossier": return ScreenAction.OpenWeaponDossier;
                     case "restart": return ScreenAction.Restart;
                     case "menu": return ScreenAction.QuitToMenu;
                 }
             }
 
             if (Raylib.IsKeyPressed(KeyboardKey.Escape)) return ScreenAction.Resume;
+            return ScreenAction.None;
+        }
+    }
+
+    // ========================================================== weapon dossier
+
+    /// <summary>
+    /// Read-only HGO weapon readiness information. It deliberately reads the
+    /// current local weapon state rather than emulating an external attachment
+    /// system or changing balance from inside the UI.
+    /// </summary>
+    public static class WeaponDossier
+    {
+        public static ScreenAction Draw(Simulation sim, int w, int h)
+        {
+            Weapon weapon = sim.Player.Current;
+            WeaponDef def = weapon.Def;
+
+            Raylib.DrawRectangle(0, 0, w, h, U.Rgba(6, 8, 12, 132));
+
+            int panelW = Math.Min(660, Math.Max(480, w - 48));
+            int panelH = Math.Min(548, h - 48);
+            int x = (w - panelW) / 2;
+            int y = (h - panelH) / 2;
+            Ui.Panel(new Rectangle(x, y, panelW, panelH), U.Rgba(11, 13, 18, 242), U.Rgba(255, 255, 255, 52), 1.5f);
+
+            Ui.Text("WEAPON DOSSIER", x + 24, y + 22, 28, Ui.Ink);
+            Ui.Text("CURRENT HGO CONFIGURATION", x + 25, y + 54, 10, Ui.Accent);
+            Ui.Text(def.Name.ToUpperInvariant(), x + 24, y + 86, 25, Ui.Ink);
+            Ui.Text($"{def.Class.ToUpperInvariant()}   |   {SlotLabel(def.Slot)}", x + 25, y + 116, 11, Ui.Dim);
+
+            var modePanel = new Rectangle(x + panelW - 200, y + 26, 170, 72);
+            Ui.Panel(modePanel, U.Rgba(255, 186, 56, 24), U.Rgba(255, 186, 56, 92));
+            Ui.TextCenter("FIRE CONTROL", (int)(modePanel.X + modePanel.Width * 0.5f), (int)modePanel.Y + 12, 10, Ui.Dim);
+            Ui.TextCenter(weapon.FireModeLabel, (int)(modePanel.X + modePanel.Width * 0.5f), (int)modePanel.Y + 31, 21, Ui.Accent);
+            // The dossier freezes simulation, so keep this informational rather
+            // than advertising an input it cannot process while open.
+            Ui.TextCenter(weapon.HasSelectableFireMode ? "CLOSE THEN [V]" : "FIXED", (int)(modePanel.X + modePanel.Width * 0.5f), (int)modePanel.Y + 57, 9, Ui.Faint);
+
+            int statX = x + 24;
+            int statY = y + 158;
+            int statW = panelW - 48;
+            DrawStat("DAMAGE", $"{def.Damage:0}", U.Clamp01(def.Damage / 120f), statX, statY, statW, Ui.Danger);
+            DrawStat("REACH", $"{def.Range:0}", U.Clamp01(def.Range / 6000f), statX, statY + 44, statW, Ui.Accent);
+            DrawStat("HANDLING", $"{def.MoveScale * 100f:0}%", U.Clamp01(def.MoveScale), statX, statY + 88, statW, Ui.Good);
+            DrawStat("CONTROL", $"{MathF.Max(0f, 100f - def.VisualKick * 3f):0}%", U.Clamp01(1f - def.VisualKick / 34f), statX, statY + 132, statW, U.Rgb(130, 190, 245));
+
+            int detailsY = statY + 194;
+            Ui.Panel(new Rectangle(x + 24, detailsY, panelW - 48, 104), U.Rgba(3, 7, 11, 156), U.Rgba(255, 255, 255, 26));
+            DrawDetail("AMMO", $"{weapon.Mag} / {weapon.Reserve}  |  {def.Magazine}-ROUND MAG", x + 40, detailsY + 16, panelW - 80);
+            DrawDetail("RELOAD", $"{def.ReloadTime:0.00}s  |  {(weapon.ReloadStartedEmpty ? "EMPTY CYCLE" : "TACTICAL CYCLE")}", x + 40, detailsY + 40, panelW - 80);
+            DrawDetail("PRESENTATION", "[X] INSPECT   |   SPRINT, FIRE, ADS OR RELOAD CANCELS", x + 40, detailsY + 64, panelW - 80);
+
+            Ui.Text("Read-only readiness data. Weapon balance, models and the Gun Game pipeline remain unchanged.",
+                x + 24, y + panelH - 44, 10, Ui.Faint);
+            Ui.Text("G / ESC  CLOSE", x + 24, y + panelH - 25, 10, Ui.Dim);
+
+            if (Raylib.IsKeyPressed(KeyboardKey.G) || Raylib.IsKeyPressed(KeyboardKey.Escape))
+                return ScreenAction.CloseWeaponDossier;
+
+            return ScreenAction.None;
+        }
+
+        private static void DrawStat(string label, string value, float fraction, int x, int y, int width, Color color)
+        {
+            Ui.Text(label, x, y, 10, Ui.Dim);
+            Ui.TextRight(value, x + width, y, 12, Ui.Ink);
+            var bar = new Rectangle(x, y + 18, width, 8);
+            Ui.Bar(bar, fraction, color, U.Rgba(0, 0, 0, 150));
+            Raylib.DrawRectangleLinesEx(bar, 1f, U.Rgba(255, 255, 255, 28));
+        }
+
+        private static void DrawDetail(string label, string value, int x, int y, int width)
+        {
+            Ui.Text(label, x, y, 10, Ui.Accent);
+            Ui.TextRight(value, x + width, y, 10, Ui.Dim);
+        }
+
+        private static string SlotLabel(WeaponSlot slot) => slot switch
+        {
+            WeaponSlot.Knife => "MELEE SLOT",
+            WeaponSlot.Secondary => "SECONDARY SLOT",
+            _ => "PRIMARY SLOT",
+        };
+    }
+
+    // ==================================================== crosshair options
+
+    /// <summary>
+    /// Session-local reticle settings. The menu is deliberately presentation-only:
+    /// the player can see the reticle update without touching aim or weapon state.
+    /// </summary>
+    public static class CrosshairOptions
+    {
+        private static int _selected;
+
+        public static ScreenAction Draw(CrosshairSettings settings, int w, int h)
+        {
+            Raylib.DrawRectangle(0, 0, w, h, U.Rgba(6, 8, 12, 88));
+
+            int panelW = Math.Min(440, Math.Max(340, w - 48));
+            const int x = 24;
+            int y = Math.Max(36, (h - 590) / 2);
+            const int rowH = 35;
+            const int gap = 5;
+
+            var panel = new Rectangle(x, y, panelW, 590);
+            Ui.Panel(panel, U.Rgba(11, 13, 18, 232), U.Rgba(255, 255, 255, 46));
+            Ui.Text("CROSSHAIR OPTIONS", x + 20, y + 18, 26, Ui.Ink);
+            Ui.Text("Session-only visual settings", x + 21, y + 50, 11, Ui.Dim);
+
+            int previewY = y + 78;
+            var preview = new Rectangle(x + 18, previewY, panelW - 36, 102);
+            Ui.Panel(preview, U.Rgba(3, 7, 11, 196), U.Rgba(255, 255, 255, 25));
+            Ui.Text("LIVE PREVIEW", (int)preview.X + 12, (int)preview.Y + 10, 10, Ui.Faint);
+            int previewCx = (int)(preview.X + preview.Width * 0.5f);
+            int previewCy = (int)(preview.Y + preview.Height * 0.62f);
+            Raylib.DrawCircleLines(previewCx, previewCy, 30f, U.Rgba(255, 255, 255, 16));
+            Raylib.DrawLine(previewCx - 40, previewCy, previewCx + 40, previewCy, U.Rgba(255, 255, 255, 10));
+            Raylib.DrawLine(previewCx, previewCy - 40, previewCx, previewCy + 40, U.Rgba(255, 255, 255, 10));
+            CrosshairRenderer.Draw(settings, previewCx, previewCy, settings.DynamicGap ? 5f : 0f, 1.75f);
+
+            int rowY = previewY + 118;
+            Begin();
+            Add("preset", "PRESET", settings.PresetLabel, x + 18, rowY, panelW - 36, rowH);
+            rowY += rowH + gap;
+            Add("color", "COLOR", settings.ColorLabel, x + 18, rowY, panelW - 36, rowH);
+            rowY += rowH + gap;
+            Add("dynamic", "DYNAMIC GAP", settings.DynamicGap ? "ON" : "OFF", x + 18, rowY, panelW - 36, rowH);
+            rowY += rowH + gap;
+            Add("dot", "CENTRE DOT", settings.CentreDot ? "ON" : "OFF", x + 18, rowY, panelW - 36, rowH);
+            rowY += rowH + gap;
+            Add("gap", "BASE GAP", $"{settings.BaseGap} px", x + 18, rowY, panelW - 36, rowH);
+            rowY += rowH + gap;
+            Add("length", "ARM LENGTH", $"{settings.ArmLength} px", x + 18, rowY, panelW - 36, rowH);
+            rowY += rowH + gap;
+            Add("thickness", "THICKNESS", $"{settings.Thickness} px", x + 18, rowY, panelW - 36, rowH);
+            rowY += rowH + gap;
+            Add("reset", "RESET DEFAULT", "", x + 18, rowY, panelW - 36, rowH);
+            rowY += rowH + gap;
+            Add("back", "BACK", "", x + 18, rowY, panelW - 36, rowH);
+
+            Navigate(ref _selected);
+            DrawRows(_selected);
+
+            int axis = AxisPress();
+            if (axis != 0)
+            {
+                switch (Rows[_selected].Id)
+                {
+                    case "preset": settings.CyclePreset(axis); break;
+                    case "color": settings.CycleColor(axis); break;
+                    case "dynamic": settings.ToggleDynamicGap(); break;
+                    case "dot": settings.ToggleCentreDot(); break;
+                    case "gap": settings.AdjustGap(axis); break;
+                    case "length": settings.AdjustLength(axis); break;
+                    case "thickness": settings.AdjustThickness(axis); break;
+                }
+            }
+
+            if (Activated())
+            {
+                switch (Rows[_selected].Id)
+                {
+                    case "reset": settings.Reset(); break;
+                    case "back": return ScreenAction.CloseCrosshairOptions;
+                }
+            }
+
+            Ui.Text("UP/DOWN select    LEFT/RIGHT adjust    ENTER reset/back", x + 20, y + 556, 10, Ui.Faint);
+            Ui.Text("The centre reticle remains aligned to the shot path.", x + 20, y + 571, 10, Ui.Dim);
+
+            if (Raylib.IsKeyPressed(KeyboardKey.Escape) || Raylib.IsKeyPressed(KeyboardKey.F2))
+                return ScreenAction.CloseCrosshairOptions;
+
             return ScreenAction.None;
         }
     }

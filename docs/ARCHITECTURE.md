@@ -59,9 +59,9 @@ be played with no window at all.
 | File | Responsibility |
 | --- | --- |
 | `Geometry.cs` | `Aabb`, the only primitive in the game, with ray/box intersection. The entire world is axis-aligned boxes, which is why the collision code is short enough to reason about. |
-| `GameMap.cs` | The "Crossfire" arena expressed as data: a list of `Add(x0, x1, y0, y1, z0, z1, kind, penetrable)` calls. Also owns the world queries the rest of the game uses — ray hits, line of sight, box overlap, floor finding, and spawn selection. |
+| `GameMap.cs` | The Industrial Zone traversal contract: owns the world queries the rest of the game uses — ray hits, line of sight, box overlap, floor finding, and spawn selection. Its invisible brushes come from the measured `IndustrialZoneLayout` sidecar rather than the rendered model. |
 | `CharacterMover.cs` | The Quake-derived character controller: accelerating, air-accelerating with a per-tick cap, friction, gravity, and swept collision with step-up. |
-| `NavGraph.cs` | Samples the map geometry onto a grid to build a waypoint graph (895 nodes on Crossfire), then runs A* over it for the bots. It rebuilds itself from the brushes at startup, so editing the map automatically updates bot pathing. |
+| `NavGraph.cs` | Samples the Industrial Zone collision geometry onto a grid to build a waypoint graph, then runs A* over it for the bots. It rebuilds itself from the static sidecar brushes at startup, so collision edits automatically update bot pathing. |
 
 ### `src/Combat` — the damage pipeline
 

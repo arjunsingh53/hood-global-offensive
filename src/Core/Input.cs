@@ -15,15 +15,48 @@ public struct InputFrame
     public Vector2 Look;
     public bool Jump;
     public bool Crouch;
+    /// <summary>One-shot source-compatible crouch-toggle intent (C).</summary>
+    public bool CrouchTogglePressed;
     public bool Walk;
+    /// <summary>One-shot sprint mode cycle intent (Shift).</summary>
+    public bool SprintPressed;
     public bool FireDown;
     public bool FirePressed;
+    /// <summary>One-shot inspect intent for the current first-person weapon.</summary>
+    public bool InspectPressed;
+    /// <summary>One-shot AUTO/SEMI selector intent for compatible player weapons.</summary>
+    public bool FireModePressed;
     public bool Reload;
     public bool ZoomPressed;
     /// <summary>Weapon slot to select this frame, or -1 for none.</summary>
     public int SwitchSlot;
 
     public static InputFrame Neutral => new() { SwitchSlot = -1 };
+}
+
+/// <summary>
+/// Decides which full-screen overlay owns a gameplay key press. Keeping this
+/// decision outside Raylib lets the state routing be verified without a window.
+/// </summary>
+public enum GameplayOverlayAction
+{
+    None,
+    Pause,
+    Buy,
+}
+
+public static class GameplayOverlayInput
+{
+    /// <summary>
+    /// Escape always wins when two keys arrive in the same frame. A completed
+    /// match owns its own screen, so it never opens a gameplay overlay.
+    /// </summary>
+    public static GameplayOverlayAction Resolve(bool escapePressed, bool buyPressed, bool matchOver)
+    {
+        if (matchOver) return GameplayOverlayAction.None;
+        if (escapePressed) return GameplayOverlayAction.Pause;
+        return buyPressed ? GameplayOverlayAction.Buy : GameplayOverlayAction.None;
+    }
 }
 
 /// <summary>Reads the real keyboard/mouse into an <see cref="InputFrame"/>.</summary>
@@ -43,9 +76,16 @@ public static class RealInput
         f.Look = acceptLook ? Raylib.GetMouseDelta() : Vector2.Zero;
         f.Jump = Raylib.IsKeyDown(KeyboardKey.Space);
         f.Crouch = Raylib.IsKeyDown(KeyboardKey.LeftControl);
-        f.Walk = Raylib.IsKeyDown(KeyboardKey.LeftShift);
+        f.CrouchTogglePressed = Raylib.IsKeyPressed(KeyboardKey.C);
+        // The referenced movement controller uses a press edge, not a held key:
+        // Shift cycles regular sprint -> tactical sprint -> off while moving forward.
+        f.SprintPressed = Raylib.IsKeyPressed(KeyboardKey.LeftShift);
+        // Keep HGO's original quiet-walk option without competing with sprint.
+        f.Walk = Raylib.IsKeyDown(KeyboardKey.LeftAlt);
         f.FireDown = Raylib.IsMouseButtonDown(MouseButton.Left);
         f.FirePressed = Raylib.IsMouseButtonPressed(MouseButton.Left);
+        f.InspectPressed = Raylib.IsKeyPressed(KeyboardKey.X);
+        f.FireModePressed = Raylib.IsKeyPressed(KeyboardKey.V);
         f.Reload = Raylib.IsKeyPressed(KeyboardKey.R);
         f.ZoomPressed = Raylib.IsMouseButtonPressed(MouseButton.Right);
 

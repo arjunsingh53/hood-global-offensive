@@ -11,18 +11,19 @@ namespace HoodGlobalOffensive.UI;
 /// <summary>Draws everything the player sees while alive.</summary>
 public static class Hud
 {
-    public static void Draw(Simulation sim, Camera3D cam, int w, int h)
+    public static void Draw(Simulation sim, Camera3D cam, int w, int h, CrosshairSettings crosshair)
     {
         DrawRadar(sim, w, h);
         DrawTopBar(sim, w, h);
         DrawKillFeed(sim, w, h);
         DrawDamageNumbers(sim, cam, w, h);
         DrawVitals(sim, w, h);
+        DrawMobility(sim, w, h);
         DrawWeaponReadout(sim, w, h);
 
         if (sim.Player.Alive)
         {
-            DrawCrosshair(sim, w, h);
+            DrawCrosshair(sim, cam, w, h, crosshair);
             DrawHitmarker(sim, w, h);
             DrawDamageIndicators(sim, w, h);
             DrawScopeOverlay(sim, w, h);
@@ -37,25 +38,19 @@ public static class Hud
 
     // ---------------------------------------------------------------- crosshair
 
-    private static void DrawCrosshair(Simulation sim, int w, int h)
+    private static void DrawCrosshair(Simulation sim, Camera3D cam, int w, int h, CrosshairSettings settings)
     {
         Player p = sim.Player;
         if (p.ZoomBlend > 0.75f) return;
 
         float spread = p.Current.SpreadFor(p.HorizontalSpeed, p.OnGround, p.Crouching);
-        float pixelsPerRadian = h * 0.5f / MathF.Tan(p.CurrentFov * 0.5f * U.Deg2Rad);
-        float gap = 4f + MathF.Tan(spread * U.Deg2Rad) * pixelsPerRadian;
-        gap = MathF.Min(gap, h * 0.32f);
-
+        // The render camera can receive a tiny presentation-only FOV response.
+        // Scale the visual gap with that exact projection FOV so the custom
+        // reticle remains an honest pixel representation of weapon spread.
+        float pixelsPerRadian = h * 0.5f / MathF.Tan(cam.FovY * 0.5f * U.Deg2Rad);
         int cx = w / 2, cy = h / 2;
-        float len = 7f;
-        Color c = U.Rgba(120, 255, 140, 225);
-
-        Raylib.DrawLine((int)(cx - gap - len), cy, (int)(cx - gap), cy, c);
-        Raylib.DrawLine((int)(cx + gap), cy, (int)(cx + gap + len), cy, c);
-        Raylib.DrawLine(cx, (int)(cy - gap - len), cx, (int)(cy - gap), c);
-        Raylib.DrawLine(cx, (int)(cy + gap), cx, (int)(cy + gap + len), c);
-        Raylib.DrawPixel(cx, cy, c);
+        float spreadPixels = MathF.Tan(spread * U.Deg2Rad) * pixelsPerRadian;
+        CrosshairRenderer.Draw(settings, cx, cy, spreadPixels, maxGap: h * 0.32f);
     }
 
     private static void DrawHitmarker(Simulation sim, int w, int h)
@@ -168,6 +163,10 @@ public static class Hud
         Color ammoColor = weapon.Mag == 0 ? Ui.Danger : Ui.Ink;
         Ui.ShadowText(ammo, w - 30 - Ui.Width(ammo, 30), baseY, 30, ammoColor);
         Ui.TextRight(weapon.Def.Name.ToUpperInvariant(), w - 30, baseY - 16, 10, Ui.Accent);
+        if (weapon.HasSelectableFireMode)
+        {
+            Ui.TextRight($"FIRE MODE  {weapon.FireModeLabel}  [V]", w - 30, baseY - 30, 10, Ui.Dim);
+        }
 
         // Weapon slot strip
         int y = baseY + 40;
@@ -193,13 +192,45 @@ public static class Hud
             float t = U.Clamp01(1f - (weapon.ReloadEndTime - sim.Time) / duration);
             var bar = new Rectangle(w - 200, baseY + 22, 170, 5);
             Ui.Bar(bar, t, Ui.Accent, U.Rgba(0, 0, 0, 160));
-            Ui.TextRight("RELOADING", w - 30, baseY + 22 - 14, 10, Ui.Accent);
+            Ui.TextRight(weapon.ReloadStartedEmpty ? "EMPTY RELOAD" : "TACTICAL RELOAD",
+                w - 30, baseY + 22 - 14, 10, Ui.Accent);
+        }
+        else if (p.Inspecting)
+        {
+            Ui.TextRight("INSPECTING  |  FIRE / ADS / SPRINT TO CANCEL", w - 30, baseY + 22 - 14, 10, Ui.Dim);
         }
         else if (weapon.Mag == 0)
         {
             Ui.TextRight("PRESS R TO RELOAD", w - 30, baseY + 22 - 14, 10,
                 (int)(sim.Time * 3f) % 2 == 0 ? Ui.Danger : Ui.Dim);
         }
+    }
+
+    /// <summary>
+    /// Compact feedback for the source-derived press-cycle sprint states. The
+    /// charge meter remains visible while it refills so tactical sprint is never
+    /// a hidden timer; it does not affect any weapon/render state.
+    /// </summary>
+    private static void DrawMobility(Simulation sim, int w, int h)
+    {
+        _ = w;
+        Player p = sim.Player;
+        if (!p.Alive) return;
+
+        bool show = p.SprintState != PlayerSprintState.None || p.TacticalSprintStamina < 0.995f;
+        if (!show) return;
+
+        int x = 30;
+        int y = h - 128;
+        bool tactical = p.SprintState == PlayerSprintState.TacticalSprinting;
+        string state = tactical ? "TACTICAL SPRINT" : p.SprintState == PlayerSprintState.Sprinting ? "SPRINT" : "TAC STAMINA";
+        Color stateColor = tactical ? Ui.Accent : Ui.Good;
+
+        Ui.Text(state, x, y, 10, stateColor);
+        var bar = new Rectangle(x, y + 15, 164, 5);
+        Ui.Bar(bar, p.TacticalSprintStamina, stateColor, U.Rgba(0, 0, 0, 150));
+        Raylib.DrawRectangleLinesEx(bar, 1f, U.Rgba(255, 255, 255, 45));
+        Ui.Text("TAC", x + 170, y + 10, 10, Ui.Dim);
     }
 
     private static void DrawTopBar(Simulation sim, int w, int h)

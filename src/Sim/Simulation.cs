@@ -273,6 +273,12 @@ public sealed class Simulation
             HitmarkerUntil = now + 0.12f;
             LastHitWasHeadshot = result.Group == HitGroup.Head;
             LastHitWasKill = killed;
+            // Local HUD confirmations are intentionally separate from the physical
+            // impact at the target. They remain audible at long range while the
+            // world hit still attenuates naturally for every listener.
+            Emit("hitmarker", shooter.EyePosition, 0.76f, result.Group == HitGroup.Head ? 1.08f : 1f);
+            if (result.Group == HitGroup.Head)
+                Emit("headshot", shooter.EyePosition, 0.82f, killed ? 1f : 1.04f);
             DamageNumbers.Add(new FloatingDamage
             {
                 Position = result.Point,
@@ -287,6 +293,13 @@ public sealed class Simulation
         {
             DamageFlash = MathF.Min(1f, DamageFlash + damage / 90f);
             DamageFlashDirection = U.YawFromDirection(U.FlatNormalized(shooter.Position - victim.Position));
+            if (victim is Player player)
+            {
+                // Presentation-only: the simulation and hit result are already
+                // resolved. This gives the renderer a short, directional response
+                // without ever perturbing the player's aim or shot origin.
+                player.TriggerDamageFeedback(damage / 90f, DamageFlashDirection);
+            }
         }
 
         Emit(result.Group == HitGroup.Head ? "hit_head" : "hit_flesh", result.Point, 0.9f, Rand(0.95f, 1.06f));
@@ -422,6 +435,12 @@ public sealed class Simulation
         actor.RespawnAt = 0f;
         actor.LastShotTime = -10f;
 
+        if (actor is Player player)
+        {
+            player.ResetMovementState();
+            player.ResetPresentationFeedback();
+        }
+
         if (actor.Money < Cfg.RespawnTopUp) actor.Money = Cfg.RespawnTopUp;
 
         if (actor is Bot bot)
@@ -488,6 +507,18 @@ public sealed class Simulation
             float volume = actor.IsPlayer ? 0.32f : U.Clamp01(1f - distanceToPlayer / 1600f) * 0.5f;
             if (actor.Crouching) volume *= 0.35f;
             Emit("step", actor.Position, volume, Rand(0.9f, 1.12f));
+
+            if (actor is Player player)
+            {
+                float pace = player.SprintState switch
+                {
+                    PlayerSprintState.TacticalSprinting => 1f,
+                    PlayerSprintState.Sprinting => 0.82f,
+                    _ => 0.56f,
+                };
+                if (actor.Crouching) pace *= 0.45f;
+                player.TriggerFootstepFeedback(pace);
+            }
         }
     }
 

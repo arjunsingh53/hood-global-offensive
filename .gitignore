@@ -1,6 +1,8 @@
 # ---------------------------------------------------------------- build output
 bin/
 obj/
+# Temporary publish staging; the verified distributable is the root EXE.
+release/
 *.user
 *.suo
 *.userprefs
@@ -10,6 +12,8 @@ obj/
 /shot.png
 /screenshot.png
 /screenshot-*.png
+# Preserve the curated numbered README captures; ignore ad-hoc QA previews.
+/shots/*.png
 
 # ---------------------------------------------------------------- tooling scratch
 __pycache__/

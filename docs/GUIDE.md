@@ -1,6 +1,6 @@
 # Hood Global Offensive — Player Guide
 
-**Version:** early access v0.1.0 (map: Crossfire) · **Engine:** C# / .NET 10 / Raylib-cs
+**Version:** early access v0.1.0 (map: Industrial Zone) · **Engine:** C# / .NET 10 / Raylib-cs
 
 This is the complete guide to playing Hood Global Offensive. Everything below describes the
 behaviour that is actually implemented in the code — where the implementation differs from what
@@ -23,7 +23,7 @@ you might expect from Counter-Strike, it says so explicitly rather than quietly 
 11. [Economy and buying](#11-economy-and-buying)
 12. [Match rules](#12-match-rules)
 13. [Bots](#13-bots)
-14. [The map: Crossfire](#14-the-map-crossfire)
+14. [The map: Industrial Zone](#14-the-map-industrial-zone)
 15. [Tactics and practice drills](#15-tactics-and-practice-drills)
 16. [Command line reference](#16-command-line-reference)
 17. [Troubleshooting](#17-troubleshooting)
@@ -81,6 +81,8 @@ respawns.
 | **BOT SKILL** | Normal | Easy / Normal / Hard / Expert — see [Bots](#13-bots) |
 | **KILL LIMIT** | 30 | Kills needed to win the match |
 | **MOUSE SENSITIVITY** | 2.2 | Degrees of rotation per mouse count = `sensitivity × 0.04` |
+| **CROSSHAIR OPTIONS** | Classic | Opens the local reticle editor: preset, colour, dynamic gap, centre dot, gap, arm length and thickness |
+| **CAMERA FEEDBACK** | Normal | Session-local strength for footstep, landing and incoming-damage presentation: Normal / Low / Off |
 | **QUIT** | — | Exit the game |
 
 Navigate with the mouse or the arrow keys; change values the same way or with `Enter`.
@@ -103,18 +105,23 @@ defaults. Note the values down if you find a setup you like, or change the defau
 | `1` | Knife |
 | `2` | Pistol (secondary) |
 | `3` | Primary weapon |
-| `Shift` | Walk — quiet and slower, for peeking without giving away your position |
-| `Ctrl` | Crouch — smaller hitbox, tighter spread, slower |
+| `Shift` (tap while moving forward) | Cycle **Sprint → Tactical Sprint → off** |
+| `Alt` (hold) | Walk — quiet and slower, for peeking without giving away your position |
+| `Ctrl` (hold) / `C` (tap) | Crouch — smaller hitbox, tighter spread, slower |
 | `Space` | Jump |
 | `B` | Open the buy menu (only while alive) |
+| `X` | Inspect the current weapon; visual only, and fire/ADS/sprint/reload/switch cancels it |
+| `V` | Toggle **AUTO / SEMI** on the compatible AK-47 or M4A4 in your hands |
+| `G` | Open the read-only weapon dossier while playing |
+| `F2` | Open crosshair options (also available from the main and pause menus) |
 | `Tab` (hold) | Scoreboard |
 | `Esc` | Pause menu |
 
 Notes:
 
 - **Keys are not rebindable** in v0.1.0.
-- Opening the buy menu or pausing releases the mouse cursor, so you may leave the window. Closing
-  them recaptures it.
+- Opening the buy menu, pause menu, weapon dossier or crosshair options releases the mouse cursor, so you may leave
+  the window. Closing an in-match menu recaptures it.
 - Weapon switching while reloading cancels the reload.
 
 ---
@@ -123,10 +130,12 @@ Notes:
 
 | Element | Where | Notes |
 | --- | --- | --- |
-| **Crosshair** | Centre | The gap is driven by your live spread value, so it physically widens as you move and fire, and tightens as you stand still or crouch |
+| **Crosshair** | Centre | The default is a green dynamic cross. Press `F2` or choose **CROSSHAIR OPTIONS** to change its preset, colour, gap, arms, dot and thickness. Dynamic gap is visual only: hit-scan and weapon spread are unchanged |
 | **Health** | Bottom left | Turns to a low-health pulse when you are badly hurt |
 | **Armour + helmet** | Bottom left | The bar and label tell you whether you currently have kevlar |
+| **Sprint / TAC bar** | Above vitals while active or recovering | Current sprint state and remaining tactical-sprint charge |
 | **Ammo** | Bottom right | `magazine / reserve` |
+| **Fire control** | Beneath a compatible rifle | Current `AUTO` or `SEMI` selection and the `V` hint |
 | **Money** | Bottom left area | Current cash for the buy menu |
 | **Kill feed** | Top right | Colour-coded, with a marker for headshots |
 | **Hitmarker** | Centre | Brief confirmation that your shot connected |
@@ -135,6 +144,44 @@ Notes:
 | **Radar** | Top left | Only reveals enemies you currently have line of sight to — see below |
 | **Scoreboard** | Centre, while `Tab` is held | Kills, deaths, accuracy and headshots for you and every bot |
 | **Death overlay** | Centre | Shows you died and counts down the respawn |
+
+### Camera feedback
+
+The visual response uses real player events, not a scripted overlay: footsteps create a light
+handheld pulse, a hard landing produces a short compression response, and incoming damage has a
+directional viewmodel push. Choose **CAMERA FEEDBACK** in the main or pause menu to use **Normal**,
+**Low** or **Off** for the current session.
+
+The feature is presentation-only. Its world-camera component is a tiny FOV change, while the gun
+receives a matching local offset; it does not translate the physical shot origin, mutate
+`Player.AimDirection`, change hit-scan, recoil, spread, collision or bot simulation. It therefore
+preserves the existing Soldier character, Gun Game model pipeline and crosshair contract.
+
+The behaviour is an independent, clean-room interpretation of categories visible in the
+[CoDMW19 tracker](https://github.com/Syampuuh/CoDMW19/tree/15126f1fd21c15b5a17a0d5b84e2cd6acbf91b0a), not a direct port. No extracted assets,
+configs, source/bytecode, UI, audio or animation data are used. Its slide/mantle/mount configuration
+is not enabled here because HGO does not yet have the required traversal collision probes and
+animation path.
+
+### Weapon readiness
+
+HGO's first-person presentation has a compact, clean-room weapon-readiness layer. `X` starts a
+local inspect pose that yields to firing, ADS, reloading, sprinting and switching weapons. Sprint
+uses a local lowered-weapon pose; neither presentation behavior moves the shot origin or changes
+the actual aim direction, recoil, spread, collision or bot simulation. The reload status makes a
+loaded tactical reload and an empty reload visibly distinct without changing their existing combat
+rules.
+
+The AK-47 and M4A4 default to **AUTO**. Press `V` to select **SEMI** for that live player weapon
+only; the static weapon definition and bot loadouts remain automatic. Press `G` for a read-only
+weapon dossier whose labels and meter values are calculated from the current HGO `WeaponDef` and
+runtime ammo state. It is not an attachment, leveling or balance screen.
+
+This is a clean-room interpretation after studying the public
+[ARC9-COD2019 add-on](https://github.com/Seulyy/ARC9-COD2019/tree/cf55bd861ce2272b9dcc587febd843832a21ef70).
+No ARC9/COD2019 asset, Lua, model, sound, UI, attachment data or numeric tuning has been imported.
+The add-on's broad attachment system, copied weapon catalog, launchers, mounting and akimbo are
+outside HGO's present systems and intentionally remain out of scope.
 
 ### The radar is honest
 
@@ -158,14 +205,31 @@ would not allow.
 | State | Speed | Notes |
 | --- | --- | --- |
 | Run (forward) | **250** | The reference speed; `peak horizontal speed` in the test report hovers around 251 |
-| Walk (`Shift`) | **130** | Quiet, and does not widen your spread as much |
-| Crouch (`Ctrl`) | **85** | Also halves your height and tightens spread by 38% |
+| Sprint (`Shift`, first tap) | **350** | 1.4× base before weapon movement scaling |
+| Tactical sprint (`Shift`, second tap) | **425** | 1.7× base for up to three seconds, before weapon movement scaling |
+| Walk (`Alt`) | **130** | Quiet, and does not widen your spread as much |
+| Crouch (`Ctrl` hold / `C` toggle) | **85** | Also halves your height and tightens spread by 38% |
 | Jump | **300** upward | |
 | Gravity | **800** /s² | |
 
 A standing player is **72 units** tall, crouched **54 units**. Your eye is at 64 units standing,
 46 crouched. For scale: a doorway in the west corridor is 600 units wide and the arena is
 2400 × 2400 units.
+
+### Sprint and tactical sprint
+
+While grounded and moving forward, tap `Shift` once for **Sprint**, a second time for
+**Tactical Sprint**, and a third time to turn it off. Tactical sprint lasts **3 seconds** and then
+falls back to regular sprint; its `TAC` bar refills at the same rate whenever it is not active.
+Leaving the ground, crouching, aiming, reloading, walking with `Alt`, or releasing forward cancels
+the sprint state without deleting your current horizontal velocity. That last rule retains the
+controller's existing air-control and bunny-hop behaviour instead of faking a speed boost in the
+renderer.
+
+The state transition/timing is based on the supplied Godot movement reference, but its collision
+code was not copied: HGO keeps its deterministic swept AABB controller, clear-headroom crouch test,
+and capped air acceleration. The reference contains no slide/mantle/wall-run implementation; prone,
+water and ladder systems require separate map/collision/art scope and are not claimed here.
 
 ### Jumping and climbing
 
@@ -175,8 +239,9 @@ feet. That number matters, because it is what makes the map's vertical layout wo
 - **Step-up:** while walking you automatically step onto ledges up to **20 units** high. You do not
   need to jump for kerbs and low crates.
 - **Ledges up to ~56 units** can be reached with a jump.
-- The **east terrace is 64 units high** — you cannot jump straight onto it from the floor. Use the
-  stepped blocks on its west edge (see [the map](#14-the-map-crossfire)).
+- Architectural roofs and large containers in Industrial Zone are solid traversal blockers. The
+  current build does not define a special climb route onto them; use ground-level lanes and cover
+  rather than relying on decorative mesh edges.
 
 ### Air control and strafe-jumping
 
@@ -259,11 +324,11 @@ Distances are in world units, and the exponent is measured per **1000 units**. W
 
 | Weapon | Falloff | At 1000 units | At 2000 units | Meaning |
 | --- | --- | --- | --- | --- |
-| AK-47 | 0.25 | 27 | 20 | Barely cares about range |
-| Desert Eagle | 0.25 | 47 | 35 | Still hurts a long way out |
-| Glock 17 | 0.35 | 18 | 12 | Falls off noticeably |
-| MP5-SD | 0.32 | 18 | 12 | Get closer |
-| Nova | 0.72 | 7 per pellet | 2 per pellet | Only viable in someone's face |
+| AK-47 | 0.15 | 31 | 26 | Keeps damage across the Industrial Zone |
+| Desert Eagle | 0.16 | 53 | 44 | Still hurts a long way out |
+| Glock 17 | 0.22 | 22 | 17 | Practical across long lanes |
+| MP5-SD | 0.22 | 21 | 16 | Stronger at close and medium range |
+| Nova | 0.55 | 11 per pellet | 5 per pellet | Still a close-range weapon |
 
 ### Step 3 — hitbox multiplier
 
@@ -410,13 +475,13 @@ Every number below is read from the source table in
 | Weapon | Class | Slot | Price | Damage | Head × | Falloff | Range | RPM-ish | Mag / Reserve | Reload | Move × | Kill award |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | Knife | Melee | 1 | — | 55 | ×3 | — | 90 | 150 | — | — | 1.00 | $1500 |
-| Glock 17 | Pistol | 2 | $200 | 28 | ×4 | 0.35 | 1500 | 400 | 20 / 120 | 2.2 s | 1.00 | $300 |
-| Desert Eagle | Pistol | 2 | $700 | 63 | ×4 | 0.25 | 2000 | 267 | 7 / 35 | 2.2 s | 1.00 | $300 |
-| MP5-SD | SMG | 3 | $1500 | 27 | ×4 | 0.32 | 1800 | 750 | 30 / 120 | 2.6 s | 0.96 | $300 |
-| AK-47 | Rifle | 3 | $2700 | 36 | ×4 | 0.25 | 4000 | 600 | 30 / 90 | 2.5 s | 0.90 | $300 |
-| M4A4 | Rifle | 3 | $3100 | 33 | ×4 | 0.26 | 4000 | 666 | 30 / 90 | 3.1 s | 0.90 | $300 |
-| Nova | Shotgun | 3 | $1050 | 24 × 9 | ×3 | 0.72 | 700 | 68 | 8 / 32 | 3.4 s | 0.95 | $900 |
-| AWP | Sniper | 3 | $4750 | 115 | ×1.5 | 0.15 | 6000 | 41 | 10 / 30 | 3.7 s | 0.83 | $100 |
+| Glock 17 | Pistol | 2 | $200 | 28 | ×4 | 0.22 | 3600 | 400 | 20 / 120 | 2.2 s | 1.00 | $300 |
+| Desert Eagle | Pistol | 2 | $700 | 63 | ×4 | 0.16 | 4200 | 267 | 7 / 35 | 2.2 s | 1.00 | $300 |
+| MP5-SD | SMG | 3 | $1500 | 27 | ×4 | 0.22 | 3400 | 750 | 30 / 120 | 2.6 s | 0.96 | $300 |
+| AK-47 | Rifle | 3 | $2700 | 36 | ×4 | 0.15 | 5200 | 600 | 30 / 90 | 2.5 s | 0.90 | $300 |
+| M4A4 | Rifle | 3 | $3100 | 33 | ×4 | 0.16 | 5200 | 666 | 30 / 90 | 3.1 s | 0.90 | $300 |
+| Nova | Shotgun | 3 | $1050 | 24 × 9 | ×3 | 0.55 | 1500 | 68 | 8 / 32 | 3.4 s | 0.95 | $900 |
+| AWP | Sniper | 3 | $4750 | 115 | ×1.5 | 0.08 | 7200 | 41 | 10 / 30 | 3.7 s | 0.83 | $100 |
 
 "Move ×" is the multiplier applied to your run speed while that weapon is in hand. The AWP slows
 you to 83% of 250 = 208 units/s, so carrying it is a real commitment.
@@ -429,8 +494,8 @@ The 0.4 s swing means you get one attempt, so take it from behind.
 
 **Glock 17** — Your default. Cheap, fast, 20 rounds, and a ×4 headshot multiplier, which means a
 single Glock headshot kills instantly from full health. It is a genuinely dangerous weapon in the
-opening seconds of a match, and the falloff (0.35) punishes you past ~1500 units. Fire it as a
-semi-auto: the cycle time is 0.15 s so it keeps up with your clicks.
+opening seconds of a match, and the lighter falloff (0.22) keeps it practical across the Industrial
+Zone's long lanes. Fire it as a semi-auto: the cycle time is 0.15 s so it keeps up with your clicks.
 
 **Desert Eagle** — 63 damage, ×4 headshot, and only 7 rounds with 267 RPM. Against armour it still
 does 32 per body shot, which is the best of any pistol. The trade is that it kicks violently and
@@ -439,10 +504,11 @@ win; if you miss, you are usually dead.
 
 **MP5-SD** — The cheapest automatic, and the only weapon in the game with a movement multiplier
 above 0.9. At 750 RPM with a modest movement spread penalty (3.2, against the AK's 6.5) it is the
-best weapon for running and gunning. Its damage falls off hard, so treat 1800 units as your limit.
+best weapon for running and gunning. Its 3400-unit reach is forgiving, but its spread still rewards
+short and medium-range fights.
 
-**AK-47** — The reference rifle. 36 damage, 600 RPM, ×4 headshots, a 4000-unit range and only 25%
-falloff, so it is lethal everywhere on this map. Its spray pattern is the signature rise-then-sweep:
+**AK-47** — The reference rifle. 36 damage, 600 RPM, ×4 headshots, a 5200-unit range and only 15%
+falloff, so it remains lethal across the Industrial Zone. Its spray pattern is the signature rise-then-sweep:
 the first several bullets climb steeply, then it drifts sideways. Turn your sensitivity down and
 practice the first ten.
 
@@ -450,12 +516,12 @@ practice the first ten.
 pattern, a longer reload (3.1 s vs 2.5 s) and $400 more expensive. If you can hold the AK, the AK is
 the better buy in v0.1.0. The M4 is more forgiving for newer players because the climb is smaller.
 
-**Nova** — 9 pellets × 24 damage with a ×3 headshot multiplier, but a savage 0.72 falloff: it does
-full damage only inside a few hundred units, and roughly 7 damage per pellet at 1000 units. Inside
+**Nova** — 9 pellets × 24 damage with a ×3 headshot multiplier, but a strong 0.55 falloff: it does
+full damage only inside close rooms, and roughly 11 damage per pellet at 1000 units. Inside
 a room it is a one-shot kill on a body hit; across the map it is a noisemaker. Its $900 kill reward
 also makes it a legitimate economy play.
 
-**AWP** — 115 damage with 97.5% effective penetration and only 15% falloff, so it kills with one
+**AWP** — 115 damage with 97.5% effective penetration and only 8% falloff, so it kills with one
 body shot at essentially any range on this map. Costs $4750, 41 RPM, 10 rounds, and slows you
 badly. Right click toggles the scope (20° field of view). **The weapon is fully stowed while the
 scope is up**, so until you unscope you have no fallback. It has the largest view kick in the game,
@@ -603,69 +669,40 @@ four tenths of a second to shoot first.
 
 ---
 
-## 14. The map: Crossfire
+## 14. The map: Industrial Zone
 
-The arena is **2400 × 2400 units**, enclosed by 300-unit-high walls, with a ring route around a
-central building, four full-height corner pillars, and one corridor.
+Industrial Zone is the supplied low-poly industrial-island scene, rendered directly from its authored
+GLB. The playable area is approximately **2651 × 2284 world units** after preserving the source
+scene's proportions at HGO character scale. It has a broad paved yard, long warehouse blocks,
+smaller outbuildings, containers, trees, streetlights and fenced perimeter routes.
 
-### Layout
+There are no generated cover objects or replacement block models in the level render. HGO's
+existing movement and combat systems use an invisible deterministic collision sidecar: an island
+floor, containment limits, and 50 footprints measured from the source's buildings and hard cover.
+That makes pathing, bullets and respawns reliable without changing the supplied visual layout.
 
-```
-                        NORTH  (z = +1200)
-        +---------------------------------------------------+
-        |  [pillar]                       [pillar]           |
-        |                                                    |
-        |        #######   north divider  #######            |
-        |                                                    |
-        |   WEST        +-------------------+                |
-        |   CORRIDOR    |   CENTRAL         |   EAST         |
-        |   (walls,     |   BUILDING (mid)  |   TERRACE      |
-        |   one         |                   |   64 units     |
-        |   doorway)    +-------------------+   high, stairs |
-        |                                                    |
-        |  [pillar]                       [pillar]           |
-        |                     south pit crates               |
-        +---------------------------------------------------+
-                        SOUTH  (z = -1200)
-```
+### Routes and cover
 
-Coordinates for reference (X runs east–west, Z runs north–south, Y is up):
-
-| Area | Extent | Description |
-| --- | --- | --- |
-| **Central building ("mid")** | X −380…220, Z −260…120 | Two stacked crate blocks, 128 and 72 units high, with a 40-unit lip on its south face and a raised metal block on top at 128–168 units |
-| **West corridor** | X < −820 | Full-height walls with a single **doorway gap at Z −200…400**. Contains a **penetrable** thin wall at Z −900…−600, plus crates |
-| **East terrace** | X > 700, Z −600…600 | A 64-unit-high platform with crates on top. Reached from **stepped blocks on its west edge**, 48 → 32 → 16 units high |
-| **North divider** | Z −900…−820 | Two 140-unit-high wall segments with a gap between them, plus crates |
-| **South pit** | Z 700…1000 | Scattered crates with gaps between them |
-| **Corner pillars** | ±620…700 in X and Z | Four 80 × 80 full-height pillars |
-
-### Getting onto the east terrace
-
-This is the one piece of vertical movement worth learning, because the terrace overlooks the whole
-east side. It is **64 units** high and your jump apex is **56.25 units**, so you cannot jump straight
-up onto it. Instead:
-
-1. From the floor west of the terrace, jump onto the **48-unit block** at X 580–620.
-2. Step east and down onto the **32-unit** and then the **16-unit** tread.
-3. From the 16-unit tread, jump — 16 + 56 clears the 64-unit lip, and the automatic step-up
-   finishes the job.
-
-Coming the other way, simply walk off the terrace; the fall is harmless (fall damage is not
-implemented, only a cosmetic landing dip).
-
-### The penetrable wall
-
-Inside the west corridor there is one thin wall marked penetrable, at around Z −900 to −600. You can
-shoot through it with reduced damage, and so can the bots. It is the best place on the map to learn
-how cover penetration feels — and the worst place to assume you are safe.
+| Area | How it plays |
+| --- | --- |
+| **Central yard** | The longest open lanes. Cross only deliberately; warehouse faces and parked industrial cover are your primary breaks in sightline. |
+| **Long warehouses** | Strong hard cover that divides the yard into parallel routes. Peek their corners rather than taking the road centre. |
+| **Perimeter lanes** | Quieter rotations along the fenced edge. They are safer for repositioning but can be watched from warehouse corners. |
+| **Small outbuildings / containers** | Short-distance cover for a reload, a crouch peek or a close-range fight. Their collision is solid even where the visual asset has fine bevels or foliage. |
 
 ### Spawn points
 
-There are 13 spawns: three on the far west (X −1080), three along the north edge, three along the
-south edge, two up on the east terrace, and two mid-map. The game picks a spawn at least **900
-units** from every living player and verifies it is clear of geometry, so you will not spawn inside
-a crate and you will not spawn on top of an enemy.
+There are 12 fixed ground-level spawns distributed across the outer lanes and central approaches.
+The game selects a candidate away from living players and verifies its standing AABB is clear before
+using it, so players do not spawn inside measured structure collision.
+
+### Collision precision
+
+The GLB is the visual source of truth. Its authored terrain, buildings, vegetation and materials are
+drawn as supplied. Collision is deliberately approximate at small scale rather than pretending it is
+per-triangle: building walls, containers and hard cover use measured axis-aligned footprints; thin
+fences, leaves and roof bevels use the nearest hard-cover boundary. This is why a decorative edge
+should not be used as a movement exploit.
 
 ---
 
@@ -683,19 +720,19 @@ a crate and you will not spawn on top of an enemy.
    accurate ones.
 4. **Use the radar as confirmation, not as radar.** It tells you when you are seen. It does not
    tell you where to pre-aim.
-5. **Play the corners and the terrace.** The ring route means you can always be flanked, so move
+5. **Play warehouse and container corners.** The perimeter routes mean you can always be flanked, so move
    between cover rather than standing in the open.
 
 ### Angle-holding on this map
 
-- The **west doorway** (Z −200…400) is the map's single best choke point: you can hold it from
-  inside the corridor and shoot through the penetrable wall at anyone who tries to flank.
-- **Mid** rewards crossfire-positioning — hold one side of the central building while bots walk past
-  the other.
-- The **east terrace** gives you height and a long sightline, but you are also silhouetted, and
-  getting down takes time. Do not go up there with three bots alive and one behind you.
-- The **north divider** walls break the long north sightline into two shorter ones, which is where
-  the AWP loses some of its dominance.
+- The **warehouse corners** are the most dependable choke points: hold the paved lane while keeping
+  a nearby hard-cover footprint between you and the wider yard.
+- The **central yard** rewards crossfire-positioning — take one exterior lane while bots commit to
+  another instead of standing in its open centre.
+- The **perimeter roads** offer a long sightline, but the fence leaves you exposed. Rotate through
+  them rather than holding them when multiple bots are alive.
+- **Container and small-building cover** is ideal for SMGs and pistols; avoid letting an AWP user
+  force you into a straight road duel.
 
 ### Practice drills
 
@@ -703,10 +740,11 @@ a crate and you will not spawn on top of an enemy.
   small square by dragging the mouse down and slightly sideways. Do this with the AK-47 first.
 - **Strafe-stop drill:** strafe left and right while keeping your crosshair on a fixed point, then
   practise stopping dead and firing immediately. This is the single most transferable skill.
-- **Head-height drill:** walk the ring route without ever letting your crosshair drift above or
-  below head level on the crates. Do it with bots set to Easy so you can concentrate on the habit.
-- **Corridor drill:** hold the west doorway against `--bots 15` on Expert in a headless match and
-  watch the scoreboard accuracy, then try to beat it in-game.
+- **Head-height drill:** rotate from warehouse corner to warehouse corner without letting your
+  crosshair drift above or below likely head height. Do it with bots set to Easy so you can
+  concentrate on the habit.
+- **Lane drill:** hold one warehouse-side lane against `--bots 15` on Expert in a headless match
+  and watch the scoreboard accuracy, then try to beat it in-game.
 
 ### A note on difficulty
 
@@ -726,6 +764,7 @@ dotnet run [-- option value ...]
 | --- | --- | --- | --- |
 | `--help`, `-h` | — | — | Print usage and exit |
 | `--headless` | mode | — | Run a full match with no window and print a report |
+| `--weapon-check` | mode | — | Run deterministic fire-mode, inspect and sprint-pose checks |
 | `--screenshot <file>` | mode | `screenshot.png` | Render one real gameplay frame to a PNG |
 | `--seconds <n>` | headless | 90 | Simulated seconds to run |
 | `--seconds <n>` | screenshot | 4 | Seconds of gameplay before attempting the capture |
@@ -735,7 +774,7 @@ dotnet run [-- option value ...]
 | `--width <n>` | screenshot | 1280 | Window width |
 | `--height <n>` | screenshot | 720 | Window height |
 | `--weapon <name>` | screenshot | default | Equip a weapon: `Knife`, `Glock 17`, `Desert Eagle`, `MP5-SD`, `AK-47`, `M4A4`, `Nova`, `AWP` |
-| `--screen <name>` | screenshot | play | `play`, `scoreboard`, `buy` or `menu` |
+| `--screen <name>` | screenshot | play | `play`, `scoreboard`, `buy`, `menu`, `character`, `crosshair` or `dossier` |
 | `--zoom` | screenshot | off | Hold the AWP scope before capturing |
 | `--verbose` | headless | off | Also dump the kill feed |
 
@@ -747,6 +786,12 @@ dotnet run -- --headless --seconds 300 --bots 9 --skill Normal --seed 20260114
 
 # capture the title screen
 dotnet run -- --screenshot shots/00-menu.png --seconds 0 --screen menu
+
+# capture the crosshair-options overlay on a real gameplay frame
+dotnet run -- --screenshot crosshair-options.png --screen crosshair --weapon "Glock 17"
+
+# capture the read-only AK-47 weapon dossier on a real gameplay frame
+dotnet run -- --screenshot weapon-dossier.png --screen dossier --weapon "AK-47"
 
 # a scoped AWP frame at 1600x900, waiting 7 seconds of gameplay first
 dotnet run -- --screenshot awp.png --seconds 7 --weapon AWP --zoom --width 1600 --height 900
@@ -792,10 +837,11 @@ dotnet run                      # this is Debug, and it works
 
 ### No sound
 
-All audio is generated at startup and played through raylib, so there are no audio files to go
-missing. If you hear nothing: confirm the game has focus (audio may be suspended when the window is
-unfocused), check your default output device, and check the system volume mixer for the game's own
-channel.
+The game synthesises an original fallback for every audio event and can optionally load licensed
+local WAV/OGG/MP3 replacements from `assets/audio/`; see
+[`assets/audio/README.md`](../assets/audio/README.md) for the supported names. If you hear nothing:
+confirm the game has focus (audio may be suspended when the window is unfocused), check your default
+output device, and check the system volume mixer for the game's own channel.
 
 ### The mouse cursor will not come back
 

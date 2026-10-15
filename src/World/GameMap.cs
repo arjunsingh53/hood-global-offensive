@@ -27,9 +27,8 @@ public struct Brush
 public readonly record struct SpawnPoint(Vector3 Position, float Yaw);
 
 /// <summary>
-/// The "Crossfire" arena - the one map Hood Global Offensive currently ships with:
-/// a mid building, a long west corridor, an east raised platform with stairs, and
-/// cover scattered around a ring route.
+/// The supplied Low Poly Industrial Zone. Its authored GLB is rendered directly;
+/// this class exposes the matching deterministic collision contract used by HGO.
 /// </summary>
 public sealed class GameMap
 {
@@ -41,102 +40,10 @@ public sealed class GameMap
     public GameMap()
     {
         var brushes = new List<Brush>();
-        void Add(float x0, float x1, float y0, float y1, float z0, float z1, SurfaceKind kind, bool penetrable = false)
-        {
-            brushes.Add(new Brush
-            {
-                Box = new Aabb(new Vector3(x0, y0, z0), new Vector3(x1, y1, z1)),
-                Color = ColorFor(kind),
-                Kind = kind,
-                Penetrable = penetrable,
-            });
-        }
-
-        const float m = Cfg.MapHalf;
-        const float t = 40f;   // wall thickness
-        const float h = Cfg.WallHeight;
-
-        // ---------------------------------------------------------------- ground + boundary
-        Add(-m - t, m + t, -60f, 0f, -m - t, m + t, SurfaceKind.Floor);
-        Add(-m - t, m + t, 0f, h, -m - t, -m, SurfaceKind.Wall);
-        Add(-m - t, m + t, 0f, h, m, m + t, SurfaceKind.Wall);
-        Add(-m - t, -m, 0f, h, -m, m, SurfaceKind.Wall);
-        Add(m, m + t, 0f, h, -m, m, SurfaceKind.Wall);
-
-        // ---------------------------------------------------------------- central building
-        Add(-380f, -60f, 0f, 128f, -260f, 40f, SurfaceKind.Crate);
-        Add(-60f, 220f, 0f, 72f, -260f, 40f, SurfaceKind.Crate);
-        Add(-380f, 220f, 0f, 40f, 40f, 120f, SurfaceKind.Platform);
-        Add(-40f, 40f, 128f, 168f, -220f, -140f, SurfaceKind.Metal);
-
-        // ---------------------------------------------------------------- corner pillars
-        Add(620f, 700f, 0f, h, 620f, 700f, SurfaceKind.Metal);
-        Add(620f, 700f, 0f, h, -700f, -620f, SurfaceKind.Metal);
-        Add(-700f, -620f, 0f, h, 620f, 700f, SurfaceKind.Metal);
-        Add(-700f, -620f, 0f, h, -700f, -620f, SurfaceKind.Metal);
-
-        // ---------------------------------------------------------------- west corridor
-        // Two wall runs with a doorway gap at z in [-200, 400].
-        Add(-820f, -780f, 0f, h, -m, -200f, SurfaceKind.Wall);
-        Add(-820f, -780f, 0f, h, 400f, m, SurfaceKind.Wall);
-        // thin cover inside the corridor is penetrable
-        Add(-960f, -940f, 0f, 96f, -900f, -600f, SurfaceKind.Wall, penetrable: true);
-        Add(-1150f, -1060f, 0f, 64f, 480f, 570f, SurfaceKind.Crate);
-        Add(-960f, -870f, 0f, 64f, -740f, -650f, SurfaceKind.Crate);
-
-        // ---------------------------------------------------------------- east raised platform + stairs
-        Add(700f, m, 0f, 64f, -600f, 600f, SurfaceKind.Platform);
-        Add(660f, 700f, 0f, 16f, -160f, -60f, SurfaceKind.Platform);
-        Add(620f, 660f, 0f, 32f, -160f, -60f, SurfaceKind.Platform);
-        Add(580f, 620f, 0f, 48f, -160f, -60f, SurfaceKind.Platform);
-        Add(880f, 960f, 64f, 152f, -120f, -40f, SurfaceKind.Crate);
-        Add(1000f, 1080f, 64f, 136f, 200f, 280f, SurfaceKind.Crate);
-        Add(700f, 740f, 64f, 104f, -600f, -520f, SurfaceKind.Crate);
-
-        // ---------------------------------------------------------------- north divider (long sightline break)
-        Add(-300f, -120f, 0f, 140f, -900f, -820f, SurfaceKind.Wall);
-        Add(120f, 300f, 0f, 140f, -900f, -820f, SurfaceKind.Wall);
-        Add(-200f, -100f, 0f, 64f, -700f, -600f, SurfaceKind.Crate);
-        Add(140f, 240f, 0f, 64f, -560f, -460f, SurfaceKind.Crate);
-
-        // ---------------------------------------------------------------- south pit cover
-        Add(-500f, -260f, 0f, 96f, 700f, 940f, SurfaceKind.Crate);
-        Add(300f, 560f, 0f, 96f, 760f, 1000f, SurfaceKind.Crate);
-        Add(-100f, 100f, 0f, 48f, 860f, 900f, SurfaceKind.Platform);
-        Add(-560f, -480f, 0f, 64f, 300f, 380f, SurfaceKind.Crate);
-        Add(360f, 440f, 0f, 64f, 300f, 380f, SurfaceKind.Crate);
-        Add(-460f, -380f, 0f, 64f, -520f, -440f, SurfaceKind.Crate);
-        Add(360f, 440f, 0f, 64f, -560f, -480f, SurfaceKind.Crate);
-
+        IndustrialZoneLayout.AddCollision(brushes);
         Brushes = brushes.ToArray();
-
-        Spawns = new[]
-        {
-            new SpawnPoint(new Vector3(-1080f, 0f, -1000f), 0f),
-            new SpawnPoint(new Vector3(-1080f, 0f, -100f), 0f),
-            new SpawnPoint(new Vector3(-1080f, 0f, 1000f), 180f),
-            new SpawnPoint(new Vector3(-600f, 0f, -1050f), 180f),
-            new SpawnPoint(new Vector3(0f, 0f, -1050f), 180f),
-            new SpawnPoint(new Vector3(600f, 0f, -1050f), 180f),
-            new SpawnPoint(new Vector3(0f, 0f, 1050f), 0f),
-            new SpawnPoint(new Vector3(-600f, 0f, 1050f), 0f),
-            new SpawnPoint(new Vector3(600f, 0f, 1050f), 0f),
-            new SpawnPoint(new Vector3(1080f, 64f, -400f), 135f),
-            new SpawnPoint(new Vector3(1080f, 64f, 400f), 45f),
-            new SpawnPoint(new Vector3(-300f, 0f, 430f), 90f),
-            new SpawnPoint(new Vector3(420f, 0f, 520f), 45f),
-        };
+        Spawns = IndustrialZoneLayout.CreateSpawns();
     }
-
-    private static Color ColorFor(SurfaceKind kind) => kind switch
-    {
-        SurfaceKind.Floor => U.Rgb(150, 142, 124),
-        SurfaceKind.Wall => U.Rgb(196, 186, 160),
-        SurfaceKind.Crate => U.Rgb(146, 104, 60),
-        SurfaceKind.Metal => U.Rgb(104, 112, 122),
-        SurfaceKind.Platform => U.Rgb(168, 150, 122),
-        _ => U.Rgb(180, 180, 180),
-    };
 
     // ---------------------------------------------------------------- queries
 

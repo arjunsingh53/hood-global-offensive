@@ -224,9 +224,12 @@ public static class ScriptedPlay
         Weapon weapon = player.Current;
         if (weapon.Mag == 0 && !weapon.Reloading && weapon.Reserve > 0) input.Reload = true;
 
-        // Exercise crouch, walk and jump paths so the harness covers them.
+        // Exercise crouch, quiet-walk, jump and the source-style sprint press
+        // edges. The focused --movement-check verifies exact timing; this
+        // broader match keeps the integrated combat path in coverage too.
         input.Crouch = tick % 900 is > 600 and < 640;
         input.Walk = tick % 1200 is > 900 and < 940;
+        input.SprintPressed = input.Move.Y > 0.1f && (tick % 1800 is 100 or 160);
         input.Jump = tick % 217 == 0;
 
         return input;

@@ -31,6 +31,15 @@ one shot, and it exits non-zero if an invariant breaks:
 dotnet run -- --headless --seconds 300 --bots 9 --skill Normal --seed 20260114
 ```
 
+For a movement/controller change, also run the focused deterministic trace:
+
+```bash
+dotnet run -- --movement-check --seed 20260114
+```
+
+It must report `result : PASS`; it covers sprint/tactical-sprint state edges and duration, stance
+transitions, air cancellation, collision safety and deterministic replay without a GPU.
+
 You are looking for `RESULT: PASS`, and for the invariant block to report:
 
 ```
@@ -82,9 +91,12 @@ Concretely:
    derived from the geometry instead of authored by hand, so please do not introduce non-axis-aligned
    collision without discussing it first.
 5. **No hand-committed binary assets.** All audio is synthesised at startup by `WavGen.cs`; please do
-   not add sound files or loose textures. Weapon meshes are the one exception, and they go through
-   [`tools/build_weapon_asset.py`](tools/build_weapon_asset.py): the repository holds the optimised
-   result, the script holds the recipe, and the source asset is never committed.
+   not add sound files or loose textures. The weapon and character meshes are explicit exceptions,
+   and go through [`tools/build_weapon_asset.py`](tools/build_weapon_asset.py) and
+   [`tools/build_character_asset.py`](tools/build_character_asset.py): the repository holds the
+   runtime-safe result and the script holds the recipe. The supplied Industrial Zone GLB is the other
+   exception: it is retained byte-for-byte with its required provenance and attribution record in
+   [`assets/maps/`](assets/maps/), rather than regenerated or replaced with procedural geometry.
 
 [ARCHITECTURE.md](docs/ARCHITECTURE.md) explains the reasoning behind these, including why the view
 model is drawn into its own render target, how an art-mesh weapon is placed, and why the far clip

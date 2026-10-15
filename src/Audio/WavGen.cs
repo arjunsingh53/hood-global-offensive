@@ -204,6 +204,52 @@ public static class WavGen
         return Encode(s);
     }
 
+    /// <summary>
+    /// Short, dry local confirmation for a successful player hit.  It is separate
+    /// from the in-world flesh impact so distance never makes the HUD confirmation
+    /// vanish before the player hears it.
+    /// </summary>
+    public static byte[] Hitmarker(ulong seed)
+    {
+        var rng = new Rng(seed);
+        const float duration = 0.075f;
+        float[] s = Allocate(duration);
+        for (int i = 0; i < s.Length; i++)
+        {
+            float t = i / (float)SampleRate;
+            float env = MathF.Exp(-t * 62f);
+            float tick = MathF.Sin(MathF.Tau * 1820f * t) * env * 0.68f;
+            float snap = Noise(ref rng) * MathF.Exp(-t * 140f) * 0.24f;
+            s[i] = MathF.Tanh((tick + snap) * 1.35f) * 0.75f;
+        }
+        Fade(s, 0.0015f);
+        return Encode(s);
+    }
+
+    /// <summary>Two-stage local confirmation used for a player headshot.</summary>
+    public static byte[] Headshot(ulong seed)
+    {
+        var rng = new Rng(seed);
+        const float duration = 0.17f;
+        float[] s = Allocate(duration);
+        int second = (int)(0.045f * SampleRate);
+        for (int i = 0; i < s.Length; i++)
+        {
+            float t = i / (float)SampleRate;
+            float primary = MathF.Sin(MathF.Tau * 1180f * t) * MathF.Exp(-t * 38f) * 0.62f;
+            float follow = 0f;
+            if (i >= second)
+            {
+                float later = (i - second) / (float)SampleRate;
+                follow = MathF.Sin(MathF.Tau * 1760f * later) * MathF.Exp(-later * 44f) * 0.44f;
+            }
+            float snap = Noise(ref rng) * MathF.Exp(-t * 120f) * 0.18f;
+            s[i] = MathF.Tanh((primary + follow + snap) * 1.3f) * 0.78f;
+        }
+        Fade(s, 0.0015f);
+        return Encode(s);
+    }
+
     /// <summary>Knife swing: airy swoosh.</summary>
     public static byte[] Swoosh(ulong seed)
     {
