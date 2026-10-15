@@ -20,7 +20,7 @@ code and every sound effect is synthesised to WAV at startup.
   the two raylib constraints that decide what that file may contain.
 - One map ("Crossfire"), one mode (free-for-all deathmatch), 8 weapons, up to 15 bots.
 - Builds clean: **0 warnings, 0 errors**.
-- **49 files tracked in git, 2 commits**, branch `main` (commit 1 = the game, commit 2 = this handoff).
+- **53 files tracked in git, 4 commits**, branch `main` (1 = the game, 2 = this handoff, 3 = the art-mesh weapon, 4 = the handoff update). Pushed to a public remote — see §5.
 
 ### Where it lives
 
@@ -83,10 +83,12 @@ commands given; do not take it on faith.
 ### Git state
 
 ```
-7fd1217 Add HANDOFF.md: complete briefing for a new agent taking over the project
+b95e4ce Update the handoff for the published repo
+6cd1c5d Draw the Glock 17 from a real mesh instead of boxes
+6864fab Add HANDOFF.md: complete briefing for a new agent taking over the project
 7e3a551 Initial commit: Hood Global Offensive v0.1.0 (early access)
 branch: main
-49 tracked files, 2 commits
+53 tracked files, 4 commits
 remote: origin → https://github.com/arjunsingh53/hood-global-offensive.git  ← PUSHED
 working tree: clean
 ```
