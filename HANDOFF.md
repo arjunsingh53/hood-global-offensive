@@ -1,6 +1,6 @@
 # HANDOFF — Hood Global Offensive
 
-**Written:** 2026-10-15 · **Version:** v0.1.0 (early access) · **Status:** playable, documented, documented-verified, **not yet pushed to GitHub**
+**Written:** 2026-10-15 · **Version:** v0.1.0 (early access) · **Status:** playable, documented, verified, **published**
 
 This document is a complete, self-contained briefing. It assumes you have never seen this project.
 Read it top to bottom before touching anything — sections 2 and 8 in particular will save you hours.
@@ -87,15 +87,16 @@ commands given; do not take it on faith.
 7e3a551 Initial commit: Hood Global Offensive v0.1.0 (early access)
 branch: main
 49 tracked files, 2 commits
-remote: none  ← NOT PUSHED
-working tree: 17 modified files + 3 new paths, all the Glock 17 mesh work, UNCOMMITTED
+remote: origin → https://github.com/arjunsingh53/hood-global-offensive.git  ← PUSHED
+working tree: clean
 ```
 
-The uncommitted change set is: the art mesh (`assets/weapons/glock17.glb`), its loader
+Commit 3 is the art-mesh work: the mesh (`assets/weapons/glock17.glb`), its loader
 (`src/Render/WeaponModels.cs`), its build pipeline (`tools/build_weapon_asset.py`), the view-model and
 weapon-name changes in `src/`, the regenerated `shots/`, and the documentation updates listed in
-`CHANGELOG.md` under `[Unreleased]`. It was verified the same way the rest of the project is — build,
-headless match, `verify_shots.py`, `sweep_weapons.py` — and nothing in it is speculative.
+`CHANGELOG.md` under `[Unreleased]`. It was verified the same way the rest of the project is — build
+with `-warnaserror`, a 300-second headless match, `verify_shots.py`, `sweep_weapons.py` — plus a blob
+hash comparison against the pushed remote.
 
 `bin/`, `obj/`, `__pycache__/`, and capture output are gitignored. Verify with
 `git status --short --ignored` before committing that this is still true.
@@ -145,21 +146,24 @@ See [docs/BUILDING.md](docs/BUILDING.md) for publishing and distribution command
 
 ---
 
-## 5. IMMEDIATE PENDING TASK — publish to GitHub
+## 5. DONE — published to GitHub
+
+**Status: complete.** `github.com/arjunsingh53/hood-global-offensive` exists, is **public**, and
+`main` is pushed. The CI workflow ran on the first push and **passed** (`build-and-verify`, 25 s on
+`ubuntu-latest`, run `38767895739`) — which also proves the build and the headless match work on
+Linux, not just this Windows machine. Repository topics are set.
+
+One gotcha worth keeping: the push was rejected at first with *"refusing to allow an OAuth App to
+create or update workflow `.github/workflows/verify.yml` without `workflow` scope"*. The fix is
+`gh auth refresh -h github.com -s workflow` — another device-code round trip. Grant the `workflow`
+scope up front when a repo contains a CI file.
+
+**Still open from the original plan:** no `v0.1.0` tag or pre-release has been created yet, and the
+README has not been eyeballed on the rendered GitHub page.
+
+### The original runbook (kept for reference, already executed)
 
 **Goal:** create `github.com/arjunsingh53/hood-global-offensive`, **public**, and push `main`.
-
-**Decided and confirmed by the human:** repo must be public; screenshots included in the README;
-repo name comes from "HOOD GLOBAL OFFENSIVE (FPS)". GitHub names cannot contain spaces or
-parentheses, so the slug is `hood-global-offensive`.
-
-### Current blocker
-
-`gh auth login` requires the human to enter a one-time code at <https://github.com/login/device>.
-Two attempts were made; the *first* failed because gh was started with `&` inside a synchronous
-command and was killed when that command finished, so the authorization the human completed had
-nowhere to land. The second attempt was started as a genuine persistent background process and was
-still waiting at the time of writing.
 
 **The lesson: `gh auth login` must run as a persistent background process (`process_type:
 BACKGROUND`), not with `&` inside a SYNC command.** If the flow has died, restart it that way, read
@@ -207,8 +211,8 @@ git log --oneline origin/main
   and every relative link resolve. The images are referenced as `shots/*.png`, which is correct for
   the GitHub renderer.
 - **Check the CI workflow ran.** `.github/workflows/verify.yml` runs the build and both headless
-  matches on push. It was validated locally (all three steps pass) but has never run on a GitHub
-  runner.
+  matches on push. It ran on a GitHub runner on the very first push and passed in 25 s (run
+  `38767895739`).
 - **Add repo topics** so it is discoverable: `game`, `fps`, `csharp`, `dotnet`, `raylib`,
   `counter-strike`, `gamedev`, `early-access`.
 
@@ -485,13 +489,16 @@ State these as limitations, not as passes:
 1. **Feel is untested.** Mouse sensitivity, recoil weight, and whether Hard bots are fun or
    infuriating are personal-preference judgements that no automated check covers. All of those
    numbers are in `Cfg.cs` and `Weapons.cs` and are quick to tune after playing a round.
-2. **The CI workflow has never run on GitHub.** Its three steps were executed locally and all pass,
-   but no GitHub runner has been exercised. The workflow deliberately contains only GPU-free checks.
+2. **The CI workflow has run only once, and covers only the GPU-free checks.** That run passed
+   (`build-and-verify`, 25 s, `ubuntu-latest`), which also established that the build and the headless
+   match work on Linux. `sweep_weapons.py` and `verify_shots.py` still have no CI coverage, because
+   they need a display.
 3. **The interactive path was smoke-tested, not played.** A 10-second run of the real `Game.Run()`
    path (re-run *after* the rebrand) confirmed the window opens, audio initialises and the loop is
    stable on this GPU with no exceptions. Nobody has yet played a full match with a keyboard and
    mouse and reported whether it is fun.
-4. **Nothing has been pushed.** No remote exists (see section 5).
+4. **No release has been tagged.** The code is pushed, but there is no `v0.1.0` tag or GitHub
+   pre-release, so the repo has no "releases" entry for a visitor to land on.
 5. **`sweep_weapons.py` needs a real GL context**, so it cannot run in plain CI as written.
 6. **The Glock 17 mesh has been verified by measurement, not by play.** It is framed correctly at five
    different moments in a match and its reload pose stays in frame, but nobody has yet played a round
