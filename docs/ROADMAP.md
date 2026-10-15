@@ -12,7 +12,7 @@ weapon table, or the UI implies something that does not actually happen yet.
 
 ### 1. Wire up armour penetration
 
-`WeaponDef.ArmorPenetration` is defined for every weapon (0.47 for the Glock-18, 0.775 for the AK-47,
+`WeaponDef.ArmorPenetration` is defined for every weapon (0.47 for the Glock 17, 0.775 for the AK-47,
 0.975 for the AWP) and **nothing reads it**. Armour currently applies a flat rule: 50% of damage
 reaches health, 100% if the target has no helmet and you hit the head.
 
@@ -106,5 +106,7 @@ depends on armour and economy being settled first.
   navigation graph derivable and the collision model trivial.
 - **A different renderer or a move to a game engine.** The point of this project is that it is written
   from scratch on a thin binding, and it currently builds clean with zero warnings and no engine.
-- **Asset packs or licensed content.** The repository contains no binary assets and synthesises all
-  its audio. That property is worth keeping.
+- **Asset packs or licensed content.** Everything the game needs is generated in code or by a
+  checked-in script: audio is synthesised at startup, the map is code, and the one weapon mesh is
+  the published output of `tools/build_weapon_asset.py`. That property is worth keeping, and it is
+  why a new weapon mesh has to come with its regeneration recipe attached.

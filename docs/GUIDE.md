@@ -60,7 +60,7 @@ The very first run compiles the project and takes a few seconds longer than subs
 1. The main menu opens. Leave the defaults for now (9 bots, Normal skill, 30 kills, sensitivity 2.2).
 2. Press `Enter` or click **START DEATHMATCH**.
 3. The mouse cursor is captured. Look around with the mouse, move with `W A S D`.
-4. You spawn with a **knife** and a **Glock-18**. Left click to shoot.
+4. You spawn with a **knife** and a **Glock 17**. Left click to shoot.
 5. Press `B` to open the buy menu, and buy an **AK-47** ($2700) or **M4A4** ($3100) as soon as you
    can afford one. Kills pay for it.
 6. Press `Tab` to see the scoreboard.
@@ -261,7 +261,7 @@ Distances are in world units, and the exponent is measured per **1000 units**. W
 | --- | --- | --- | --- | --- |
 | AK-47 | 0.25 | 27 | 20 | Barely cares about range |
 | Desert Eagle | 0.25 | 47 | 35 | Still hurts a long way out |
-| Glock-18 | 0.35 | 18 | 12 | Falls off noticeably |
+| Glock 17 | 0.35 | 18 | 12 | Falls off noticeably |
 | MP5-SD | 0.32 | 18 | 12 | Get closer |
 | Nova | 0.72 | 7 per pellet | 2 per pellet | Only viable in someone's face |
 
@@ -286,7 +286,7 @@ To make the headshot numbers concrete, against an unarmoured target at point bla
 | M4A4 (33) | 33 | 132 — instant kill |
 | Desert Eagle (63) | 63 | 252 — instant kill |
 | MP5-SD (27) | 27 | 108 — instant kill |
-| Glock-18 (28) | 28 | 112 — instant kill |
+| Glock 17 (28) | 28 | 112 — instant kill |
 | Nova (24 × 9) | 216 total | 72 per pellet |
 | AWP (115) | **115 — instant kill** | 172 |
 
@@ -314,7 +314,7 @@ Concrete numbers against a target with full 100 armour:
 | M4A4 (33) | 17 | 6 |
 | Desert Eagle (63) | 32 | 4 |
 | MP5-SD (27) | 14 | 8 |
-| Glock-18 (28) | 14 | 8 |
+| Glock 17 (28) | 14 | 8 |
 | AWP (115) | 58 | 2 |
 
 Armour roughly doubles the number of body shots required, which is exactly why it is worth having.
@@ -410,7 +410,7 @@ Every number below is read from the source table in
 | Weapon | Class | Slot | Price | Damage | Head × | Falloff | Range | RPM-ish | Mag / Reserve | Reload | Move × | Kill award |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | Knife | Melee | 1 | — | 55 | ×3 | — | 90 | 150 | — | — | 1.00 | $1500 |
-| Glock-18 | Pistol | 2 | $200 | 28 | ×4 | 0.35 | 1500 | 400 | 20 / 120 | 2.2 s | 1.00 | $300 |
+| Glock 17 | Pistol | 2 | $200 | 28 | ×4 | 0.35 | 1500 | 400 | 20 / 120 | 2.2 s | 1.00 | $300 |
 | Desert Eagle | Pistol | 2 | $700 | 63 | ×4 | 0.25 | 2000 | 267 | 7 / 35 | 2.2 s | 1.00 | $300 |
 | MP5-SD | SMG | 3 | $1500 | 27 | ×4 | 0.32 | 1800 | 750 | 30 / 120 | 2.6 s | 0.96 | $300 |
 | AK-47 | Rifle | 3 | $2700 | 36 | ×4 | 0.25 | 4000 | 600 | 30 / 90 | 2.5 s | 0.90 | $300 |
@@ -427,7 +427,7 @@ you to 83% of 250 = 208 units/s, so carrying it is a real commitment.
 normal kill. A knife kill is worth more than two rifle kills. It has no spread and no falloff.
 The 0.4 s swing means you get one attempt, so take it from behind.
 
-**Glock-18** — Your default. Cheap, fast, 20 rounds, and a ×4 headshot multiplier, which means a
+**Glock 17** — Your default. Cheap, fast, 20 rounds, and a ×4 headshot multiplier, which means a
 single Glock headshot kills instantly from full health. It is a genuinely dangerous weapon in the
 opening seconds of a match, and the falloff (0.35) punishes you past ~1500 units. Fire it as a
 semi-auto: the cycle time is 0.15 s so it keeps up with your clicks.
@@ -494,7 +494,7 @@ Press `B` while alive. It contains:
 | Item | Price |
 | --- | --- |
 | Kevlar + Helmet | $1000 |
-| Glock-18 | $200 |
+| Glock 17 | $200 |
 | Desert Eagle | $700 |
 | Nova | $1050 |
 | MP5-SD | $1500 |
@@ -511,7 +511,7 @@ own a rifle you never have to buy it again unless you want a different one.
 
 ### When to buy what
 
-- **Under $1500:** Glock-18 (free, you already have it) or Desert Eagle at $700 if you want to win
+- **Under $1500:** Glock 17 (free, you already have it) or Desert Eagle at $700 if you want to win
   pistol fights. Skip the Nova unless the map is forcing you into rooms.
 - **$1050–$1500:** MP5-SD. It is the best value in the game for the money and the only gun that
   keeps you mobile.
@@ -734,7 +734,7 @@ dotnet run [-- option value ...]
 | `--seed <n>` | both | 20260114 | Deterministic RNG seed — the same seed reproduces the same match |
 | `--width <n>` | screenshot | 1280 | Window width |
 | `--height <n>` | screenshot | 720 | Window height |
-| `--weapon <name>` | screenshot | default | Equip a weapon: `Knife`, `Glock-18`, `Desert Eagle`, `MP5-SD`, `AK-47`, `M4A4`, `Nova`, `AWP` |
+| `--weapon <name>` | screenshot | default | Equip a weapon: `Knife`, `Glock 17`, `Desert Eagle`, `MP5-SD`, `AK-47`, `M4A4`, `Nova`, `AWP` |
 | `--screen <name>` | screenshot | play | `play`, `scoreboard`, `buy` or `menu` |
 | `--zoom` | screenshot | off | Hold the AWP scope before capturing |
 | `--verbose` | headless | off | Also dump the kill feed |

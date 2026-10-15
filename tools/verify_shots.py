@@ -4,7 +4,9 @@ Three classes of check, all measured on the real PNGs in shots/ rather than on
 intermediate files:
 
   * view model framing - the weapon must be clearly present in the lower right
-    and must not reach up into the region where the crosshair sits.
+    and must not reach up into the region where the crosshair sits. Both kinds of
+    weapon are covered: the box shapes and the Glock 17's art mesh (which is
+    identified by shape - dark and near-neutral - rather than by exact colour).
   * the title screen - the accent bar is drawn and the game title renders without
     being clipped by the right edge of the window.
   * the scoped frame - the corners must be heavily darkened relative to the
@@ -24,6 +26,18 @@ from inspect_png import decode  # noqa: E402
 
 GUN_BODY = lambda r, g, b: 55 <= r <= 70 and 56 <= g <= 71 and 65 <= b <= 80
 GUN_METAL = lambda r, g, b: 132 <= r <= 150 and 136 <= g <= 154 and 146 <= b <= 164
+# The art-mesh weapon, by shape: dark and near-neutral, minus the box body colour.
+# The 85 cap is below the world's darkest flat surface (a metal brush skirt at
+# (75, 81, 88)), so level geometry cannot be mistaken for the weapon.
+GUN_DARK = lambda r, g, b: max(r, g, b) <= 85 and max(r, g, b) - min(r, g, b) <= 20 \
+    and not GUN_BODY(r, g, b)
+GUN = lambda r, g, b: GUN_BODY(r, g, b) or GUN_METAL(r, g, b) or GUN_DARK(r, g, b)
+
+# The radar panel in the bottom-right corner is dark grey too, so everything that
+# measures "gun-ish dark pixels" stops at 82% of the width. Measured on a control
+# frame with the view model suppressed: 0.0% inside this region, against 11.6%
+# for the same frame with the weapon drawn.
+CHECKED_RIGHT = 0.82
 
 
 def coverage(w, h, bpp, px, rect, pred, step=2):
@@ -56,9 +70,10 @@ def mean_luma(w, h, bpp, px, rect, step=3):
 def check_framing(path):
     w, h, bpp, px = decode(path)
     cx, cy = w // 2, h // 2
-    gun = lambda a, b, c: GUN_BODY(a, b, c) or GUN_METAL(a, b, c)
+    gun = lambda a, b, c: GUN(a, b, c)
 
-    lower_right = coverage(w, h, bpp, px, (int(w * 0.55), int(h * 0.55), w, h), gun)
+    lower_right = coverage(w, h, bpp, px,
+                           (int(w * 0.55), int(h * 0.55), int(w * CHECKED_RIGHT), h), gun)
     centre = coverage(w, h, bpp, px, (cx - 100, cy - 60, cx + 100, cy + 60), gun)
     left = coverage(w, h, bpp, px, (0, int(h * 0.55), int(w * 0.4), h), gun)
 
@@ -126,8 +141,8 @@ def check_stowed_control():
     """Positive control: the same statistic on a frame whose weapon IS drawn."""
     path = "shots/02-deagle.png"
     w, h, bpp, px = decode(path)
-    gun = lambda r, g, b: GUN_BODY(r, g, b) or GUN_METAL(r, g, b)
-    box = (int(w * 0.62), int(h * 0.60), w, h)
+    gun = lambda r, g, b: GUN(r, g, b)
+    box = (int(w * 0.62), int(h * 0.60), int(w * CHECKED_RIGHT), h)
     present = coverage(w, h, bpp, px, box, gun)
     ok = present > 15.0
     print(f"  {path}  (control: weapon must be drawn)")
@@ -193,7 +208,7 @@ def main():
     results = []
 
     print("view model framing")
-    for shot in ("shots/01-ak47.png", "shots/02-deagle.png"):
+    for shot in ("shots/01-ak47.png", "shots/02-deagle.png", "shots/06-glock17.png"):
         results.append(check_framing(shot))
 
     print()

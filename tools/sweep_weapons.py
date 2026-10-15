@@ -16,8 +16,20 @@ os.chdir(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from inspect_png import decode  # noqa: E402
 
-GUN = lambda r, g, b: (55 <= r <= 70 and 56 <= g <= 71 and 65 <= b <= 80) or \
-                      (132 <= r <= 150 and 136 <= g <= 154 and 146 <= b <= 164)
+# Box weapons are flat-shaded, so exact colours identify them. The Glock 17 is an
+# art mesh with a photo texture, so it is identified by shape instead: dark and
+# near-neutral, minus the box body colour. The 85 cap sits below the world's
+# darkest flat surface (a metal brush skirt at (75, 81, 88)), and the radar panel
+# in the bottom-right corner is dark grey as well, so every region below stops at
+# 82% of the width. Measured on a control frame with the view model suppressed:
+# 0.0% inside those regions, against 11.6% with the weapon drawn.
+GUN_BODY = lambda r, g, b: 55 <= r <= 70 and 56 <= g <= 71 and 65 <= b <= 80
+GUN_METAL = lambda r, g, b: 132 <= r <= 150 and 136 <= g <= 154 and 146 <= b <= 164
+GUN_DARK = lambda r, g, b: max(r, g, b) <= 85 and max(r, g, b) - min(r, g, b) <= 20 \
+    and not GUN_BODY(r, g, b)
+GUN = lambda r, g, b: GUN_BODY(r, g, b) or GUN_METAL(r, g, b) or GUN_DARK(r, g, b)
+
+CHECKED_RIGHT = 0.82
 
 
 def coverage(w, h, bpp, px, rect, pred, step=2):
@@ -36,7 +48,8 @@ def coverage(w, h, bpp, px, rect, pred, step=2):
 def measure(path):
     w, h, bpp, px = decode(path)
     cx, cy = w // 2, h // 2
-    lower_right = coverage(w, h, bpp, px, (int(w * 0.55), int(h * 0.55), w, h), GUN)
+    lower_right = coverage(w, h, bpp, px,
+                           (int(w * 0.55), int(h * 0.55), int(w * CHECKED_RIGHT), h), GUN)
     centre = coverage(w, h, bpp, px, (cx - 100, cy - 60, cx + 100, cy + 60), GUN)
     left = coverage(w, h, bpp, px, (0, int(h * 0.55), int(w * 0.4), h), GUN)
     return lower_right, centre, left
@@ -55,7 +68,7 @@ def main():
     env = dict(os.environ)
     env.setdefault("DOTNET_ROOT", os.path.join(os.path.expanduser("~"), ".dotnet"))
 
-    weapons = ["Knife", "Glock-18", "Desert Eagle", "MP5-SD", "AK-47", "M4A4", "Nova", "AWP"]
+    weapons = ["Knife", "Glock 17", "Desert Eagle", "MP5-SD", "AK-47", "M4A4", "Nova", "AWP"]
     moments = [3, 5, 7, 9, 11]
     tmp = os.path.join("shots", "_sweep.png")
 

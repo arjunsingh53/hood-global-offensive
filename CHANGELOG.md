@@ -8,6 +8,43 @@ the minor number may contain breaking changes.
 
 ---
 
+## [Unreleased]
+
+### Added
+
+- **The Glock 17 is drawn from a real mesh** (`assets/weapons/glock17.glb`) instead of from boxes. It
+  is the only binary file in the repository: 17,546 triangles and 1024/512/256 PNG textures, 2.7 MB,
+  generated from a 145 MB source model (1,169,840 triangles, 8K albedo) by the new checked-in
+  pipeline [`tools/build_weapon_asset.py`](tools/build_weapon_asset.py). The pose — scale, centre and
+  the bore line the muzzle flash sits on — is measured from the loaded mesh, so re-exporting the
+  asset does not silently break the framing.
+- `src/Render/WeaponModels.cs`: mesh loading, measurement and drawing, with a graceful per-weapon
+  fallback to the box shape if a mesh is missing or unloadable.
+
+### Changed
+
+- The default sidearm is named **Glock 17** (was `Glock-18`), matching the mesh that draws it.
+- `WeaponRegistry.ByName` no longer silently substitutes the Glock for an unknown name; it reports the
+  substitution on stderr, and the lookup is now case-insensitive. `--weapon Deagle` had been quietly
+  equipping a Glock — only `Desert Eagle` resolves — which is how `shots/02-deagle.png` came to show a
+  pistol that was not a Desert Eagle. `tools/capture_shots.sh` is fixed, and the shot is regenerated.
+- The framing checks (`tools/inspect_png.py`, `tools/verify_shots.py`, `tools/sweep_weapons.py`) now
+  recognise an art-mesh weapon by shape — dark, near-neutral pixels — rather than only by the box
+  weapons' exact colours, and they stop short of the HUD's radar panel, which is a similar grey. The
+  threshold sits below the world's darkest flat surface (a metal brush skirt at `(75, 81, 88)`); a
+  control frame with the view model suppressed measures 0.0% inside the checked regions.
+- `shots/06-glock17.png` added, and every screenshot artifact regenerated.
+
+### Fixed
+
+- **The reload flourish swung the Glock 17 almost entirely out of frame.** The dip and tilt were
+  tuned for the chunky box weapons, and a real pistol is slim enough that the full angle took it
+  below the screen: the weapon sweep measured 1.0% coverage of the checked lower-right region
+  mid-reload against 9.3% while idle. Art weapons now apply a per-weapon share of the flourish
+  (`ReloadSwing`), which brings the reloading frames back to 5.1%.
+
+---
+
 ## [0.1.0] — 2026-10-15
 
 The first public early access release. Everything below is new.

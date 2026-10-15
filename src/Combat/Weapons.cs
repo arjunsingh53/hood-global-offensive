@@ -167,7 +167,7 @@ public static class WeaponRegistry
 
     public static readonly WeaponDef Glock = new()
     {
-        Name = "Glock-18", Class = "Pistol", Slot = WeaponSlot.Secondary, Price = 200,
+        Name = "Glock 17", Class = "Pistol", Slot = WeaponSlot.Secondary, Price = 200,
         Damage = 28f, ArmorPenetration = 0.47f, HeadshotMultiplier = 4f, Falloff = 0.35f, Range = 1500f,
         CycleTime = 0.15f, Automatic = false, Magazine = 20, Reserve = 120, ReloadTime = 2.2f,
         MoveScale = 1f, SpreadIdle = 0.35f, SpreadMove = 4.5f, SpreadAir = 14f,
@@ -278,7 +278,19 @@ public static class WeaponRegistry
     public static readonly WeaponDef[] PrimaryPool = { Mp5, Ak47, M4A4, Nova, Awp };
     public static readonly WeaponDef[] SecondaryPool = { Glock, Deagle };
 
-    public static WeaponDef ByName(string name) => Array.Find(All, w => w.Name == name) ?? Glock;
+    /// <summary>
+    /// Looks a weapon up by display name, ignoring case. An unknown name falls back
+    /// to the Glock and says so on stderr, because quietly handing back the fallback
+    /// made `--weapon Deagle` look like it had worked.
+    /// </summary>
+    public static WeaponDef ByName(string name)
+    {
+        WeaponDef? def = Array.Find(All, w => string.Equals(w.Name, name, StringComparison.OrdinalIgnoreCase));
+        if (def is not null) return def;
+
+        Console.Error.WriteLine($"unknown weapon '{name}': using {Glock.Name}");
+        return Glock;
+    }
 
     private static Vector2[] Pattern4(params Vector2[] head)
     {

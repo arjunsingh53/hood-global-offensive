@@ -261,6 +261,10 @@ public static class Renderer
             reloadDip = MathF.Sin(reloadT * MathF.PI);
         }
 
+        // Meshes are slimmer than the boxes the reload flourish was tuned against, so
+        // they swing out of frame at the full angle; each art weapon scales it.
+        if (Artwork.TryGetValue(def.Name, out WeaponArtwork art)) reloadDip *= art.ReloadSwing;
+
         float kick = p.ViewKick;
         float bobX = MathF.Sin(p.BobPhase) * 2.4f * p.BobAmount;
         float bobY = MathF.Cos(p.BobPhase * 2f) * 1.8f * p.BobAmount;
@@ -303,8 +307,8 @@ public static class Renderer
         Raylib.BeginMode3D(viewModelCamera);
 
         PushViewModelTransform(sim, offset, pose, kick, reloadDip);
-        DrawWeaponShape(def, p, kick, reloadDip);
-        if (p.MuzzleFlash > 0f) DrawMuzzleFlash(sim, pose);
+        Vector3? muzzle = DrawWeaponShape(def, p, kick, reloadDip);
+        if (p.MuzzleFlash > 0f) DrawMuzzleFlash(sim, pose, muzzle);
         Rlgl.PopMatrix();
 
         Raylib.EndMode3D();
@@ -347,11 +351,15 @@ public static class Renderer
     /// <summary>Releases the weapon render target. Call before the window closes.</summary>
     public static void Shutdown()
     {
-        if (_viewModelTarget.Id == 0) return;
-        Raylib.UnloadRenderTexture(_viewModelTarget);
-        _viewModelTarget = default;
-        _viewModelWidth = 0;
-        _viewModelHeight = 0;
+        if (_viewModelTarget.Id != 0)
+        {
+            Raylib.UnloadRenderTexture(_viewModelTarget);
+            _viewModelTarget = default;
+            _viewModelWidth = 0;
+            _viewModelHeight = 0;
+        }
+
+        WeaponModels.Shutdown();
     }
 
     /// <summary>
@@ -385,8 +393,40 @@ public static class Renderer
         Rlgl.Scalef(pose.Scale, pose.Scale, pose.Scale);
     }
 
-    private static void DrawWeaponShape(WeaponDef def, Player p, float kick, float reloadDip)
+    /// <summary>
+    /// A weapon drawn from an art mesh: the file, how long its barrel should appear
+    /// in view-model units, where its centre sits, and how much of the reload
+    /// flourish to apply. The pose values are tuned so the weapon occupies the same
+    /// space on screen as the box shapes it replaces.
+    /// </summary>
+    private readonly record struct WeaponArtwork(string Path, float Length, Vector3 Centre, float ReloadSwing);
+
+    /// <summary>
+    /// Weapons that have a real mesh. Anything not listed here is drawn from boxes,
+    /// and a weapon stays on its boxes if its mesh fails to load.
+    /// </summary>
+    private static readonly Dictionary<string, WeaponArtwork> Artwork = new(StringComparer.OrdinalIgnoreCase)
     {
+        // The reload dip and tilt are tuned for the box weapons, which are far
+        // chunkier than a real pistol: at their full angle this mesh swings almost
+        // entirely below the frame. The sweep measured it at 1.0% of the lower-right
+        // region mid-reload against 9.3% while idle, so the flourish is halved.
+        ["Glock 17"] = new("assets/weapons/glock17.glb", 25f, new Vector3(-1f, -9.5f, -10.5f), 0.45f),
+    };
+
+    /// <summary>
+    /// Draws the weapon into the current view-model space. Returns the muzzle point
+    /// when the weapon is an art mesh, so the flash can be hung on the real barrel
+    /// rather than on the per-class bore estimate; box weapons return null.
+    /// </summary>
+    private static Vector3? DrawWeaponShape(WeaponDef def, Player p, float kick, float reloadDip)
+    {
+        if (Artwork.TryGetValue(def.Name, out WeaponArtwork art)
+            && WeaponModels.TryDraw(art.Path, art.Length, art.Centre, out Vector3 muzzle))
+        {
+            return muzzle;
+        }
+
         Color body = U.Rgb(62, 63, 72);
         Color bodyLight = U.Rgb(88, 89, 100);
         Color wood = U.Rgb(126, 84, 44);
@@ -460,11 +500,14 @@ public static class Renderer
         }
 
         _ = kick;
+        return null;
     }
 
-    private static void DrawMuzzleFlash(Simulation sim, in ViewModelPose pose)
+    private static void DrawMuzzleFlash(Simulation sim, in ViewModelPose pose, Vector3? muzzle)
     {
-        Vector3 bore = new(-1f, pose.Bore, -pose.Forward + 2f);
+        // Box weapons have no idea where their bore really is, so they use the
+        // per-class estimate; a mesh weapon reports its own muzzle.
+        Vector3 bore = muzzle ?? new Vector3(-1f, pose.Bore, -pose.Forward + 2f);
         float t = sim.Player.MuzzleFlash / 0.045f;
         float size = t * 7f + 2f;
 

@@ -10,8 +10,12 @@
 | bash | any | Only for `tools/capture_shots.sh` (Git Bash is fine on Windows) |
 
 The sole NuGet dependency is [`Raylib-cs`](https://github.com/ChrisDill/Raylib-cs) 8.1.0, which
-carries the native raylib binaries for Windows, Linux and macOS. There is nothing else to install,
-and there are no binary assets in the repository.
+carries the native raylib binaries for Windows, Linux and macOS. There is nothing else to install.
+
+The one binary file in the repository is `assets/weapons/glock17.glb` (2.7 MB), and the build copies
+`assets/**` next to the executable so the game finds it whichever directory it is launched from. To
+regenerate it from a source model you need [gltfpack](https://github.com/zeux/meshoptimizer/releases)
+and Pillow; see [tools/build_weapon_asset.py](../tools/build_weapon_asset.py).
 
 ---
 

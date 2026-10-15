@@ -10,10 +10,14 @@ Read it top to bottom before touching anything — sections 2 and 8 in particula
 ## 1. What this is
 
 A **Counter-Strike style free-for-all deathmatch FPS written from scratch in C#** on top of the thin
-[Raylib-cs](https://github.com/ChrisDill/Raylib-cs) binding. No game engine, no binary assets: all
-level geometry is code and every sound effect is synthesised to WAV at startup.
+[Raylib-cs](https://github.com/ChrisDill/Raylib-cs) binding. No game engine: all level geometry is
+code and every sound effect is synthesised to WAV at startup.
 
-- **24 source files, 5,634 lines of C#** (plus 498 lines of Python/shell verification tooling).
+- **25 source files, 5,873 lines of C#** (plus 795 lines of Python/shell verification tooling).
+- **The one binary file in the project is a weapon mesh** — `assets/weapons/glock17.glb`, 2.7 MB, the
+  Glock 17's first-person model. It is generated, not hand-committed: the recipe is
+  `tools/build_weapon_asset.py` and the source asset is 145 MB and stays out of the repo. See §6 for
+  the two raylib constraints that decide what that file may contain.
 - One map ("Crossfire"), one mode (free-for-all deathmatch), 8 weapons, up to 15 bots.
 - Builds clean: **0 warnings, 0 errors**.
 - **49 files tracked in git, 2 commits**, branch `main` (commit 1 = the game, commit 2 = this handoff).
@@ -71,9 +75,9 @@ commands given; do not take it on faith.
 | Build | `dotnet build --nologo -warnaserror` | **PASS** — 0 warnings, 0 errors |
 | Full match, default settings | `dotnet run --no-build -- --headless --seconds 300 --bots 9 --skill Normal --seed 20260114` | **PASS** — 29/10 K/D, 34.9% accuracy, 0 geometry violations, kills == deaths, RESULT: PASS |
 | Crowded match, Hard | `dotnet run --no-build -- --headless --seconds 60 --bots 15 --skill Hard --seed 7331` | **PASS** — 8/3 K/D, 15 actors, all invariants hold |
-| Screenshot artifacts | `python tools/verify_shots.py` | **ALL PASS** — 6 artifacts |
-| All 8 weapon view models × 5 moments | `python tools/sweep_weapons.py` | **ALL PASS** |
-| Documentation links | custom walker over all `.md`/`.html` | **46 links, 0 broken** |
+| Screenshot artifacts | `python tools/verify_shots.py` | **ALL PASS** — 7 artifacts (the Glock 17 frame was added) |
+| All 8 weapon view models × 5 moments | `python tools/sweep_weapons.py` | **ALL PASS** — worst case Glock 17 at 5.9% of the lower-right region, max 2.4% in the centre, max 0.4% in the lower-left |
+| Documentation links | custom walker over all `.md`/`.html` | **57 links, 0 broken** |
 | Interactive game launch | `dotnet run` (real window, killed after 10 s) | **PASS** — 1280×720 window on the RTX 3060, raylib 6.0 / OpenGL 3.3 / MSAA×4 / VSYNC, audio device up (miniaudio | WASAPI, 48 kHz stereo), 66 synthesised WAVs loaded, view-model framebuffer created, still alive after 10 s, zero exceptions |
 
 ### Git state
@@ -82,10 +86,16 @@ commands given; do not take it on faith.
 7fd1217 Add HANDOFF.md: complete briefing for a new agent taking over the project
 7e3a551 Initial commit: Hood Global Offensive v0.1.0 (early access)
 branch: main
-49 tracked files
+49 tracked files, 2 commits
 remote: none  ← NOT PUSHED
-working tree: clean
+working tree: 17 modified files + 3 new paths, all the Glock 17 mesh work, UNCOMMITTED
 ```
+
+The uncommitted change set is: the art mesh (`assets/weapons/glock17.glb`), its loader
+(`src/Render/WeaponModels.cs`), its build pipeline (`tools/build_weapon_asset.py`), the view-model and
+weapon-name changes in `src/`, the regenerated `shots/`, and the documentation updates listed in
+`CHANGELOG.md` under `[Unreleased]`. It was verified the same way the rest of the project is — build,
+headless match, `verify_shots.py`, `sweep_weapons.py` — and nothing in it is speculative.
 
 `bin/`, `obj/`, `__pycache__/`, and capture output are gitignored. Verify with
 `git status --short --ignored` before committing that this is still true.
@@ -180,7 +190,7 @@ GH="$HOME/.local/gh/bin/gh.exe"
   --source=. \
   --remote=origin \
   --push \
-  --description "Early access Counter-Strike style FPS written from scratch in C# on Raylib-cs - one map, bots, buy economy, no game engine, no binary assets."
+  --description "Early access Counter-Strike style FPS written from scratch in C# on Raylib-cs - one map, bots, buy economy, no game engine, generated assets."
 
 # 3. verify it actually landed
 "$GH" repo view arjunsingh53/hood-global-offensive --web
@@ -255,7 +265,21 @@ Full reasoning, including the render-target trick that stops walls clipping the 
   work** through raylib's batched renderer; do not go back to it.
 - **`Rlgl.SetClipPlanes` is called explicitly** per pass. raylib's default 1000-unit far plane is far
   too small for a 2400-unit arena. If distant geometry vanishes, this is why.
-- **All audio is synthesised at runtime.** No binary assets in the repo, ever.
+- **All audio is synthesised at runtime**, and the one binary asset is a weapon mesh whose recipe is
+  checked in. If you add art, it goes through `tools/build_weapon_asset.py`; do not commit a raw
+  artist export.
+- **Weapon meshes must be PNG-textured and un-quantized.** Both are measured properties of this
+  raylib build, not preferences: embedded JPEG images fail to decode (a JPEG-textured GLB loads with
+  a 1×1 white texture in every slot, which is what silently happens before you notice), and
+  gltfpack's `KHR_texture_transform` UV quantization is ignored by the loader, which would leave the
+  mesh sampling a sixteenth of its albedo. `tools/build_weapon_asset.py` documents both.
+- **The art weapon's pose is measured, not hard-coded.** `src/Render/WeaponModels.cs` derives the
+  scale and centre from the mesh bounding box and the bore line from the centroid of its front 2%.
+  Do not replace that with literals copied from a screenshot; re-exporting the asset would then break
+  the framing silently.
+- **View-model animation is tuned per weapon shape.** The box weapons are far chunkier than a real
+  pistol, so `WeaponArtwork.ReloadSwing` scales the reload flourish down for meshes; at the full angle
+  the Glock 17 leaves the frame. The weapon sweep measures this (§9).
 
 ---
 
@@ -272,6 +296,9 @@ Full reasoning, including the render-target trick that stops walls clipping the 
 | The match tick loop, scoring, respawning | `src/Sim/Simulation.cs` |
 | Invariant assertions | `src/Sim/HeadlessRunner.cs` |
 | Screenshot capture states (`play`/`scoreboard`/`buy`/`menu`/`--zoom`) | `src/Render/ScreenshotCapture.cs` |
+| Art-mesh weapon loading, measurement and drawing | `src/Render/WeaponModels.cs` |
+| The weapon-to-mesh table and the view-model poses | `src/Render/Renderer.cs` (`Artwork`, `PoseFor`) |
+| Turning a 145 MB source weapon model into the shipped asset | `tools/build_weapon_asset.py` |
 | CLI flag parsing | `Program.cs` |
 
 ---
@@ -353,9 +380,10 @@ specific bug that was found and fixed:
 | `verify_shots.py` scoped frame | A stowed weapon left a **ghost of its previous frame** composited over the scope |
 | `verify_shots.py` title screen | The game was renamed to a 22-character title; this asserts the rendered text is not clipped by the window edge, measured on real pixels rather than assumed from font metrics |
 | `sweep_weapons.py` (8 weapons × 5 moments) | The reload animation rotated the anchor frame, swinging the weapon **up** into view instead of dipping it down |
+| `sweep_weapons.py` (current run) | The reload flourish swung the art-mesh Glock 17 almost out of frame — 1.0% coverage mid-reload against 9.3% idle — because the animation was tuned for the far chunkier box weapons |
 | Headless invariants | `Actor.Deaths` was never incremented — every scoreboard would have shown zero deaths permanently |
 
-Two subtleties to preserve if you touch these checks:
+Three subtleties to preserve if you touch these checks:
 
 1. **The scoped-frame check uses a brightness *ratio*, not colour matching.** Colour matching was
    tried and abandoned, because the scope mask alpha-blends grey level geometry down into the same
@@ -365,6 +393,13 @@ Two subtleties to preserve if you touch these checks:
    statistic that proves a weapon is *stowed* in the scoped frame is measured on a frame whose weapon
    *is* drawn, to prove the check is capable of detecting a gun at all. A check that cannot fail is
    not a check. Keep it.
+3. **The framing checks recognise two kinds of weapon.** Box weapons are identified by their exact
+   flat colours; the art-mesh Glock 17 is identified by shape (`GUN_DARK`: dark and near-neutral),
+   because it is a photo texture. That family is capped at `max(r,g,b) <= 85`, which is *below* the
+   world's darkest flat surface — a metal brush's skirt at `(75, 81, 88)` — and every region stops at
+   82% of the width because the HUD's radar panel is dark grey as well. If you widen the cap or the
+   regions, level geometry and the HUD start counting as a weapon. Measured on a control frame with
+   the view model suppressed: **0.0%** inside the checked regions, against 11.6% with it drawn.
 
 ### If you believe a check is genuinely miscalibrated
 
@@ -421,7 +456,7 @@ Full reasoning in [docs/ROADMAP.md](docs/ROADMAP.md).
 simulation + `InputFrame` abstraction), networking, bot coordination.
 
 **Explicitly not planned:** a level editor (the map is code, deliberately), moving to a game engine,
-or adding binary assets.
+or committing raw art exports — anything binary must arrive with the script that regenerates it.
 
 ---
 
@@ -433,7 +468,7 @@ or adding binary assets.
 | GPU | RTX 3060, raylib 6.0, OpenGL 3.3, MSAA×4 — the game renders correctly |
 | Release builds | **Blocked** by a Windows application-control policy (`FileLoadException`). Use Debug. |
 | gh CLI | `~/.local/gh/bin/gh.exe` (v2.102.0), installed from the release zip to avoid needing admin. Not on `PATH`. |
-| Python | 3.14, stdlib only for the tooling (no Pillow, no numpy — the PNG decoder is hand-written) |
+| Python | 3.14. `tools/inspect_png.py`, `verify_shots.py` and `sweep_weapons.py` are stdlib-only (the PNG decoder is hand-written); `tools/build_weapon_asset.py` additionally needs Pillow (`python -m pip install --user pillow`) and a `gltfpack` binary if you regenerate a weapon mesh |
 | bash | Git Bash |
 | Freebuff preview panel | Compositing is unreliable in this environment and often returns "no frames". It was NOT used for verification; the Python PNG measurements were used instead, and they are more trustworthy. Do not try to verify visuals through the preview panel — use `tools/inspect_png.py`. |
 
@@ -458,6 +493,10 @@ State these as limitations, not as passes:
    mouse and reported whether it is fun.
 4. **Nothing has been pushed.** No remote exists (see section 5).
 5. **`sweep_weapons.py` needs a real GL context**, so it cannot run in plain CI as written.
+6. **The Glock 17 mesh has been verified by measurement, not by play.** It is framed correctly at five
+   different moments in a match and its reload pose stays in frame, but nobody has yet played a round
+   with the real asset on screen and judged whether a photoreal pistol sitting next to box-drawn
+   opponents looks right.
 
 ---
 

@@ -4,6 +4,15 @@ Decodes the PNG with zlib/struct and reports, for named screen regions, how much
 of each region is covered by the view-model materials versus world geometry.
 Used to verify the first-person weapon is framed in the lower right and never
 blocks the centre of the screen where the crosshair lives.
+
+Two kinds of weapon are covered. Box weapons are flat-shaded, so exact colours
+identify them. The Glock 17 is an art mesh with a photo texture, so it gets a
+shape-based family instead: dark and near-neutral, capped at 85 so that the
+world's darkest flat surface - a metal brush's skirt at (75, 81, 88) - cannot be
+mistaken for a weapon. That family also matches the HUD's radar panel, which is
+why the checked regions stop at 82% of the width. Measured with the view model
+suppressed in an otherwise identical frame: 0.0% inside the checked region, against
+11.6% with the weapon drawn.
 """
 import struct
 import sys
@@ -64,6 +73,11 @@ def decode(path):
 VIEWMODEL = [
     ("gun-body", lambda r, g, b: 55 <= r <= 70 and 56 <= g <= 71 and 65 <= b <= 80),
     ("gun-metal", lambda r, g, b: 132 <= r <= 150 and 136 <= g <= 154 and 146 <= b <= 164),
+    # The art-mesh weapon's dark polymer and shadowed metal. The box weapon's body
+    # colour sits inside this band too, so it is subtracted to keep the families
+    # disjoint and their percentages additive.
+    ("gun-dark", lambda r, g, b: max(r, g, b) <= 85 and max(r, g, b) - min(r, g, b) <= 20
+     and not (55 <= r <= 70 and 56 <= g <= 71 and 65 <= b <= 80)),
     ("hand-skin", lambda r, g, b: 188 <= r <= 220 and 148 <= g <= 180 and 116 <= b <= 146),
 ]
 HUD = [
@@ -101,7 +115,7 @@ def main():
     cx, cy = w // 2, h // 2
     regions = [
         ("centre (crosshair 200x120)", (cx - 100, cy - 60, cx + 100, cy + 60)),
-        ("lower-right (viewmodel)", (int(w * 0.55), int(h * 0.55), w, h)),
+        ("lower-right (viewmodel)", (int(w * 0.55), int(h * 0.55), int(w * 0.82), h)),
         ("lower-left", (0, int(h * 0.55), int(w * 0.45), h)),
         ("upper strip (sky)", (0, 0, w, int(h * 0.22))),
     ]
@@ -124,8 +138,8 @@ def main():
     lower_right = coverage(w, h, bpp, px, regions[1][1], VIEWMODEL)
     centre_total = sum(centre.values())
     lr_total = sum(lower_right.values())
-    gun_lr = lower_right["gun-body"] + lower_right["gun-metal"]
-    gun_centre = centre["gun-body"] + centre["gun-metal"]
+    gun_lr = lower_right["gun-body"] + lower_right["gun-metal"] + lower_right["gun-dark"]
+    gun_centre = centre["gun-body"] + centre["gun-metal"] + centre["gun-dark"]
 
     print()
     print("checks")

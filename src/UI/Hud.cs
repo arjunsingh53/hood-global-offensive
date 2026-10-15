@@ -400,7 +400,7 @@ public static class Hud
     private static string ShortName(string name) => name switch
     {
         "Desert Eagle" => "DEAGLE",
-        "Glock-18" => "GLOCK",
+        "Glock 17" => "GLOCK",
         "MP5-SD" => "MP5",
         _ => name.ToUpperInvariant(),
     };

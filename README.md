@@ -4,8 +4,8 @@
 
 Free-for-all deathmatch against bots on a hand-built arena, with CS-derived movement physics,
 hitscan gunplay with authored per-weapon spray patterns, a buy economy and a full first-person HUD.
-No game engine, no binary assets — every sound effect is synthesised at startup and all level
-geometry is code.
+No game engine: every sound effect is synthesised at startup, all level geometry is code, and the
+single file the game reads from disk is one optimised weapon mesh.
 
 ![status](https://img.shields.io/badge/status-early%20access%20v0.1.0-ffba38)
 ![language](https://img.shields.io/badge/C%23-.NET%2010-512bd4)
@@ -26,6 +26,8 @@ geometry is code.
 ![Main menu](shots/00-menu.png)
 
 ![AK-47 in a firefight](shots/01-ak47.png)
+
+![The Glock 17, the one weapon built from a real mesh](shots/06-glock17.png)
 
 | | |
 |---|---|
@@ -114,7 +116,7 @@ shrinks when crouched. The crosshair gap visualises it live.
 | Weapon | Class | Price | Damage | Notes |
 | --- | --- | --- | --- | --- |
 | Knife | Melee | — | 55 | Very high kill reward ($1500) |
-| Glock-18 | Pistol | $200 | 28 | Default sidearm, 20-round magazine |
+| Glock 17 | Pistol | $200 | 28 | Default sidearm, 20-round magazine; drawn from a real mesh |
 | Desert Eagle | Pistol | $700 | 63 | Huge single-shot kick, 2.2s between shots |
 | MP5-SD | SMG | $1500 | 27 | 750 RPM, cheap, accurate on the move |
 | AK-47 | Rifle | $2700 | 36 | The signature 30-shot spray pattern |
@@ -124,6 +126,24 @@ shrinks when crouched. The crosshair gap visualises it live.
 
 Full damage model, hitbox multipliers and armour maths are documented in the
 **[player guide](docs/GUIDE.md)**.
+
+### Weapon meshes
+
+Seven of the eight weapons are drawn from boxes: a few `DrawCubeV` calls posed in camera-local
+space, which cost nothing and always frame correctly. The Glock 17 is drawn from an actual mesh
+(`assets/weapons/glock17.glb`, 17,546 triangles) because the view model is the one piece of art the
+player stares at for a whole match.
+
+That file is generated, not committed as-is: the source asset was 145 MB (1,169,840 triangles and
+an 8K albedo). `tools/build_weapon_asset.py` runs it through [gltfpack](https://github.com/zeux/meshoptimizer)
+and re-encodes the embedded textures, which takes it to 2.7 MB. The same script documents the two
+raylib constraints it works around — embedded textures must be PNG (raylib has no JPEG decoder, so a
+JPEG-textured GLB loads as a 1×1 white texture) and gltfpack's UV quantization cannot be used (it
+relies on `KHR_texture_transform`, which raylib ignores).
+
+The placement is measured from the mesh at load time rather than hard-coded: the bounding box gives
+the scale and centre, and the centroid of the front 2% of the mesh gives the bore line that the
+muzzle flash hangs on. Re-export the asset and the framing follows.
 
 ### Bots
 
@@ -185,14 +205,18 @@ src/
     HeadlessRunner.cs          scripted-input match runner + the robot player
   Render/
     Renderer.cs                3D world, characters, effects, transformed view model
+    WeaponModels.cs            loads and measures the art-mesh weapons
     ScreenshotCapture.cs       renders one real gameplay frame to a PNG
   UI/
     Ui.cs, Hud.cs, Screens.cs  immediate-mode drawing, HUD, menus, buy menu, scoreboard
   Audio/
     WavGen.cs                  procedural WAV synthesis
     AudioBank.cs               sound bank with distance attenuation
+assets/
+  weapons/glock17.glb          the one mesh the game loads (generated, see below)
 tools/
   capture_shots.sh             regenerates every screenshot artifact in shots/
+  build_weapon_asset.py        turns a source weapon model into the shipped asset
   inspect_png.py               dependency-free PNG inspector used to verify captures
   verify_shots.py              asserts view-model framing, scope mask and overlays
   sweep_weapons.py             checks all 8 view models at several moments each
@@ -242,8 +266,13 @@ measures where the view model and HUD actually land:
 ```
 view model framing
   shots/01-ak47.png
-    view model in lower-right :  14.4%  (want > 5)
-    view model in centre      :   0.3%  (want < 6)
+    view model in lower-right :  23.9%  (want > 5)
+    view model in centre      :   0.7%  (want < 6)
+    view model in lower-left  :   0.4%  (want < 1)
+    -> PASS
+  shots/06-glock17.png
+    view model in lower-right :  11.5%  (want > 5)
+    view model in centre      :   0.7%  (want < 6)
     view model in lower-left  :   0.0%  (want < 1)
     -> PASS
 title screen
@@ -254,27 +283,36 @@ title screen
 ARTIFACTS: ALL PASS
 ```
 
+The box weapons are identified by their exact flat colours; the Glock 17's mesh is identified by
+shape instead — dark, near-neutral pixels — because it is a photo texture. That family is capped
+below the world's darkest flat surface and the checked regions stop short of the HUD's radar panel,
+which is a similar grey. Measured on a control frame with the view model suppressed: **0.0%** inside
+the checked regions, against 11.6% with it drawn, so the statistic can genuinely detect a weapon.
+
 `tools/sweep_weapons.py` runs the same check across all eight weapons at five different moments
 each, to catch animation states (reload dip, recoil, landing) that push the weapon where it should
 not be:
 
 ```
 weapon          min lower-right   max centre   max lower-left   verdict
-Knife                      8.6%         1.9%             0.1%   PASS
-Glock-18                  14.1%         1.2%             0.1%   PASS
-Desert Eagle              17.9%         0.9%             0.1%   PASS
-MP5-SD                    22.0%         0.6%             0.1%   PASS
-AK-47                     15.1%         0.6%             0.0%   PASS
-M4A4                      11.7%         1.0%             0.0%   PASS
-Nova                       8.5%         0.9%             0.0%   PASS
-AWP                        9.6%         1.4%             0.1%   PASS
+Knife                     10.1%         2.4%             0.4%   PASS
+Glock 17                   5.9%         2.2%             0.4%   PASS
+Desert Eagle              29.6%         1.4%             0.4%   PASS
+MP5-SD                    36.7%         0.7%             0.4%   PASS
+AK-47                     25.2%         0.8%             0.3%   PASS
+M4A4                      19.5%         1.9%             0.3%   PASS
+Nova                      14.2%         1.2%             0.3%   PASS
+AWP                       16.0%         2.1%             0.4%   PASS
 
 WEAPON SWEEP: ALL PASS
 ```
 
 These checks are not decoration — they caught the view model rendering as a thin sliver with its
 muzzle sitting on the crosshair, a reload animation that swung the gun *up* into view instead of
-dipping it, and a world-clipping bug where standing near a wall made the weapon vanish entirely.
+dipping it, a world-clipping bug where standing near a wall made the weapon vanish entirely, and —
+when the Glock 17 became a real mesh — a reload flourish tuned for the chunky box weapons that swung
+the slim mesh almost out of frame (1.0% of the checked region mid-reload against 9.3% idle, 5.1%
+after the fix below).
 
 ---
 

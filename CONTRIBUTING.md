@@ -81,11 +81,14 @@ Concretely:
 4. **Keep the world axis-aligned.** Every brush is an AABB. This is what lets the navigation graph be
    derived from the geometry instead of authored by hand, so please do not introduce non-axis-aligned
    collision without discussing it first.
-5. **No binary assets.** All audio is synthesised at startup by `WavGen.cs`. Please do not add sound
-   files, texture files or other binaries; generate them instead.
+5. **No hand-committed binary assets.** All audio is synthesised at startup by `WavGen.cs`; please do
+   not add sound files or loose textures. Weapon meshes are the one exception, and they go through
+   [`tools/build_weapon_asset.py`](tools/build_weapon_asset.py): the repository holds the optimised
+   result, the script holds the recipe, and the source asset is never committed.
 
 [ARCHITECTURE.md](docs/ARCHITECTURE.md) explains the reasoning behind these, including why the view
-model is drawn into its own render target and why the far clip plane is set explicitly.
+model is drawn into its own render target, how an art-mesh weapon is placed, and why the far clip
+plane is set explicitly.
 
 ---
 
