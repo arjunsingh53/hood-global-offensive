@@ -26,6 +26,7 @@ public sealed class Game
     private GameState _state = GameState.MainMenu;
     private Simulation? _sim;
     private readonly MatchSettings _settings = new();
+    private readonly UserSettingsStore _userSettings = new();
     private readonly AudioBank _audio = new();
     private readonly Screens.BuyMenu _buyMenu = new();
     private GameState _crosshairReturnState = GameState.MainMenu;
@@ -36,8 +37,15 @@ public sealed class Game
 
     public void Run()
     {
+        // GUI preferences are local-only. Command-line checks construct no Game,
+        // so deterministic simulation and screenshot tools never touch profiles.
+        _userSettings.LoadInto(_settings);
         Raylib.SetConfigFlags(ConfigFlags.ResizableWindow | ConfigFlags.VSyncHint | ConfigFlags.Msaa4xHint);
         Raylib.InitWindow(DefaultWidth, DefaultHeight, Cfg.Title);
+        // Menus are rendered on a responsive 1280×720 logical canvas. Keep a
+        // readable physical floor rather than allowing system resize to crush
+        // click targets and option text into an unusable surface.
+        Raylib.SetWindowMinSize(960, 540);
         // Raylib maps Escape to WindowShouldClose by default. HGO owns Escape as
         // a pause/resume control, so leave closing the window to its title-bar
         // control or an explicit menu action instead.
@@ -53,27 +61,42 @@ public sealed class Game
             // Audio is optional; the game runs fine without a device.
         }
 
-        while (!Raylib.WindowShouldClose() && !_exit)
+        try
         {
-            int w = Raylib.GetScreenWidth();
-            int h = Raylib.GetScreenHeight();
-            float dt = MathF.Min(Raylib.GetFrameTime(), 0.05f);
-
-            switch (_state)
+            while (!Raylib.WindowShouldClose() && !_exit)
             {
-                case GameState.MainMenu: StepMainMenu(w, h); break;
-                case GameState.Playing: StepPlaying(w, h, dt); break;
-                case GameState.Paused: StepPaused(w, h); break;
-                case GameState.CrosshairOptions: StepCrosshairOptions(w, h); break;
-                case GameState.WeaponDossier: StepWeaponDossier(w, h); break;
-                case GameState.BuyMenu: StepBuyMenu(w, h); break;
-                default: StepMatchOver(w, h); break;
+                // GLFW can report a zero-sized framebuffer while the window is
+                // minimized. Pause the presentation loop briefly rather than asking
+                // the logical UI canvas to render at a zero zoom.
+                int w = Raylib.GetScreenWidth();
+                int h = Raylib.GetScreenHeight();
+                if (Raylib.IsWindowMinimized() || w <= 0 || h <= 0)
+                {
+                    Raylib.WaitTime(0.05);
+                    continue;
+                }
+
+                float dt = MathF.Min(Raylib.GetFrameTime(), 0.05f);
+
+                switch (_state)
+                {
+                    case GameState.MainMenu: StepMainMenu(w, h); break;
+                    case GameState.Playing: StepPlaying(w, h, dt); break;
+                    case GameState.Paused: StepPaused(w, h); break;
+                    case GameState.CrosshairOptions: StepCrosshairOptions(w, h); break;
+                    case GameState.WeaponDossier: StepWeaponDossier(w, h); break;
+                    case GameState.BuyMenu: StepBuyMenu(w, h); break;
+                    default: StepMatchOver(w, h); break;
+                }
             }
         }
-
-        Renderer.Shutdown();
-        _audio.Dispose();
-        Raylib.CloseWindow();
+        finally
+        {
+            _userSettings.SaveIfChanged(_settings);
+            Renderer.Shutdown();
+            _audio.Dispose();
+            Raylib.CloseWindow();
+        }
     }
 
     // ---------------------------------------------------------------- states
@@ -83,6 +106,7 @@ public sealed class Game
         Raylib.BeginDrawing();
         ScreenAction action = Screens.MainMenu.Draw(_settings, w, h);
         Raylib.EndDrawing();
+        _userSettings.SaveIfChanged(_settings);
 
         if (Raylib.IsKeyPressed(KeyboardKey.F2)) action = ScreenAction.OpenCrosshairOptions;
 
@@ -132,9 +156,13 @@ public sealed class Game
         }
         if (overlay == GameplayOverlayAction.Buy)
         {
-            _buyMenu.Refresh();
+            _buyMenu.Open();
             _state = GameState.BuyMenu;
             Raylib.EnableCursor();
+            // Present the new state immediately. Returning before Begin/EndDrawing
+            // leaves Raylib on the opening input frame, which used to hand that
+            // same B press to BuyMenu.Draw and close it before it could be seen.
+            PresentBuyMenu(sim, w, h);
             return;
         }
 
@@ -178,6 +206,7 @@ public sealed class Game
         RenderWorldOnly(sim, w, h);
         ScreenAction action = Screens.Pause.Draw(_settings, sim, w, h);
         Raylib.EndDrawing();
+        _userSettings.SaveIfChanged(_settings);
 
         if (Raylib.IsKeyPressed(KeyboardKey.F2)) action = ScreenAction.OpenCrosshairOptions;
 
@@ -216,6 +245,7 @@ public sealed class Game
 
         ScreenAction action = Screens.CrosshairOptions.Draw(_settings.Crosshair, w, h);
         Raylib.EndDrawing();
+        _userSettings.SaveIfChanged(_settings);
 
         if (action != ScreenAction.CloseCrosshairOptions) return;
 
@@ -244,16 +274,20 @@ public sealed class Game
     {
         Simulation sim = _sim!;
 
-        Raylib.BeginDrawing();
-        RenderWorldOnly(sim, w, h);
-        bool stillOpen = _buyMenu.Draw(sim, w, h);
-        Raylib.EndDrawing();
-
-        if (!stillOpen)
+        if (!PresentBuyMenu(sim, w, h))
         {
             _state = GameState.Playing;
             Raylib.DisableCursor();
         }
+    }
+
+    private bool PresentBuyMenu(Simulation sim, int w, int h)
+    {
+        Raylib.BeginDrawing();
+        RenderWorldOnly(sim, w, h);
+        bool stillOpen = _buyMenu.Draw(sim, w, h);
+        Raylib.EndDrawing();
+        return stillOpen;
     }
 
     private void StepMatchOver(int w, int h)
@@ -282,14 +316,17 @@ public sealed class Game
     private void RenderFrame(Simulation sim, int w, int h)
     {
         Raylib.BeginDrawing();
-        Renderer.DrawSky(w, h);
-
         Camera3D cam = Renderer.BuildCamera(sim, _settings.CameraFeedback.Strength);
+        Renderer.BeginWorldPass(cam, w, h);
         Rlgl.SetClipPlanes(1.0, 9000.0);
         Raylib.BeginMode3D(cam);
         Renderer.DrawWorld(sim, cam);
         Raylib.EndMode3D();
+        Renderer.EndWorldPass(w, h);
 
+        // World-only colour grade has completed above.  The separate weapon
+        // pass and all HUD information remain ungraded for a stable sight and
+        // clear competitive read.
         Renderer.DrawViewModel(sim, w, h, _settings.CameraFeedback.Strength);
         Renderer.BlitViewModel(w, h);
 
@@ -302,13 +339,13 @@ public sealed class Game
 
     private void RenderWorldOnly(Simulation sim, int w, int h)
     {
-        Renderer.DrawSky(w, h);
-
         Camera3D cam = Renderer.BuildCamera(sim, _settings.CameraFeedback.Strength);
+        Renderer.BeginWorldPass(cam, w, h);
         Rlgl.SetClipPlanes(1.0, 9000.0);
         Raylib.BeginMode3D(cam);
         Renderer.DrawWorld(sim, cam);
         Raylib.EndMode3D();
+        Renderer.EndWorldPass(w, h);
 
         Renderer.DrawViewModel(sim, w, h, _settings.CameraFeedback.Strength);
         Renderer.BlitViewModel(w, h);
@@ -334,7 +371,7 @@ public sealed class Game
     {
         foreach (SoundEvent evt in sim.Sounds)
         {
-            _audio.Play(evt, sim.Player.EyePosition);
+            _audio.Play(evt, sim.Player.EyePosition, sim.Player.Yaw, sim.Player.LowHealthTrauma, sim.Map);
         }
     }
 }

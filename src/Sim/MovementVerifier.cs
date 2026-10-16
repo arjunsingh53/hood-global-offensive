@@ -2,6 +2,7 @@ using System.Numerics;
 using HoodGlobalOffensive.Core;
 using HoodGlobalOffensive.Entities;
 using HoodGlobalOffensive.Render;
+using HoodGlobalOffensive.World;
 
 namespace HoodGlobalOffensive.Sim;
 
@@ -37,6 +38,8 @@ public static class MovementVerifier
     {
         MobilityTrace first = RunTrace(seed);
         MobilityTrace second = RunTrace(seed);
+        AdvancedMobilityTrace advancedFirst = RunAdvancedTrace(seed);
+        AdvancedMobilityTrace advancedSecond = RunAdvancedTrace(seed);
         var failures = new List<string>();
 
         float targetRun = Cfg.RunSpeed * first.WeaponMoveScale;
@@ -58,31 +61,69 @@ public static class MovementVerifier
         Require(first.TacticalChargeRecovered, "tactical-sprint charge did not recover while idle", failures);
         Require(first.CrouchToggleWorked, "C crouch-toggle did not enter and leave crouch in clear space", failures);
         Require(first.CrouchCanceledSprint, "crouch did not cancel sprint", failures);
+        Require(first.SlideEntered, "sprint crouch edge did not enter a momentum slide", failures);
+        Require(first.SlideEnded, "momentum slide did not resolve back to grounded movement", failures);
+        Require(first.SlideNoSpeedBoost,
+            $"slide peak {first.SlidePeak:0.0} exceeded entry {first.SlideEntrySpeed:0.0}", failures);
+        Require(first.IdleSlideDenied, "idle crouch edge incorrectly entered a slide", failures);
+        Require(first.AirSlideDenied, "airborne crouch edge incorrectly entered a slide", failures);
+        Require(first.SlidePreservedAim, "slide changed the authoritative aim direction", failures);
         Require(first.AirborneCanceledSprint, "take-off did not cancel sprint", failures);
         Require(first.NoDoubleJump, "held jump re-applied upward velocity while airborne", failures);
+        Require(first.AirStrafeCannotGainSpeed,
+            $"air strafe peak {first.AirStrafePeak:0.0} exceeded launch {first.AirStrafeLaunch:0.0}", failures);
         Require(first.LandingFeedbackTriggered, "a qualifying landing did not start its presentation feedback", failures);
         Require(first.FeedbackChangesPresentation, "active presentation feedback did not change FOV or the viewmodel state", failures);
         Require(first.FeedbackPreservesAim, "presentation feedback changed the visual aim direction or Player.AimDirection", failures);
+        Require(advancedFirst.ProneEntered, "Z prone toggle did not enter the low stance", failures);
+        Require(advancedFirst.ProneHitboxReduced, "prone did not reduce authoritative head/eye height", failures);
+        Require(advancedFirst.ProneSpeedCapped,
+            $"prone movement exceeded {Cfg.ProneSpeed:0.0} units/s", failures);
+        Require(advancedFirst.ProneCanceledSprint, "entering prone did not cancel sprint", failures);
+        Require(advancedFirst.ProneNoSprintWhileAds,
+            "prone + ADS accepted a sprint state or exceeded the prone speed cap", failures);
+        Require(advancedFirst.ProneBlockedExit,
+            "prone stood into a low ceiling instead of retaining the safe low stance", failures);
+        Require(advancedFirst.ProneClearExit, "prone did not leave safely in clear space", failures);
+        Require(advancedFirst.MantleStarted, "grounded forward jump did not start a valid low-cover mantle", failures);
+        Require(advancedFirst.MantleCompleted, "valid mantle route did not resolve on its landing surface", failures);
+        Require(advancedFirst.MantleDurationTicks >= (int)MathF.Floor(Cfg.MantleDuration / Dt)
+                && advancedFirst.MantleDurationTicks <= (int)MathF.Ceiling(Cfg.MantleDuration / Dt) + 1,
+            $"mantle duration was {advancedFirst.MantleDurationTicks * Dt:0.000}s instead of {Cfg.MantleDuration:0.000}s", failures);
+        Require(advancedFirst.MantlePathClear, "mantle path entered test geometry", failures);
+        Require(advancedFirst.MantlePreservedAim, "mantle changed the authoritative aim direction", failures);
+        Require(advancedFirst.MantleFiringBlocked, "mantle allowed a live weapon discharge", failures);
+        Require(advancedFirst.MantleBlockedRouteRejected,
+            "mantle accepted a route without head clearance", failures);
 
         bool deterministic = NearlyEqual(first.FinalPosition, second.FinalPosition)
             && NearlyEqual(first.FinalVelocity, second.FinalVelocity)
             && first.FinalSprintState == second.FinalSprintState
             && MathF.Abs(first.FinalTacticalCharge - second.FinalTacticalCharge) <= 1e-4f
+            && MathF.Abs(first.SlideEntrySpeed - second.SlideEntrySpeed) <= 1e-4f
+            && MathF.Abs(first.SlidePeak - second.SlidePeak) <= 1e-4f
+            && first.SlideTicks == second.SlideTicks
             && MathF.Abs(first.FinalFootstepFeedback - second.FinalFootstepFeedback) <= 1e-4f
             && MathF.Abs(first.FinalLandingFeedback - second.FinalLandingFeedback) <= 1e-4f
-            && MathF.Abs(first.FinalDamageFeedback - second.FinalDamageFeedback) <= 1e-4f;
+            && MathF.Abs(first.FinalDamageFeedback - second.FinalDamageFeedback) <= 1e-4f
+            && advancedFirst.Matches(advancedSecond);
         Require(deterministic, "same seed/input trace produced different final mobility state", failures);
 
         var details = new List<string>
         {
             $"run {first.BaselinePeak:0.0}  sprint {first.SprintPeak:0.0}  tactical {first.TacticalPeak:0.0} units/s",
             $"tactical duration {first.TacticalDurationTicks * Dt:0.000}s  final charge {first.FinalTacticalCharge:0.000}s",
+            $"slide entry {first.SlideEntrySpeed:0.0}  peak {first.SlidePeak:0.0}  duration {first.SlideTicks * Dt:0.000}s  aim preserved {first.SlidePreservedAim}",
             $"geometry clear {first.ClearOfGeometry}  finite {first.Finite}  final state {first.FinalSprintState}",
+            $"air strafe launch {first.AirStrafeLaunch:0.0}  peak {first.AirStrafePeak:0.0}  no speed gain {first.AirStrafeCannotGainSpeed}",
             $"feedback landing {first.LandingFeedbackTriggered}  visual response {first.FeedbackChangesPresentation}  aim preserved {first.FeedbackPreservesAim}",
+            $"prone entered {advancedFirst.ProneEntered}  head {advancedFirst.ProneHeadHeight:0.0}  eye {advancedFirst.ProneEyeHeight:0.0}  peak {advancedFirst.PronePeakSpeed:0.0}",
+            $"mantle started {advancedFirst.MantleStarted}  completed {advancedFirst.MantleCompleted}  duration {advancedFirst.MantleDurationTicks * Dt:0.000}s  path clear {advancedFirst.MantlePathClear}",
+            $"mantle aim preserved {advancedFirst.MantlePreservedAim}  firing blocked {advancedFirst.MantleFiringBlocked}  blocked route rejected {advancedFirst.MantleBlockedRouteRejected}",
         };
         foreach (string failure in failures) details.Add($"FAIL: {failure}");
 
-        return new MovementVerificationResult(failures.Count == 0, deterministic, details, 19);
+        return new MovementVerificationResult(failures.Count == 0, deterministic, details, 40);
     }
 
     private static MobilityTrace RunTrace(ulong seed)
@@ -144,6 +185,45 @@ public static class MovementVerifier
         trace.CrouchCanceledSprint = wasSprinting && player.SprintState == PlayerSprintState.None;
         for (int i = 0; i < 10; i++) Step(sim, player, Forward(), trace);
 
+        // A player-only slide starts only from real sprint momentum. It uses the
+        // production mover and collision map, so this detects speed boosts,
+        // clipping, and accidental idle/air activation rather than a mock state.
+        PrepareSandbox(player);
+        // Stay well inside the measured service-road lane; the longer generic
+        // sprint trace above intentionally reaches its turn condition, but that
+        // would corrupt this slide's entry-speed measurement.
+        for (int i = 0; i < 40; i++) Step(sim, player, Forward(), trace);
+        Step(sim, player, Forward(sprintPressed: true), trace);
+        for (int i = 0; i < 24; i++) Step(sim, player, Forward(), trace);
+        Vector3 aimBeforeSlide = player.AimDirection;
+        trace.SlideEntrySpeed = player.HorizontalSpeed;
+        Step(sim, player, Forward(crouchPressed: true), trace);
+        trace.SlideEntered = player.IsSliding;
+        trace.SlidePeak = player.HorizontalSpeed;
+        trace.SlideTicks = player.IsSliding ? 1 : 0;
+        while (player.IsSliding && trace.SlideTicks < 120)
+        {
+            Step(sim, player, Forward(), trace);
+            trace.SlideTicks++;
+            trace.SlidePeak = MathF.Max(trace.SlidePeak, player.HorizontalSpeed);
+        }
+        trace.SlideEnded = !player.IsSliding && player.OnGround;
+        trace.SlideNoSpeedBoost = trace.SlidePeak <= trace.SlideEntrySpeed + 0.05f;
+        trace.SlidePreservedAim = Vector3.Dot(aimBeforeSlide, player.AimDirection) > 0.99999f;
+
+        PrepareSandbox(player);
+        Step(sim, player, Forward(crouchPressed: true), trace);
+        trace.IdleSlideDenied = !player.IsSliding;
+
+        PrepareSandbox(player);
+        for (int i = 0; i < 40; i++) Step(sim, player, Forward(), trace);
+        Step(sim, player, Forward(sprintPressed: true), trace);
+        for (int i = 0; i < 24; i++) Step(sim, player, Forward(), trace);
+        Step(sim, player, Forward(jump: true), trace);
+        Step(sim, player, Forward(crouchPressed: true), trace);
+        trace.AirSlideDenied = !player.IsSliding && !player.OnGround;
+
+        PrepareSandbox(player);
         Step(sim, player, Forward(sprintPressed: true), trace);
         bool sprintBeforeJump = player.SprintState == PlayerSprintState.Sprinting;
         Step(sim, player, Forward(jump: true), trace);
@@ -152,6 +232,24 @@ public static class MovementVerifier
             && player.SprintState == PlayerSprintState.None && launchVelocity > 0f;
         Step(sim, player, Forward(jump: true), trace);
         trace.NoDoubleJump = player.Velocity.Y < launchVelocity;
+
+        // A tactical shooter permits limited airborne direction correction, not
+        // a Quake-style horizontal acceleration exploit. Start with a real run,
+        // jump, then hold a perpendicular strafe and assert it cannot exceed
+        // the genuine take-off speed.
+        PrepareSandbox(player);
+        for (int i = 0; i < 40; i++) Step(sim, player, Forward(), trace);
+        Step(sim, player, Forward(jump: true), trace);
+        trace.AirStrafeLaunch = player.HorizontalSpeed;
+        trace.AirStrafePeak = trace.AirStrafeLaunch;
+        var strafe = InputFrame.Neutral;
+        strafe.Move = Vector2.UnitX;
+        for (int i = 0; i < 24 && !player.OnGround; i++)
+        {
+            Step(sim, player, strafe, trace);
+            trace.AirStrafePeak = MathF.Max(trace.AirStrafePeak, player.HorizontalSpeed);
+        }
+        trace.AirStrafeCannotGainSpeed = trace.AirStrafePeak <= trace.AirStrafeLaunch + 0.25f;
 
         // Let the real mover settle the preceding jump. The state then has to
         // emit its own landing envelope; no renderer or test-only physics path is
@@ -183,6 +281,191 @@ public static class MovementVerifier
         trace.FinalLandingFeedback = player.LandingFeedback;
         trace.FinalDamageFeedback = player.DamageFeedback;
         return trace;
+    }
+
+    /// <summary>
+    /// Runs stance and mantle checks in deliberately tiny isolated collision
+    /// lanes. The production GameMap/AABB mover is still used; only its brush
+    /// data is replaced locally so a future Industrial Zone art/collision edit
+    /// cannot make the behavioral contract untestable.
+    /// </summary>
+    private static AdvancedMobilityTrace RunAdvancedTrace(ulong seed)
+    {
+        var trace = new AdvancedMobilityTrace();
+
+        // ---------------------------------------------------------------- prone
+        var proneSim = new Simulation(0, BotSkill.Normal, seed ^ 0xC0FFEEUL);
+        ConfigureTestMap(proneSim, includeMantleBlock: false, includeMantleCeiling: false,
+            includeProneCeiling: false);
+        Player prone = proneSim.Player;
+        PrepareTestPlayer(prone, new Vector3(-120f, 0f, -80f), 180f);
+
+        var proneToggle = InputFrame.Neutral;
+        proneToggle.ProneTogglePressed = true;
+        proneSim.Update(proneToggle, Dt);
+        for (int i = 0; i < 30; i++) proneSim.Update(InputFrame.Neutral, Dt);
+        trace.ProneEntered = prone.IsProne;
+        trace.ProneHeadHeight = prone.HeadHeight;
+        trace.ProneEyeHeight = prone.EyeHeight;
+        trace.ProneHitboxReduced = prone.HeadHeight <= Cfg.ProneHeight + 0.05f
+            && prone.EyeHeight <= Cfg.ProneEyeHeight + 0.05f
+            && !proneSim.Map.BoxBlocked(prone.Bounds);
+
+        // Hold both forward sprint intent and ADS while prone. ADS remains a
+        // legitimate aiming pose, but it may not restore sprint or let movement
+        // escape the prone cap.
+        var proneForward = Forward(sprintPressed: true, zoomDown: true);
+        for (int i = 0; i < 120; i++)
+        {
+            proneSim.Update(proneForward, Dt);
+            trace.PronePeakSpeed = MathF.Max(trace.PronePeakSpeed, prone.HorizontalSpeed);
+        }
+        trace.ProneCanceledSprint = prone.SprintState == PlayerSprintState.None;
+        trace.ProneSpeedCapped = trace.PronePeakSpeed <= Cfg.ProneSpeed + 0.05f;
+        trace.ProneNoSprintWhileAds = prone.ZoomHeld
+            && prone.SprintState == PlayerSprintState.None
+            && trace.PronePeakSpeed <= Cfg.ProneSpeed + 0.05f;
+
+        // The same Z edge restores standing only if the full collision volume
+        // fits. This open lane verifies the regular exit path first.
+        proneSim.Update(proneToggle, Dt);
+        for (int i = 0; i < 36; i++) proneSim.Update(InputFrame.Neutral, Dt);
+        trace.ProneClearExit = !prone.IsProne && prone.CrouchAmount < 0.05f
+            && !proneSim.Map.BoxBlocked(prone.Bounds);
+
+        // Now bring a prone player under a 40-unit ceiling. Their 34-unit
+        // low stance fits, but the 72-unit standing probe must fail cleanly.
+        var ceilingSim = new Simulation(0, BotSkill.Normal, seed ^ 0xC0FFEFUL);
+        ConfigureTestMap(ceilingSim, includeMantleBlock: false, includeMantleCeiling: false,
+            includeProneCeiling: true);
+        Player ceilingProne = ceilingSim.Player;
+        // Stand just outside the ceiling's footprint, enter prone, then move
+        // only far enough for the low collision hull (not a standing hull) to
+        // pass beneath it. This avoids depending on long-distance acceleration
+        // timing to establish the clearance test.
+        PrepareTestPlayer(ceilingProne, new Vector3(0f, 0f, -40f), 180f);
+        ceilingSim.Update(proneToggle, Dt);
+        for (int i = 0; i < 30; i++) ceilingSim.Update(InputFrame.Neutral, Dt);
+        for (int i = 0; i < 20; i++) ceilingSim.Update(Forward(), Dt);
+        ceilingSim.Update(proneToggle, Dt);
+        trace.ProneBlockedExit = ceilingProne.IsProne
+            && ceilingProne.CrouchAmount > 1.5f
+            && !ceilingSim.Map.BoxBlocked(ceilingProne.Bounds);
+
+        // --------------------------------------------------------------- mantle
+        var mantleSim = new Simulation(0, BotSkill.Normal, seed ^ 0x5A17EUL);
+        ConfigureTestMap(mantleSim, includeMantleBlock: true, includeMantleCeiling: false,
+            includeProneCeiling: false);
+        Player mantle = mantleSim.Player;
+        PrepareTestPlayer(mantle, Vector3.Zero, 180f);
+        Vector3 aimBeforeMantle = mantle.AimDirection;
+        var mantleStart = Forward(jump: true);
+        mantleStart.FireDown = true;
+        mantleStart.FirePressed = true;
+        mantleSim.Update(mantleStart, Dt);
+        trace.MantleStarted = mantle.IsMantling;
+        trace.MantlePathClear = !mantleSim.Map.BoxBlocked(mantle.Bounds);
+        trace.MantleDurationTicks = mantle.IsMantling ? 1 : 0;
+        while (mantle.IsMantling && trace.MantleDurationTicks < 120)
+        {
+            mantleSim.Update(Forward(), Dt);
+            trace.MantleDurationTicks++;
+            trace.MantlePathClear &= !mantleSim.Map.BoxBlocked(mantle.Bounds);
+        }
+        trace.MantleCompleted = trace.MantleStarted
+            && !mantle.IsMantling
+            && mantle.OnGround
+            && mantle.Position.Y >= 47.9f
+            && mantle.Position.Z > 30f;
+        trace.MantlePreservedAim = Vector3.Dot(aimBeforeMantle, mantle.AimDirection) > 0.99999f;
+        trace.MantleFiringBlocked = !mantleSim.ShotsFired.ContainsKey(mantle.Id);
+
+        // A ceiling over the planned cross segment must reject before transit;
+        // the player falls back to their ordinary grounded jump and never enters
+        // a route that would intersect the ceiling.
+        var blockedMantleSim = new Simulation(0, BotSkill.Normal, seed ^ 0x5A17FUL);
+        ConfigureTestMap(blockedMantleSim, includeMantleBlock: true, includeMantleCeiling: true,
+            includeProneCeiling: false);
+        Player blockedMantle = blockedMantleSim.Player;
+        PrepareTestPlayer(blockedMantle, Vector3.Zero, 180f);
+        blockedMantleSim.Update(Forward(jump: true), Dt);
+        trace.MantleBlockedRouteRejected = !blockedMantle.IsMantling
+            && !blockedMantleSim.Map.BoxBlocked(blockedMantle.Bounds);
+
+        return trace;
+    }
+
+    private static void ConfigureTestMap(Simulation sim, bool includeMantleBlock,
+        bool includeMantleCeiling, bool includeProneCeiling)
+    {
+        Brush[] brushes = sim.Map.Brushes;
+        for (int i = 0; i < brushes.Length; i++)
+        {
+            brushes[i] = new Brush
+            {
+                Box = new Aabb(new Vector3(10_000f, 10_000f, 10_000f), new Vector3(10_001f, 10_001f, 10_001f)),
+                Kind = SurfaceKind.Wall,
+                Penetrable = false,
+            };
+        }
+
+        brushes[0] = new Brush
+        {
+            Box = new Aabb(new Vector3(-600f, -96f, -600f), new Vector3(600f, 0f, 600f)),
+            Kind = SurfaceKind.Floor,
+            Penetrable = false,
+        };
+
+        int next = 1;
+        if (includeMantleBlock)
+        {
+            // 48 units high, 32 units deep: a concrete local-cover analogue.
+            brushes[next++] = new Brush
+            {
+                Box = new Aabb(new Vector3(-48f, 0f, 30f), new Vector3(48f, 48f, 62f)),
+                Kind = SurfaceKind.Crate,
+                Penetrable = false,
+            };
+        }
+
+        if (includeMantleCeiling)
+        {
+            // It starts just beyond the player's standing footprint, yet occupies
+            // the mantle's raised cross segment. A valid planner must reject it.
+            brushes[next++] = new Brush
+            {
+                Box = new Aabb(new Vector3(-48f, 60f, 20f), new Vector3(48f, 150f, 76f)),
+                Kind = SurfaceKind.Metal,
+                Penetrable = false,
+            };
+        }
+
+        if (includeProneCeiling)
+        {
+            brushes[next] = new Brush
+            {
+                Box = new Aabb(new Vector3(-48f, 40f, -24f), new Vector3(48f, 120f, 48f)),
+                Kind = SurfaceKind.Metal,
+                Penetrable = false,
+            };
+        }
+    }
+
+    private static void PrepareTestPlayer(Player player, Vector3 position, float yaw)
+    {
+        player.Position = position;
+        player.Velocity = Vector3.Zero;
+        player.Yaw = yaw;
+        player.Pitch = 0f;
+        player.OnGround = true;
+        player.CrouchAmount = 0f;
+        player.Alive = true;
+        player.ZoomHeld = false;
+        player.ZoomBlend = 0f;
+        player.CurrentFov = Cfg.FovDefault;
+        player.ResetMovementState();
+        player.ResetPresentationFeedback();
+        player.ResetViewModelDynamics();
     }
 
     private static void PrepareSandbox(Player player)
@@ -217,14 +500,18 @@ public static class MovementVerifier
     }
 
     private static InputFrame Forward(bool sprintPressed = false, bool jump = false, bool crouchHeld = false,
-        bool crouchTogglePressed = false)
+        bool crouchTogglePressed = false, bool crouchPressed = false, bool proneTogglePressed = false,
+        bool zoomDown = false)
         => new()
         {
             Move = Vector2.UnitY,
             Jump = jump,
             Crouch = crouchHeld,
+            CrouchPressed = crouchPressed,
             CrouchTogglePressed = crouchTogglePressed,
+            ProneTogglePressed = proneTogglePressed,
             SprintPressed = sprintPressed,
+            ZoomDown = zoomDown,
             SwitchSlot = -1,
         };
 
@@ -234,6 +521,46 @@ public static class MovementVerifier
     }
 
     private static bool NearlyEqual(Vector3 a, Vector3 b) => Vector3.DistanceSquared(a, b) <= 1e-4f;
+
+    private sealed class AdvancedMobilityTrace
+    {
+        public bool ProneEntered;
+        public bool ProneHitboxReduced;
+        public float ProneHeadHeight;
+        public float ProneEyeHeight;
+        public float PronePeakSpeed;
+        public bool ProneCanceledSprint;
+        public bool ProneSpeedCapped;
+        public bool ProneNoSprintWhileAds;
+        public bool ProneClearExit;
+        public bool ProneBlockedExit;
+        public bool MantleStarted;
+        public bool MantleCompleted;
+        public int MantleDurationTicks;
+        public bool MantlePathClear = true;
+        public bool MantlePreservedAim;
+        public bool MantleFiringBlocked;
+        public bool MantleBlockedRouteRejected;
+
+        public bool Matches(AdvancedMobilityTrace other)
+            => ProneEntered == other.ProneEntered
+            && ProneHitboxReduced == other.ProneHitboxReduced
+            && MathF.Abs(ProneHeadHeight - other.ProneHeadHeight) <= 1e-4f
+            && MathF.Abs(ProneEyeHeight - other.ProneEyeHeight) <= 1e-4f
+            && MathF.Abs(PronePeakSpeed - other.PronePeakSpeed) <= 1e-4f
+            && ProneCanceledSprint == other.ProneCanceledSprint
+            && ProneSpeedCapped == other.ProneSpeedCapped
+            && ProneNoSprintWhileAds == other.ProneNoSprintWhileAds
+            && ProneClearExit == other.ProneClearExit
+            && ProneBlockedExit == other.ProneBlockedExit
+            && MantleStarted == other.MantleStarted
+            && MantleCompleted == other.MantleCompleted
+            && MantleDurationTicks == other.MantleDurationTicks
+            && MantlePathClear == other.MantlePathClear
+            && MantlePreservedAim == other.MantlePreservedAim
+            && MantleFiringBlocked == other.MantleFiringBlocked
+            && MantleBlockedRouteRejected == other.MantleBlockedRouteRejected;
+    }
 
     private sealed class MobilityTrace
     {
@@ -251,8 +578,20 @@ public static class MovementVerifier
         public bool TacticalChargeRecovered;
         public bool CrouchToggleWorked;
         public bool CrouchCanceledSprint;
+        public bool SlideEntered;
+        public bool SlideEnded;
+        public bool SlideNoSpeedBoost;
+        public bool IdleSlideDenied;
+        public bool AirSlideDenied;
+        public bool SlidePreservedAim;
+        public float SlideEntrySpeed;
+        public float SlidePeak;
+        public int SlideTicks;
         public bool AirborneCanceledSprint;
         public bool NoDoubleJump;
+        public bool AirStrafeCannotGainSpeed;
+        public float AirStrafeLaunch;
+        public float AirStrafePeak;
         public bool LandingFeedbackTriggered;
         public bool FeedbackChangesPresentation;
         public bool FeedbackPreservesAim;

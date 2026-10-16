@@ -10,6 +10,10 @@ the minor number may contain breaking changes.
 
 ## [Unreleased]
 
+The application currently identifies itself as version `0.1.1`. This changelog records the active
+worktree changes only; it does **not** assert that a distributable v0.1.1 executable, GitHub
+Release, or asset-rights review has been completed.
+
 ### Added
 
 - **The Glock 17 is drawn from a real mesh** (`assets/weapons/glock17.glb`) instead of from boxes. It
@@ -42,6 +46,61 @@ the minor number may contain breaking changes.
   below the screen: the weapon sweep measured 1.0% coverage of the checked lower-right region
   mid-reload against 9.3% while idle. Art weapons now apply a per-weapon share of the flourish
   (`ReloadSwing`), which brings the reloading frames back to 5.1%.
+
+### Active implementation work
+
+#### Fixed
+
+- **The Buy Station no longer flashes closed when `B` opens it.** The opening key is now latched
+  until it has been released, so only a later fresh `B` press closes the overlay; `Esc` remains
+  immediately available.
+- Full standard-issue Kevlar + Helmet now reads `EQUIPPED` and cannot deduct $1,000 for a no-op.
+  Damaged or incomplete protection still restores to full and deducts exactly the listed price.
+- Corrected the supplied Industrial Zone GLB's pavement origin, structure collision tops, and five
+  unreliable spawn anchors. Actor feet, collision and visible service roads now share the same
+  gameplay plane.
+- Air steering now preserves, but cannot create, horizontal speed. This removes the previous
+  repeat-jump/strafe speed gain while retaining deliberate in-air direction control.
+
+#### Added
+
+- Hold-to-aim for all non-scoped firearms; the AWP preserves its click-to-toggle optic. The original
+  AK view model has a rebuilt matte-black front post, front channel and rear U-notch, plus an ADS-only
+  compact sight pose that preserves the authoritative shot ray. Weapons without a calibrated sight
+  picture keep their reticle visible while aiming instead of hiding it behind an unusable fallback model.
+- Refined the original AK's front/rear sight silhouette, reduced its exposed charging handle and
+  tightened its ADS footprint so the player sees a clearer open-notched aim picture without importing
+  a third-party weapon model.
+- A responsive, two-column Buy Station with affordability feedback, large clickable cards and
+  quick-buy keys.
+- Local player-preference persistence for bot setup, sensitivity, crosshair and camera feedback.
+  The versioned `%LOCALAPPDATA%` document is bounded, atomically written, and tested against malformed,
+  oversized and unsupported-schema input without serializing match or combat state.
+- An original low-poly **HGO Capsule Combatant** replaces Tactical Soldier 02 as the active world
+  character. It has `Idle`, `Walk`, `Run`, `Crouch` and `Prone` presentation clips, a compact
+  generic world carbine, and deterministic accessory silhouettes; it does not replace the Gun Game
+  first-person weapons or simulation hitboxes.
+- Player prone (`Z`) and a restricted, collision-validated 0.60-second mantle over low static cover.
+  Mantling preserves aim but temporarily blocks firing, reload and ADS.
+- A world-only dusk grade, original procedural sky, HUD/weapon separation, layered tracers and
+  additive muzzle flashes. A licensed 2:1 equirectangular panorama can be supplied locally as an
+  optional override; no third-party sky source is bundled or downloaded by the project.
+- Critical-health and hit feedback: a peripheral trauma/heartbeat layer, world-sound ducking,
+  actor-hit mist/droplets, short-lived blood splats and bounded impact/decal pools.
+- Map-aware procedural audio routing: original four-layer gunshot fallbacks, distance profiles,
+  static-geometry occlusion profiles, stereo pan, and floor/crate footstep variants.
+
+#### Changed
+
+- Replaced stale Crossfire-era local screenshot artifacts with Industrial Zone, AK ADS, Buy Station
+  and HGO Capsule Combatant captures. The screenshot regeneration and visual checks now cover that
+  working set.
+- Menus and overlays now use a centered 1280 × 720 logical canvas with inverse-mapped mouse input,
+  preserving clickable cards and hierarchy from the supported 960 × 540 minimum through ultrawide
+  windows. The combat HUD stays in physical framebuffer pixels.
+- The title screen now uses the supplied Industrial Zone and original dusk treatment as a restrained
+  live backdrop; an authorised local panorama is used only when present and valid. Characters use a
+  ground-level contact shadow rather than an opaque rectangular shadow slab.
 
 ---
 
@@ -84,7 +143,8 @@ The first public early access release. Everything below is new.
   view range, engagement range and burst discipline.
 
 **World**
-- The "Crossfire" arena: a 2400 × 2400 deathmatch map with a central building, a west corridor with
+- The "Crossfire" arena (later superseded at runtime by Industrial Zone in the v0.1.1 worktree): a
+  2400 × 2400 deathmatch map with a central building, a west corridor with
   a single doorway, an east raised terrace reached by stepped blocks, four full-height corner
   pillars, a broken north sightline and a south crate pit.
 - 13 spawn points with selection that keeps them at least 900 units from living players and verifies
@@ -143,9 +203,11 @@ Recorded here because they are the reason the verification tooling exists:
 ### Known issues
 
 See [the README](README.md#known-issues) for the current list. In summary: armour penetration is
-defined per weapon but not applied, armour is granted free on every respawn (making the kevlar
-purchase redundant), there is no stomach hitbox, sound does not occlude, there are no grenades or
-networking, there is one map and one mode, and settings do not persist between launches.
+defined per weapon but not applied, armour remains free on respawn (though the Buy Station now avoids
+charging twice), and there is no stomach hitbox. World sound now selects original distant and
+static-map-occluded profiles, but it has no material-aware or dynamic-actor occlusion. There are no
+grenades or networking, and there is one map and one mode. Local player preferences now persist;
+key bindings, display and audio settings remain future work.
 
 ---
 

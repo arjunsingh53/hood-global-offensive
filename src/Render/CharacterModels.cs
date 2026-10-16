@@ -7,7 +7,7 @@ using Raylib_cs;
 namespace HoodGlobalOffensive.Render;
 
 /// <summary>
-/// Presents the Soldier character art without feeding anything back into simulation.
+/// Presents structured low-poly character art without feeding anything back into simulation.
 /// Raylib mutates a model's pose when an animation is applied, so one loaded model
 /// is re-posed immediately before each draw instead of copying pointer-backed Model
 /// structs or making a texture-heavy model instance for every actor.
@@ -17,15 +17,17 @@ public static unsafe class CharacterModels
     private readonly record struct CharacterArtwork(string Name, string Path, float YawOffset,
         bool HasIntegratedCarbine);
 
-    // The Tactical Soldier package is preferred, while the existing converted
-    // Soldier remains a true runtime fallback.  The view-model path is wholly
-    // separate (Renderer.DrawViewModel), so neither choice can replace Gun Game
-    // weapon art or affect simulation state.
+    // The HGO capsule operator is original game-owned art. The legacy conversion stays
+    // only as an emergency development fallback; it is not part of the normal
+    // runtime presentation.  The view-model path is wholly separate
+    // (Renderer.DrawViewModel), so neither choice can replace Gun Game weapon
+    // art or affect simulation state.
     private static readonly CharacterArtwork[] Artwork =
     {
-        // FBX source is -Y forward; after Blender's Y-up GLB conversion the
-        // visible front is +Z, while HGO yaw 0 faces -Z.
-        new("Tactical Soldier 02", Cfg.SoldierModelPath, 180f, true),
+        // The source capsule faces Blender -Y; after GLB export its visible
+        // front is +Z while HGO yaw 0 faces -Z. Its compact carbine is part of
+        // the rigged world model, correctly scaled to its hands.
+        new("HGO Capsule Combatant", Cfg.SoldierModelPath, 180f, true),
         new("Soldier fallback", Cfg.SoldierFallbackModelPath, 0f, false),
     };
 
@@ -43,8 +45,14 @@ public static unsafe class CharacterModels
         public int RunClip;
         public int WalkClip;
         public int CrouchClip;
+        public int ProneClip;
         public float Scale;
         public float GroundLift;
+        /// <summary>
+        /// World-space lift that puts the lowest lateral vertex on the floor
+        /// after the dedicated prone renderer rolls the model forward.
+        /// </summary>
+        public float ProneGroundLift;
     }
 
     private static LoadedCharacter? _character;
@@ -68,8 +76,17 @@ public static unsafe class CharacterModels
         if (character is null) return false;
 
         ApplyPose(character, actor, simTime);
+        bool prone = actor is Player { IsProne: true };
+        if (prone)
+        {
+            DrawProneModel(character, actor);
+            // The generated HGO operator contains its own braced world rifle.
+            // Do not paint the legacy upright proxy over a prone silhouette.
+            return true;
+        }
+
         // The simulation crouch hitbox is 54 rather than 72 units high.  Keep
-        // the tactical body grounded at that same height while its dedicated
+        // the capsule body grounded at that same height while its dedicated
         // Crouch clip provides the leg motion; this avoids a full-height model
         // visually standing inside a crouched collision volume.
         float crouchHeightScale = actor.Crouching ? Cfg.CrouchHeight / Cfg.StandHeight : 1f;
@@ -79,16 +96,97 @@ public static unsafe class CharacterModels
             character.Scale * crouchHeightScale, character.Scale * crouchWidthScale);
         Raylib.DrawModelEx(character.Model, position, Vector3.UnitY,
             actor.Yaw + character.Artwork.YawOffset, scale, Color.White);
-        // Tactical Soldier 02 carries its compact carbine as a rigid mesh
-        // weighted to CC_Base_R_Hand.  Do not overlay the old renderer proxy on
-        // top of that skin; retain it only for the legacy fallback asset.
+        if (character.Artwork.HasIntegratedCarbine) DrawCapsuleHeadAccessory(actor, character.Artwork.YawOffset);
+        // The preferred HGO operator carries a compact original carbine as a
+        // rigid mesh skinned to its right hand. Do not overlay the old proxy on
+        // top of that pose; retain the proxy only for the legacy fallback.
         if (!character.Artwork.HasIntegratedCarbine) DrawCarriedWeapon(actor);
         return true;
     }
 
     /// <summary>
-    /// Draws the fallback-only world-space weapon. Tactical Soldier 02 uses the
-    /// integrated right-hand-skinned carbine authored by its converter instead.
+    /// Gives the shared capsule rig a stable, actor-specific high silhouette
+    /// without adding duplicate character meshes. These original box-built
+    /// accessories are visual-only: actor identity, collision, AI, weapon state
+    /// and Gun Game's first-person path are completely unchanged.
+    /// </summary>
+    private static void DrawCapsuleHeadAccessory(Actor actor, float yawOffset)
+    {
+        // The mesh's source height is normalised to the same actor head height
+        // used by the simulation. Crouch scaling therefore lowers accessories
+        // with the visible head without needing a second skeleton or socket API.
+        float headTop = actor.HeadHeight;
+        int style = Math.Abs(actor.Id) % 4;
+        Color warm = U.Rgb(255, 142, 37);
+        Color cool = U.Rgb(35, 178, 209);
+        Color dark = U.Rgb(26, 43, 54);
+
+        Rlgl.PushMatrix();
+        Rlgl.Translatef(actor.Position.X, actor.Position.Y, actor.Position.Z);
+        Rlgl.Rotatef(actor.Yaw + yawOffset, 0f, 1f, 0f);
+        switch (style)
+        {
+            case 0: // compact pixel cone
+                Raylib.DrawCubeV(new Vector3(0f, headTop + 3f, 0f), new Vector3(18f, 5f, 18f), warm);
+                Raylib.DrawCubeV(new Vector3(0f, headTop + 7f, 0f), new Vector3(12f, 5f, 12f), warm);
+                Raylib.DrawCubeV(new Vector3(0f, headTop + 11f, 0f), new Vector3(6f, 4f, 6f), warm);
+                break;
+
+            case 1: // two leaning horns made from simple low-poly blocks
+                DrawAccessoryBlock(new Vector3(-9f, headTop + 6f, 0f), new Vector3(5f, 15f, 6f), -24f, warm);
+                DrawAccessoryBlock(new Vector3(9f, headTop + 6f, 0f), new Vector3(5f, 15f, 6f), 24f, warm);
+                Raylib.DrawCubeV(new Vector3(0f, headTop + 1.5f, 0f), new Vector3(22f, 3f, 12f), dark);
+                break;
+
+            case 2: // square low-poly halo, horizontal above the head
+                Raylib.DrawCubeV(new Vector3(0f, headTop + 8f, -9f), new Vector3(27f, 2.5f, 3f), cool);
+                Raylib.DrawCubeV(new Vector3(0f, headTop + 8f, 9f), new Vector3(27f, 2.5f, 3f), cool);
+                Raylib.DrawCubeV(new Vector3(-12f, headTop + 8f, 0f), new Vector3(3f, 2.5f, 21f), cool);
+                Raylib.DrawCubeV(new Vector3(12f, headTop + 8f, 0f), new Vector3(3f, 2.5f, 21f), cool);
+                break;
+
+            default: // top hat: brim, crown and bright hatband
+                Raylib.DrawCubeV(new Vector3(0f, headTop + 1.5f, 0f), new Vector3(26f, 3f, 24f), dark);
+                Raylib.DrawCubeV(new Vector3(0f, headTop + 8f, 0f), new Vector3(16f, 12f, 16f), dark);
+                Raylib.DrawCubeV(new Vector3(0f, headTop + 5.5f, 0f), new Vector3(17f, 2f, 17f), warm);
+                break;
+        }
+        Rlgl.PopMatrix();
+    }
+
+    /// <summary>Draws a local accessory block with a playful diagonal lean.</summary>
+    private static void DrawAccessoryBlock(Vector3 centre, Vector3 size, float roll, Color colour)
+    {
+        Rlgl.PushMatrix();
+        Rlgl.Translatef(centre.X, centre.Y, centre.Z);
+        Rlgl.Rotatef(roll, 0f, 0f, 1f);
+        Raylib.DrawCubeV(Vector3.Zero, size, colour);
+        Rlgl.PopMatrix();
+    }
+
+    /// <summary>
+    /// Presents the player-only prone stance as a genuinely horizontal model
+    /// aligned with their forward axis.  Its pose clip is authored in the GLB;
+    /// this matrix roll supplies the final world-space orientation without
+    /// changing the actor collision, hit scan or first-person Gun Game path.
+    /// </summary>
+    private static void DrawProneModel(LoadedCharacter character, Actor actor)
+    {
+        Vector3 position = actor.Position + Vector3.UnitY * character.ProneGroundLift;
+        Rlgl.PushMatrix();
+        Rlgl.Translatef(position.X, position.Y, position.Z);
+        Rlgl.Rotatef(actor.Yaw + character.Artwork.YawOffset, 0f, 1f, 0f);
+        // The exported source stands on +Y. Rotating its local +Y toward +Z
+        // places the chest/head in the same forward direction as the actor.
+        Rlgl.Rotatef(90f, 1f, 0f, 0f);
+        Rlgl.Scalef(character.Scale, character.Scale, character.Scale);
+        Raylib.DrawModel(character.Model, Vector3.Zero, 1f, Color.White);
+        Rlgl.PopMatrix();
+    }
+
+    /// <summary>
+    /// Draws the fallback-only world-space weapon. The preferred HGO operator
+    /// uses its integrated right-hand-skinned compact carbine instead.
     /// This layer remains presentation-only and cannot affect hit scans, weapon
     /// state or the independent first-person Gun Game view model.
     /// </summary>
@@ -217,6 +315,7 @@ public static unsafe class CharacterModels
 
     private static int ClipFor(LoadedCharacter character, Actor actor)
     {
+        if (actor is Player { IsProne: true }) return character.ProneClip;
         if (!actor.OnGround) return character.IdleClip;
         if (actor.Crouching) return character.CrouchClip;
         if (actor.HorizontalSpeed < Cfg.CharacterIdleSpeed) return character.IdleClip;
@@ -303,6 +402,7 @@ public static unsafe class CharacterModels
                 return null;
             }
             int crouch = FindClip(animations, animationCount, "Crouch", fallback: walk);
+            int prone = FindClip(animations, animationCount, "Prone", fallback: crouch);
 
             BoundingBox bounds = Raylib.GetModelBoundingBox(model);
             Vector3 size = bounds.Max - bounds.Min;
@@ -317,10 +417,14 @@ public static unsafe class CharacterModels
             }
             float scale = Cfg.StandHeight / size.Y;
             float groundLift = -bounds.Min.Y * scale;
+            // During prone rendering a +90 degree local-X roll maps local +Z
+            // to vertical -Y, so the normal model's maximum +Z is the amount
+            // needed to keep the resulting silhouette touching the floor.
+            float proneGroundLift = bounds.Max.Z * scale;
             Console.WriteLine($"character model {artwork.Name} ({artwork.Path}): {model.MeshCount} meshes, "
                 + $"{animationCount} clips [{ClipSummary(animations, animationCount)}], "
                 + $"size {size.X:0.000} x {size.Y:0.000} x {size.Z:0.000}, "
-                + $"scale {scale:0.0000}, ground lift {groundLift:0.0000}");
+                + $"scale {scale:0.0000}, ground lift {groundLift:0.0000}, prone lift {proneGroundLift:0.0000}");
             return new LoadedCharacter
             {
                 Artwork = artwork,
@@ -331,8 +435,10 @@ public static unsafe class CharacterModels
                 RunClip = run,
                 WalkClip = walk,
                 CrouchClip = crouch,
+                ProneClip = prone,
                 Scale = scale,
                 GroundLift = groundLift,
+                ProneGroundLift = proneGroundLift,
             };
         }
         catch (Exception ex)

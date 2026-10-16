@@ -106,24 +106,40 @@ public sealed class GameMap
 
     /// <summary>Highest walkable surface under a point, searched within a vertical window.</summary>
     public bool FindFloor(Vector3 p, float up, float down, out float floorY)
+        => FindFloorSurface(p, up, down, out floorY, out _);
+
+    /// <summary>
+    /// Finds the same highest walkable surface as <see cref="FindFloor"/>, plus
+    /// its authored collision material family. Consumers such as footsteps use
+    /// this only as sidecar metadata; it never changes collision, spawns, or
+    /// the supplied GLB's rendered geometry.
+    /// </summary>
+    public bool FindFloorSurface(Vector3 p, float up, float down, out float floorY, out SurfaceKind surface)
     {
         floorY = 0f;
+        surface = SurfaceKind.Floor;
         Vector3 origin = new(p.X, p.Y + up, p.Z);
         Vector3 dir = new(0f, -1f, 0f);
         float maxDist = up + down;
 
         bool found = false;
         float best = float.MaxValue;
+        int bestIndex = -1;
         for (int i = 0; i < Brushes.Length; i++)
         {
             if (Brushes[i].Box.Raycast(origin, dir, maxDist, out float t, out Vector3 n) && n.Y > 0.6f && t < best)
             {
                 best = t;
                 found = true;
+                bestIndex = i;
             }
         }
 
-        if (found) floorY = origin.Y - best;
+        if (found)
+        {
+            floorY = origin.Y - best;
+            surface = Brushes[bestIndex].Kind;
+        }
         return found;
     }
 

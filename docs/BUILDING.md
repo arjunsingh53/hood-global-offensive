@@ -14,13 +14,14 @@ carries the native raylib binaries for Windows, Linux and macOS. There is nothin
 
 The runtime art assets include `assets/maps/low-poly-industrial-zone.glb`,
 `assets/weapons/glock17.glb`, `assets/weapons/ak47-viewmodel.glb`,
-`assets/weapons/inhaler-keychain.glb`, the preserved fallback `assets/characters/soldier.glb`, and
-`assets/characters/tactical-soldier-02.glb`; the build
-copies `assets/**` next to the executable so the game finds them whichever directory it is launched
-from. The weapon source is optimised with [gltfpack](https://github.com/zeux/meshoptimizer/releases)
-and Pillow; see [tools/build_weapon_asset.py](../tools/build_weapon_asset.py). The Soldier conversion
-uses Pillow only and preserves its skinning/animation data; see
-[tools/build_character_asset.py](../tools/build_character_asset.py).
+`assets/weapons/inhaler-keychain.glb`, the active
+`assets/characters/hgo-lowpoly-tactical-operator.glb`, and the preserved fallback
+`assets/characters/soldier.glb`; development builds copy `assets/**` next to the executable.
+`assets/characters/tactical-soldier-02.glb` remains in the repository for provenance and rebuild
+history, but is not the current runtime character. The Windows packaging recipe below uses .NET's
+single-file self-extraction option for included runtime assets. The weapon source is optimised with
+[gltfpack](https://github.com/zeux/meshoptimizer/releases) and Pillow; see
+[tools/build_weapon_asset.py](../tools/build_weapon_asset.py).
 The original project-authored AK source and axis contract are documented in
 [ak47-viewmodel-README.md](../assets/weapons/ak47-viewmodel-README.md), with its rebuild recipe at
 [build_ak47_viewmodel.py](../tools/build_ak47_viewmodel.py).
@@ -33,9 +34,25 @@ regenerated. Keep the bundled [attribution and provenance record](../assets/maps
 with any distributed build; see the [collision/render integration note](LOW-POLY-INDUSTRIAL-ZONE-INTEGRATION.md)
 for the deterministic sidecar design.
 
-### Tactical Soldier 02 rebuild
+### Runtime character: HGO Low-Poly Capsule Combatant
 
-The Tactical Soldier runtime GLB is generated from the user-supplied FBX, never
+`assets/characters/hgo-lowpoly-tactical-operator.glb` is the active bot/world-character package.
+It is original project art with `Idle`, `Walk`, `Run`, `Crouch` and `Prone` clips; its compact carbine
+is a third-person world prop only and does not replace Gun Game's first-person weapon models or
+hitboxes. See the [runtime asset record](../assets/characters/HGO-LOWPOLY-TACTICAL-OPERATOR.md) and
+its repeatable [build script](../tools/build_lowpoly_tactical_operator.py).
+
+### Optional sky panorama (not bundled)
+
+The game always includes its own procedural dusk sky. A 2:1 equirectangular PNG may optionally be
+placed at `assets/sky/hgo-sunset-panorama.png`; it is validated and camera-projected at runtime.
+No third-party skybox is bundled, downloaded, or redistributed by this repository. Keep the source,
+rights and attribution record with any panorama you add. See [the sky input contract](../assets/sky/README.md)
+for resolution and packaging requirements.
+
+### Tactical Soldier 02 rebuild — retained provenance, not active runtime art
+
+The historical Tactical Soldier GLB was generated from the user-supplied FBX, never
 from the incomplete OBJ. It needs Blender because the upload has a skeleton and
 textures but no playable locomotion clips. The conversion recipe uses a portable
 Blender build in a temporary `F:` workspace, creates HGO-local presentation
@@ -81,6 +98,15 @@ dotnet run -- --movement-check --seed 20260114
 
 # focused deterministic weapon-readiness trace: selector, inspect cancellation, sprint pose and replay
 dotnet run -- --weapon-check --seed 20260114
+
+# isolated profile round trip, corruption recovery and bounds checks; does not touch your real profile
+dotnet run -- --settings-check
+
+# deterministic listener routing: local/world scope, distance, pan and static-map occlusion profile
+dotnet run -- --audio-check
+
+# deterministic critical-health and actor-impact feedback contracts
+dotnet run -- --combat-feedback-check --seed 20260114
 ```
 
 The full-match report ends in `RESULT: PASS` or `RESULT: FAIL`. Pair it with the movement and weapon-readiness checks
@@ -101,9 +127,9 @@ actually ships.
 
 ### `tools/capture_shots.sh`
 
-Regenerates every screenshot artifact by running the game. Each capture plays a real match, waits
-for the required state (alive, healthy, enemy in view, and for the scoped frame a scope at least 97%
-raised), then renders genuine frames.
+Regenerates the current public screenshot set by running the game. Each capture plays a real match,
+waits for the required state (alive, healthy, enemy in view, and for the AK iron-sight frame ADS at
+least 97% raised), then renders genuine frames.
 
 ```bash
 bash tools/capture_shots.sh
@@ -113,18 +139,14 @@ Use this after any change to the renderer, the HUD or the menus.
 
 ### `tools/verify_shots.py`
 
-Decodes the PNGs with the Python standard library only — no Pillow — and measures where the view
-model and HUD actually land. It asserts:
+Decodes the PNGs with the Python standard library only — no Pillow — and measures the current
+public frames. It asserts:
 
-- the weapon is present in the lower right and does not reach into the crosshair region
-- the scoped frame really is scoped, using a corner/centre brightness ratio (colours are unreliable
-  here because the scope mask alpha-blends level geometry)
+- the AK's real iron-sight geometry is visible but compact at the authoritative centre ray, and its
+  scene corners remain visible (so ADS did not incorrectly invoke a scope mask)
 - the title screen renders its accent bar and a title that is not clipped by the window edge
-- the buy menu and scoreboard overlays draw their expected content
-
-It also contains a **positive control**: the same statistic that proves a weapon is *stowed* in the
-scoped frame is measured on a frame whose weapon is drawn, to show the check is capable of detecting
-a gun at all. A check that cannot fail is not a check.
+- the Buy Station overlay draws its accent and readable labels
+- the Industrial Zone and HGO Capsule Combatant proof frames are full-size, non-empty live captures
 
 ```bash
 python tools/verify_shots.py      # exits non-zero on any failure
@@ -154,26 +176,29 @@ w, h, bpp, px = decode("shots/01-ak47.png")
 
 ---
 
-## Distributing a build
+## Packaging a local build
 
 To produce a self-contained build that runs without a .NET installation:
 
 ```bash
-dotnet publish -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true
+dotnet publish -c Release -r win-x64 --self-contained true \
+  -p:PublishSingleFile=true -p:IncludeAllContentForSelfExtract=true -p:EnableCompressionInSingleFile=true \
+  -p:DebugType=None -p:DebugSymbols=false -o release/win-x64
 ```
 
-Swap `win-x64` for `linux-x64` or `osx-arm64` as needed. The output lands in
-`bin/Release/net10.0/<rid>/publish/`.
+Swap `win-x64` for `linux-x64` or `osx-arm64` as needed. The local package lands in
+`release/win-x64/` as one self-contained `HoodGlobalOffensive.exe`; it does not need a separate
+.NET installation or an adjacent `assets/` folder. `EnableCompressionInSingleFile` keeps the
+Windows package below GitHub's normal 100 MB file limit without changing the embedded assets.
 
-> **Note for the development machine this project was built on:** a Windows application-control
-> policy blocks newly built Release executables with a `FileLoadException`, so verification was done
-> against the default Debug configuration. This is a machine policy, not a property of the code —
-> `dotnet run` works normally. If you hit the same thing, use the default configuration.
+> **Note:** the development `bin/Debug` executable is framework-dependent, while the packaging
+> command above is self-contained. Use `dotnet run` for normal local development.
 
 ### A note on `DOTNET_ROOT`
 
 If the SDK is installed per-user rather than system-wide — for example in `%USERPROFILE%\.dotnet` —
-then running the built `.exe` directly requires `DOTNET_ROOT` to point at it:
+then running the **development** `.exe` directly requires `DOTNET_ROOT` to point at it. The
+self-contained package executable does not:
 
 ```bash
 export DOTNET_ROOT="$HOME/.dotnet"    # Git Bash / Linux / macOS

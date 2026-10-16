@@ -32,12 +32,23 @@ public sealed class Simulation
 
     public readonly Rng SeedSource;
     private Rng _rng;
+    // Presentation randomness is deliberately isolated from combat/AI randomness.
+    // Adding a mist or splat cannot change a future recoil spread, bot choice, or spawn.
+    private Rng _vfxRng;
 
     // ---------------------------------------------------------------- effects
     public readonly List<Tracer> Tracers = new();
-    public readonly List<Particle> Particles = new();
+    private readonly List<Particle> _particles = new();
+    private readonly List<Decal> _decals = new();
+    private readonly List<Particle> _bloodMists = new();
+    private readonly List<BloodDroplet> _bloodDroplets = new();
+    private readonly List<Decal> _bloodSplats = new();
+    public IReadOnlyList<Particle> Particles => _particles;
+    public IReadOnlyList<Decal> Decals => _decals;
+    public IReadOnlyList<Particle> BloodMists => _bloodMists;
+    public IReadOnlyList<BloodDroplet> BloodDroplets => _bloodDroplets;
+    public IReadOnlyList<Decal> BloodSplats => _bloodSplats;
     public readonly List<FloatingDamage> DamageNumbers = new();
-    public readonly List<Decal> Decals = new();
     public readonly List<KillFeedEntry> KillFeed = new();
     public readonly List<SoundEvent> Sounds = new();
 
@@ -60,6 +71,7 @@ public sealed class Simulation
     public Simulation(int botCount, BotSkill skill, ulong seed, int killsToWin = Cfg.KillsToWin)
     {
         _rng = new Rng(seed);
+        _vfxRng = new Rng(seed ^ 0xB10D_D00D_91A7_5EEDUL);
         SeedSource = new Rng(seed);
         KillsToWin = killsToWin;
         Mode = MatchMode.Deathmatch;
@@ -100,9 +112,11 @@ public sealed class Simulation
     public float Rand(float min, float max) => _rng.Range(min, max);
     public int RandInt(int min, int maxExclusive) => _rng.RangeInt(min, maxExclusive);
     public bool Chance(float p) => _rng.Chance(p);
+    private float VfxRand(float min, float max) => _vfxRng.Range(min, max);
 
-    public void Emit(string name, Vector3 position, float volume = 1f, float pitch = 1f)
-        => Sounds.Add(new SoundEvent(name, position, volume, pitch));
+    public void Emit(string name, Vector3 position, float volume = 1f, float pitch = 1f,
+        SoundEventScope scope = SoundEventScope.World)
+        => Sounds.Add(new SoundEvent(name, position, volume, pitch, scope));
 
     // ---------------------------------------------------------------- frame
 
@@ -199,7 +213,10 @@ public sealed class Simulation
 
         WeaponDef def = weapon.Def;
 
-        float spread = weapon.SpreadFor(shooter.HorizontalSpeed, shooter.OnGround, shooter.Crouching);
+        float aimBlend = shooter is Player playerShooter ? playerShooter.ZoomBlend : 0f;
+        bool sliding = shooter is Player slidingPlayer && slidingPlayer.IsSliding;
+        float spread = weapon.SpreadFor(shooter.HorizontalSpeed, shooter.OnGround, shooter.Crouching,
+            aimBlend, sliding);
         if (shooter is Bot bot) spread += bot.Profile.AimError * 0.30f;
         if (shooter.IsPlayer) spread = MathF.Max(spread, 0f);
 
@@ -215,16 +232,35 @@ public sealed class Simulation
         ShotsFired.TryGetValue(shooter.Id, out int fired);
         ShotsFired[shooter.Id] = fired + 1;
 
-        Vector3 muzzle = origin + new Vector3(0f, -4f, 0f);
+        Vector3 muzzle = GetPhysicalMuzzleOrigin(shooter);
+        int actorHitVfxEvents = 0;
 
         for (int pellet = 0; pellet < def.Pellets; pellet++)
         {
             Vector3 dir = Hitscan.ApplySpread(baseDir, spread, ref _rng);
             ShotResult result = Hitscan.Trace(Map, Actors, shooter, origin, dir, def, ref _rng);
 
+            // The camera centre chooses the intended target, but the physical
+            // barrel still has to clear the world. This reconciles familiar
+            // FPS crosshair aiming with fair near-cover behaviour: a player
+            // cannot shoot through a low wall that blocks their muzzle merely
+            // because their eye is visible above it. Through-cover shots retain
+            // their existing penetration path until that system gains an
+            // equivalent thickness-aware muzzle continuation.
+            if (shooter.IsPlayer && !result.ThroughCover
+                && TryReconcileMuzzleShot(muzzle, result, out ShotResult muzzleBlocked))
+            {
+                result = muzzleBlocked;
+            }
+
             if (result.HitActor && result.Victim is not null)
             {
-                ApplyActorHit(shooter, result, def, now);
+                // A shotgun may land several pellets at once.  Resolve every
+                // pellet's damage/stats as normal, but budget the expensive visual
+                // burst to the first actual actor contact in this trigger.
+                bool emitImpactVfx = actorHitVfxEvents < Cfg.MaxActorHitVfxEventsPerTrigger;
+                ApplyActorHit(shooter, result, def, now, dir, emitImpactVfx);
+                if (emitImpactVfx) actorHitVfxEvents++;
             }
             else if (result.HitWorld)
             {
@@ -250,7 +286,66 @@ public sealed class Simulation
         Emit(def.FireSound, origin, shooter.IsPlayer ? 0.85f : 0.7f, Rand(0.95f, 1.05f));
     }
 
-    private void ApplyActorHit(Actor shooter, ShotResult result, WeaponDef def, float now)
+    /// <summary>
+    /// Returns the presentation-aligned physical muzzle for secondary collision
+    /// checks and tracers. This is not the authoritative aim origin—the camera
+    /// ray remains the first trace—but it keeps shots honest around low cover.
+    /// </summary>
+    internal Vector3 GetPhysicalMuzzleOrigin(Actor shooter)
+    {
+        Vector3 forward = shooter.AimDirection;
+        Vector3 right = U.RightFromYaw(shooter.Yaw);
+
+        if (shooter is Player player)
+        {
+            // Hip fire sits down/right of the eye in the same general region as
+            // the first-person mesh. During ADS it rises toward the eye line;
+            // it never becomes the eye itself, so a blocked barrel still reads
+            // as a blocked barrel.
+            Vector3 hip = shooter.EyePosition + forward * 18f + right * 8.5f - Vector3.UnitY * 18f;
+            Vector3 ads = shooter.EyePosition + forward * 19f + right * 1.25f - Vector3.UnitY * 6.5f;
+            return U.Lerp(hip, ads, player.ZoomBlend);
+        }
+
+        // Bots use their readable chest-ready world pose rather than their eye,
+        // giving their outgoing tracers a plausible origin without modifying AI
+        // targeting, collision, weapon timing, or hitscan accuracy.
+        return shooter.Position + Vector3.UnitY * (shooter.HeadHeight * 0.69f)
+            + forward * 17f + right * 1.5f;
+    }
+
+    /// <summary>
+    /// Performs only the second, physical half of a camera-to-muzzle trace. A
+    /// completed camera trace supplies the intended result point; if static
+    /// geometry lies between the muzzle and that point, the near obstacle wins.
+    /// </summary>
+    internal bool TryReconcileMuzzleShot(Vector3 muzzle, in ShotResult primary, out ShotResult blocked)
+    {
+        blocked = default;
+        Vector3 toTarget = primary.Point - muzzle;
+        float distance = toTarget.Length();
+        if (distance <= 0.05f || !float.IsFinite(distance)) return false;
+
+        Vector3 direction = toTarget / distance;
+        // Preserve a tiny endpoint tolerance so a world surface selected by the
+        // primary camera ray is not spuriously reclassified due to rounding.
+        float physicalRange = MathF.Max(0f, distance - 0.15f);
+        if (physicalRange <= 0f) return false;
+        if (!Map.RayHit(muzzle, direction, physicalRange, out _, out Vector3 point,
+            out Vector3 normal, out int brushIndex)) return false;
+
+        blocked = new ShotResult
+        {
+            HitWorld = true,
+            Point = point,
+            Normal = normal,
+            BrushIndex = brushIndex,
+        };
+        return true;
+    }
+
+    private void ApplyActorHit(Actor shooter, ShotResult result, WeaponDef def, float now,
+        Vector3 shotDirection, bool emitImpactVfx)
     {
         Actor victim = result.Victim!;
 
@@ -266,7 +361,7 @@ public sealed class Simulation
             Headshots[shooter.Id] = hs + 1;
         }
 
-        SpawnBlood(result.Point, result.Normal, result.Group);
+        if (emitImpactVfx) SpawnActorHitVfx(result.Point, shotDirection, result.Group);
 
         if (shooter.IsPlayer)
         {
@@ -276,9 +371,10 @@ public sealed class Simulation
             // Local HUD confirmations are intentionally separate from the physical
             // impact at the target. They remain audible at long range while the
             // world hit still attenuates naturally for every listener.
-            Emit("hitmarker", shooter.EyePosition, 0.76f, result.Group == HitGroup.Head ? 1.08f : 1f);
+            Emit("hitmarker", shooter.EyePosition, 0.76f, result.Group == HitGroup.Head ? 1.08f : 1f,
+                SoundEventScope.Local);
             if (result.Group == HitGroup.Head)
-                Emit("headshot", shooter.EyePosition, 0.82f, killed ? 1f : 1.04f);
+                Emit("headshot", shooter.EyePosition, 0.82f, killed ? 1f : 1.04f, SoundEventScope.Local);
             DamageNumbers.Add(new FloatingDamage
             {
                 Position = result.Point,
@@ -313,48 +409,118 @@ public sealed class Simulation
         int count = 5;
         for (int i = 0; i < count; i++)
         {
-            Vector3 scatter = new(Rand(-1f, 1f), Rand(0.2f, 1.6f), Rand(-1f, 1f));
-            Particles.Add(new Particle
+            Vector3 scatter = new(VfxRand(-1f, 1f), VfxRand(0.2f, 1.6f), VfxRand(-1f, 1f));
+            float life = VfxRand(0.18f, 0.42f);
+            AddImpactParticle(new Particle
             {
                 Position = result.Point,
-                Velocity = result.Normal * Rand(30f, 110f) + scatter * 40f,
-                Life = Rand(0.18f, 0.42f),
-                MaxLife = 0.42f,
-                Size = Rand(1.1f, 2.6f),
+                Velocity = result.Normal * VfxRand(30f, 110f) + scatter * 40f,
+                Life = life,
+                MaxLife = life,
+                Size = VfxRand(1.1f, 2.6f),
                 Color = penetrable ? U.Rgb(210, 200, 175) : U.Rgb(226, 220, 198),
                 Gravity = true,
+                Kind = ParticleKind.Debris,
             });
         }
 
-        Decals.Add(new Decal
+        AddImpactDecal(new Decal
         {
             Position = result.Point + result.Normal * 0.4f,
             Normal = result.Normal,
-            Size = Rand(3.2f, 5.4f),
+            Size = VfxRand(3.2f, 5.4f),
             Life = 12f,
             MaxLife = 12f,
             Color = U.Rgba(38, 34, 30, 205),
+            Kind = DecalKind.SurfaceImpact,
         });
 
-        Emit("impact", result.Point, 0.55f, Rand(0.9f, 1.15f));
+        Emit("impact", result.Point, 0.55f, VfxRand(0.9f, 1.15f));
     }
 
-    private void SpawnBlood(Vector3 point, Vector3 normal, HitGroup group)
+    /// <summary>
+    /// Creates the visual-only actor-hit response from the resolved hit point.
+    /// The function accepts the real bullet travel vector rather than a render
+    /// transform, so entry mist, exit droplets, and backing splats agree with hitscan.
+    /// </summary>
+    internal void SpawnActorHitVfx(Vector3 point, Vector3 shotDirection, HitGroup group)
     {
-        int count = group == HitGroup.Head ? 14 : 8;
-        for (int i = 0; i < count; i++)
+        Vector3 travel = U.NormalizeOrZero(shotDirection);
+        if (travel == Vector3.Zero) travel = Vector3.UnitZ;
+
+        // The short confirmation mist belongs at the entry side of the hit. Put
+        // it just toward the shooter so it is not depth-hidden inside the world
+        // model; the physical droplets below remain exit-directed.
+        int mistCount = group == HitGroup.Head ? 7 : 5;
+        for (int i = 0; i < mistCount; i++)
         {
-            Particles.Add(new Particle
+            Vector3 drift = new(VfxRand(-1f, 1f), VfxRand(-0.45f, 1f), VfxRand(-1f, 1f));
+            float life = VfxRand(0.12f, 0.22f);
+            Vector3 cloudOffset = drift * VfxRand(0.7f, 2.4f);
+            AddBloodMist(new Particle
             {
-                Position = point,
-                Velocity = normal * Rand(30f, 150f) + new Vector3(Rand(-70f, 70f), Rand(-30f, 90f), Rand(-70f, 70f)),
-                Life = Rand(0.2f, 0.55f),
-                MaxLife = 0.55f,
-                Size = Rand(1.4f, 3.4f),
-                Color = U.Rgb(150, 16, 18),
-                Gravity = true,
+                Position = point - travel * VfxRand(0.35f, 1.10f) + cloudOffset,
+                Velocity = travel * VfxRand(6f, 22f) + drift * VfxRand(8f, 24f),
+                Life = life,
+                MaxLife = life,
+                Size = VfxRand(2.2f, 4.8f),
+                Color = U.Rgba(158, 24, 24, 170),
+                Gravity = false,
+                Kind = ParticleKind.BloodMist,
             });
         }
+
+        int dropletCount = group == HitGroup.Head ? 9 : 6;
+        for (int i = 0; i < dropletCount; i++)
+        {
+            Vector3 spread = new(VfxRand(-1f, 1f), VfxRand(-0.35f, 0.95f), VfxRand(-1f, 1f));
+            float life = VfxRand(0.35f, 0.78f);
+            AddBloodDroplet(new BloodDroplet
+            {
+                Position = point + travel * VfxRand(0.8f, 2f),
+                Velocity = travel * VfxRand(68f, 174f) + spread * VfxRand(24f, 74f),
+                Life = life,
+                MaxLife = life,
+                Size = VfxRand(1.3f, 2.8f),
+                SplatSize = VfxRand(2.2f, 5.6f),
+                SplatLife = Cfg.BloodDecalLifetime,
+                Color = U.Rgba(128, 18, 18, 205),
+            });
+        }
+
+        // This short secondary trace provides an immediate readable mark when a
+        // surface sits directly behind a target, while later droplets may land on
+        // floors, walls, crates, or platforms through the same collision sidecar.
+        Vector3 projectionStart = point + travel * 1.0f;
+        if (Map.RayHit(projectionStart, travel, Cfg.BloodDecalProjectionRange,
+            out _, out Vector3 decalPoint, out Vector3 decalNormal, out _)
+            && decalNormal.LengthSquared() > 0.5f)
+        {
+            AddBloodSplat(new Decal
+            {
+                Position = decalPoint + decalNormal * Cfg.BloodSplatSurfaceOffset,
+                Normal = decalNormal,
+                Size = VfxRand(4.4f, 7.8f),
+                Life = Cfg.BloodDecalLifetime,
+                MaxLife = Cfg.BloodDecalLifetime,
+                Color = U.Rgba(112, 15, 16, 190),
+                Kind = DecalKind.BloodSplat,
+            });
+        }
+    }
+
+    internal void AddImpactParticle(Particle particle) => AddCapped(_particles, particle, Cfg.MaxImpactParticles);
+    internal void AddImpactDecal(Decal decal) => AddCapped(_decals, decal, Cfg.MaxImpactDecals);
+    internal void AddBloodMist(Particle particle) => AddCapped(_bloodMists, particle, Cfg.MaxBloodMists);
+    internal void AddBloodDroplet(BloodDroplet droplet) => AddCapped(_bloodDroplets, droplet, Cfg.MaxBloodDroplets);
+    internal void AddBloodSplat(Decal splat) => AddCapped(_bloodSplats, splat, Cfg.MaxBloodSplats);
+
+    /// <summary>Retains newest presentation effects in deterministic insertion order.</summary>
+    internal static void AddCapped<T>(List<T> list, T value, int cap)
+    {
+        if (cap <= 0) return;
+        if (list.Count >= cap) list.RemoveAt(0);
+        list.Add(value);
     }
 
     // ---------------------------------------------------------------- death & scoring
@@ -381,7 +547,9 @@ public sealed class Simulation
 
         if (KillFeed.Count > 6) KillFeed.RemoveAt(0);
 
-        Emit("kill", victim.Position, 0.8f, 1f);
+        // The brief reward blip is a private confirmation, not a world sound.
+        // Never play it for a bot-versus-bot kill or when the player is the victim.
+        if (killer.IsPlayer) Emit("kill", killer.EyePosition, 0.8f, 1f, SoundEventScope.Local);
 
         if (victim.IsPlayer)
         {
@@ -484,7 +652,7 @@ public sealed class Simulation
                 : WeaponSlot.Secondary);
         }
 
-        if (first) Emit("spawn", actor.Position, 0.5f, 1f);
+        if (first && actor.IsPlayer) Emit("spawn", actor.Position, 0.5f, 1f, SoundEventScope.Local);
         else RespawnCount++;
     }
 
@@ -506,7 +674,24 @@ public sealed class Simulation
 
             float volume = actor.IsPlayer ? 0.32f : U.Clamp01(1f - distanceToPlayer / 1600f) * 0.5f;
             if (actor.Crouching) volume *= 0.35f;
-            Emit("step", actor.Position, volume, Rand(0.9f, 1.12f));
+            // The map sidecar exposes only broad collision materials. Query it
+            // rather than inventing texture types from the rendered GLB; custom
+            // audio packs fall back to the legacy "step" cue when they do not
+            // provide a matching surface derivative.
+            string stepCue = "step";
+            if (Map.FindFloorSurface(actor.Position + Vector3.UnitY * 0.5f, 1f,
+                Cfg.GroundSnap + Cfg.StepHeight + 2f, out _, out SurfaceKind surface))
+            {
+                stepCue = surface switch
+                {
+                    SurfaceKind.Floor => "step.floor",
+                    SurfaceKind.Crate => "step.crate",
+                    SurfaceKind.Metal => "step.metal",
+                    SurfaceKind.Platform => "step.platform",
+                    _ => "step",
+                };
+            }
+            Emit(stepCue, actor.Position, volume, Rand(0.9f, 1.12f));
 
             if (actor is Player player)
             {
@@ -532,20 +717,9 @@ public sealed class Simulation
             else Tracers[i] = t;
         }
 
-        for (int i = Particles.Count - 1; i >= 0; i--)
-        {
-            Particle p = Particles[i];
-            p.Life -= dt;
-            if (p.Life <= 0f)
-            {
-                Particles.RemoveAt(i);
-                continue;
-            }
-            if (p.Gravity) p.Velocity -= new Vector3(0f, Cfg.Gravity * 0.55f * dt, 0f);
-            p.Position += p.Velocity * dt;
-            p.Velocity *= MathF.Exp(-2.4f * dt);
-            Particles[i] = p;
-        }
+        TickParticles(_particles, dt);
+        TickParticles(_bloodMists, dt);
+        TickBloodDroplets(dt);
 
         for (int i = DamageNumbers.Count - 1; i >= 0; i--)
         {
@@ -559,17 +733,91 @@ public sealed class Simulation
             }
         }
 
-        for (int i = Decals.Count - 1; i >= 0; i--)
-        {
-            Decal d = Decals[i];
-            d.Life -= dt;
-            if (d.Life <= 0f) Decals.RemoveAt(i);
-            else Decals[i] = d;
-        }
+        TickDecals(_decals, dt);
+        TickDecals(_bloodSplats, dt);
 
         for (int i = KillFeed.Count - 1; i >= 0; i--)
         {
             if (Time - KillFeed[i].SpawnedAt > 6.5f) KillFeed.RemoveAt(i);
+        }
+    }
+
+    private static void TickParticles(List<Particle> particles, float dt)
+    {
+        for (int i = particles.Count - 1; i >= 0; i--)
+        {
+            Particle p = particles[i];
+            p.Life -= dt;
+            if (p.Life <= 0f)
+            {
+                particles.RemoveAt(i);
+                continue;
+            }
+
+            if (p.Gravity) p.Velocity -= new Vector3(0f, Cfg.Gravity * 0.55f * dt, 0f);
+            p.Position += p.Velocity * dt;
+            p.Velocity *= MathF.Exp(-2.4f * dt);
+            particles[i] = p;
+        }
+    }
+
+    /// <summary>
+    /// Sweeps each high-velocity droplet across its whole frame step.  This is
+    /// intentionally a simulation-side map query so it cannot tunnel through a
+    /// thin collision brush or become dependent on render frame rate.
+    /// </summary>
+    private void TickBloodDroplets(float dt)
+    {
+        for (int i = _bloodDroplets.Count - 1; i >= 0; i--)
+        {
+            BloodDroplet d = _bloodDroplets[i];
+            d.Life -= dt;
+            if (d.Life <= 0f)
+            {
+                _bloodDroplets.RemoveAt(i);
+                continue;
+            }
+
+            d.Velocity -= new Vector3(0f, Cfg.Gravity * 0.72f * dt, 0f);
+            Vector3 delta = d.Velocity * dt;
+            float distance = delta.Length();
+            if (distance > 1e-5f && Map.RayHit(d.Position, delta / distance, distance,
+                out _, out Vector3 point, out Vector3 normal, out _))
+            {
+                // A zero normal can occur for a ray whose origin is already
+                // embedded in a brush.  Remove that malformed droplet without
+                // making a directionless splat.
+                if (normal.LengthSquared() > 0.5f)
+                {
+                    AddBloodSplat(new Decal
+                    {
+                        Position = point + normal * Cfg.BloodSplatSurfaceOffset,
+                        Normal = normal,
+                        Size = d.SplatSize,
+                        Life = d.SplatLife,
+                        MaxLife = d.SplatLife,
+                        Color = d.Color,
+                        Kind = DecalKind.BloodSplat,
+                    });
+                }
+                _bloodDroplets.RemoveAt(i);
+                continue;
+            }
+
+            d.Position += delta;
+            d.Velocity *= MathF.Exp(-2.4f * dt);
+            _bloodDroplets[i] = d;
+        }
+    }
+
+    private static void TickDecals(List<Decal> decals, float dt)
+    {
+        for (int i = decals.Count - 1; i >= 0; i--)
+        {
+            Decal d = decals[i];
+            d.Life -= dt;
+            if (d.Life <= 0f) decals.RemoveAt(i);
+            else decals[i] = d;
         }
     }
 
@@ -578,7 +826,7 @@ public sealed class Simulation
         if (MatchOver) return;
         MatchOver = true;
         MatchResult = reason;
-        Emit("match_end", Vector3.Zero, 0.9f, 1f);
+        Emit("match_end", Player.EyePosition, 0.9f, 1f, SoundEventScope.Local);
     }
 
     public IEnumerable<Actor> Leaderboard()

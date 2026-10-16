@@ -1,4 +1,4 @@
-"""Inspect a captured Crossfire frame without any third-party dependencies.
+"""Inspect a captured Hood Global Offensive frame without any third-party dependencies.
 
 Decodes the PNG with zlib/struct and reports, for named screen regions, how much
 of each region is covered by the view-model materials versus world geometry.

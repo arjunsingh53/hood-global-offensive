@@ -5,6 +5,20 @@ using Raylib_cs;
 namespace HoodGlobalOffensive.UI;
 
 /// <summary>
+/// Closed, render-only crosshair data used by local preference persistence.
+/// It deliberately contains no combat, camera, player, or simulation state.
+/// </summary>
+public readonly record struct CrosshairPreference(
+    CrosshairPreset? Preset,
+    CrosshairColorOption Color,
+    CrosshairStyle Style,
+    bool DynamicGap,
+    bool CentreDot,
+    int BaseGap,
+    int ArmLength,
+    int Thickness);
+
+/// <summary>
 /// A local, presentation-only crosshair profile. It deliberately does not belong
 /// to Player or Simulation: changing a reticle never changes aim, recoil, spread,
 /// hit-scan, or the first-person weapon render.
@@ -88,53 +102,66 @@ public sealed class CrosshairSettings
 
     public void Reset() => ApplyPreset(CrosshairPreset.Classic);
 
-    private void ApplyPreset(CrosshairPreset preset)
+    /// <summary>Captures only local reticle presentation settings for the player profile.</summary>
+    public CrosshairPreference CapturePreference() => new(
+        Preset, Color, Style, DynamicGap, CentreDot, BaseGap, ArmLength, Thickness);
+
+    /// <summary>
+    /// Restores a bounded presentation profile. Invalid enum values recover to
+    /// safe defaults and a named preset is retained only when every one of its
+    /// actual values still matches, preventing corrupt files from lying in UI.
+    /// </summary>
+    public void Restore(CrosshairPreference preference)
     {
-        Preset = preset;
+        Color = Enum.IsDefined(typeof(CrosshairColorOption), preference.Color)
+            ? preference.Color
+            : CrosshairColorOption.Green;
+        Style = Enum.IsDefined(typeof(CrosshairStyle), preference.Style)
+            ? preference.Style
+            : CrosshairStyle.Cross;
+        DynamicGap = preference.DynamicGap;
+        CentreDot = preference.CentreDot;
+        BaseGap = U.ClampInt(preference.BaseGap, 0, 24);
+        ArmLength = U.ClampInt(preference.ArmLength, 1, 24);
+        Thickness = U.ClampInt(preference.Thickness, 1, 5);
 
-        switch (preset)
+        if (preference.Preset is CrosshairPreset preset
+            && Enum.IsDefined(typeof(CrosshairPreset), preset)
+            && MatchesPreset(preset))
         {
-            case CrosshairPreset.Classic:
-                Color = CrosshairColorOption.Green;
-                Style = CrosshairStyle.Cross;
-                DynamicGap = true;
-                CentreDot = true;
-                BaseGap = 4;
-                ArmLength = 7;
-                Thickness = 1;
-                break;
-
-            case CrosshairPreset.Compact:
-                Color = CrosshairColorOption.Cyan;
-                Style = CrosshairStyle.Cross;
-                DynamicGap = true;
-                CentreDot = false;
-                BaseGap = 2;
-                ArmLength = 5;
-                Thickness = 1;
-                break;
-
-            case CrosshairPreset.TShape:
-                Color = CrosshairColorOption.Yellow;
-                Style = CrosshairStyle.TShape;
-                DynamicGap = true;
-                CentreDot = false;
-                BaseGap = 4;
-                ArmLength = 8;
-                Thickness = 2;
-                break;
-
-            case CrosshairPreset.Dot:
-                Color = CrosshairColorOption.White;
-                Style = CrosshairStyle.Dot;
-                DynamicGap = false;
-                CentreDot = true;
-                BaseGap = 0;
-                ArmLength = 1;
-                Thickness = 3;
-                break;
+            Preset = preset;
+        }
+        else
+        {
+            Preset = null;
         }
     }
+
+    private void ApplyPreset(CrosshairPreset preset)
+    {
+        Restore(ProfileFor(preset));
+    }
+
+    private bool MatchesPreset(CrosshairPreset preset)
+    {
+        CrosshairPreference expected = ProfileFor(preset);
+        return Color == expected.Color
+            && Style == expected.Style
+            && DynamicGap == expected.DynamicGap
+            && CentreDot == expected.CentreDot
+            && BaseGap == expected.BaseGap
+            && ArmLength == expected.ArmLength
+            && Thickness == expected.Thickness;
+    }
+
+    private static CrosshairPreference ProfileFor(CrosshairPreset preset) => preset switch
+    {
+        CrosshairPreset.Classic => new(preset, CrosshairColorOption.Green, CrosshairStyle.Cross, true, true, 4, 7, 1),
+        CrosshairPreset.Compact => new(preset, CrosshairColorOption.Cyan, CrosshairStyle.Cross, true, false, 2, 5, 1),
+        CrosshairPreset.TShape => new(preset, CrosshairColorOption.Yellow, CrosshairStyle.TShape, true, false, 4, 8, 2),
+        CrosshairPreset.Dot => new(preset, CrosshairColorOption.White, CrosshairStyle.Dot, false, true, 0, 1, 3),
+        _ => new(CrosshairPreset.Classic, CrosshairColorOption.Green, CrosshairStyle.Cross, true, true, 4, 7, 1),
+    };
 
     public Color ResolveColor(byte alpha = 225) => Color switch
     {

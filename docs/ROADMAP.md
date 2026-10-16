@@ -35,10 +35,14 @@ are not defenceless. Either way the economy needs a decision rather than an acci
 damage is uniform across the torso. Splitting the torso into chest and stomach would make the
 existing multiplier live.
 
-### 4. Interface and sensitivity persistence
+### 4. Player-preference persistence — present in the v0.1.1 worktree
 
-The main menu's settings reset every launch. A small config file (sensitivity, bot count, bot skill,
-kill limit, resolution, volume) written next to the executable would fix it.
+Sensitivity, bot count, bot skill, kill limit, full crosshair presentation and camera feedback now
+live in a small, versioned JSON file under `%LOCALAPPDATA%\\HoodGlobalOffensive`. It is bounded,
+written atomically, recovers safely from corrupt files and intentionally excludes match state.
+
+The remaining preference work is **key rebinding**, then display, FOV and volume controls. Those
+need their own deliberate UI and platform pass rather than an opaque config dump beside the EXE.
 
 ---
 
@@ -85,8 +89,9 @@ depends on armour and economy being settled first.
 
 ## Later / exploratory
 
-- **Sound occlusion.** Gunfire currently transmits through walls with only distance attenuation.
-  Raycasting the audio path would make the map's geometry readable by ear.
+- **Refined sound occlusion.** World cues now ray-test against the static map sidecar and select
+  original distant/occluded profiles. Dynamic actors, material-specific filtering, and delayed
+  propagation remain future work.
 - **Bot buying.** Bots are handed loadouts by tier; letting them buy from their own money would make
   the economy meaningful on both sides.
 - **A replay / demo system.** The simulation is deterministic given a seed and an input sequence,
@@ -106,7 +111,8 @@ depends on armour and economy being settled first.
   navigation graph derivable and the collision model trivial.
 - **A different renderer or a move to a game engine.** The point of this project is that it is written
   from scratch on a thin binding, and it currently builds clean with zero warnings and no engine.
-- **Asset packs or licensed content.** Everything the game needs is generated in code or by a
-  checked-in script: audio is synthesised at startup, the map is code, and the one weapon mesh is
-  the published output of `tools/build_weapon_asset.py`. That property is worth keeping, and it is
-  why a new weapon mesh has to come with its regeneration recipe attached.
+- **Unreviewed or unlicensed asset packs.** The project can only integrate supplied assets with a
+  source/provenance record. It does not download or redistribute a third-party skybox by default:
+  the optional panorama slot is intentionally empty, and the game falls back to its original
+  procedural sky. Generated art should retain a repeatable build route; supplied art needs its
+  source boundary recorded before any distribution decision.

@@ -11,15 +11,33 @@ namespace HoodGlobalOffensive.UI;
 /// <summary>Draws everything the player sees while alive.</summary>
 public static class Hud
 {
+    // Stable, edge-only marks give the critical-condition layer material without
+    // importing a lens texture or polluting the protected aim area at screen centre.
+    private readonly record struct TraumaMark(float X, float Y, float Radius);
+    private static readonly TraumaMark[] TraumaMarks =
+    {
+        new(0.055f, 0.115f, 0.013f), new(0.118f, 0.060f, 0.008f),
+        new(0.215f, 0.145f, 0.010f), new(0.932f, 0.095f, 0.012f),
+        new(0.840f, 0.055f, 0.007f), new(0.962f, 0.225f, 0.010f),
+        new(0.075f, 0.805f, 0.011f), new(0.188f, 0.930f, 0.009f),
+        new(0.880f, 0.890f, 0.013f), new(0.955f, 0.765f, 0.008f),
+    };
+
     public static void Draw(Simulation sim, Camera3D cam, int w, int h, CrosshairSettings crosshair)
     {
-        DrawRadar(sim, w, h);
-        DrawTopBar(sim, w, h);
-        DrawKillFeed(sim, w, h);
+        // Keep the reticle/impact layer completely independent of the corner
+        // presentation.  A real calibrated sight or scope owns the protected
+        // centre of the screen, while the player can still recover essential
+        // state from deliberately quiet peripheral anchors.
+        float peripheralOpacity = PeripheralHudOpacity(sim.Player.Current.Def, sim.Player.ZoomBlend);
+        DrawRadar(sim, w, h, peripheralOpacity);
+        DrawTopBar(sim, w, h, peripheralOpacity);
+        DrawCompassTape(sim, w, h, peripheralOpacity);
+        DrawKillFeed(sim, w, h, peripheralOpacity);
         DrawDamageNumbers(sim, cam, w, h);
-        DrawVitals(sim, w, h);
-        DrawMobility(sim, w, h);
-        DrawWeaponReadout(sim, w, h);
+        DrawVitals(sim, w, h, peripheralOpacity);
+        DrawMobility(sim, w, h, peripheralOpacity);
+        DrawWeaponReadout(sim, w, h, peripheralOpacity);
 
         if (sim.Player.Alive)
         {
@@ -36,14 +54,94 @@ public static class Hud
         DrawHealthVignette(sim, w, h);
     }
 
+    /// <summary>
+    /// The local HUD fades only for a sight picture which has been authored for
+    /// ADS (or a real scope). A weapon with an ordinary narrowed FOV keeps the
+    /// normal HUD and reticle so it never loses usability while its model is
+    /// being calibrated.
+    /// </summary>
+    internal static float PeripheralHudOpacity(WeaponDef def, float zoomBlend)
+    {
+        if (!def.HasScope && !def.HasCalibratedIronSights) return 1f;
+
+        float t = U.Clamp01((zoomBlend - 0.16f) / 0.68f);
+        return U.Lerp(1f, 0.38f, t);
+    }
+
+    private static Color Fade(Color color, float opacity) =>
+        U.Rgba(color.R, color.G, color.B, (int)(color.A * U.Clamp01(opacity)));
+
+    private static void DrawFadedShadowText(string text, int x, int y, int size, Color color, float opacity,
+        bool centered = false)
+    {
+        int drawX = centered ? x - Raylib.MeasureText(text, size) / 2 : x;
+        Raylib.DrawText(text, drawX + 2, y + 2, size, Fade(U.Rgba(0, 0, 0, 170), opacity));
+        Raylib.DrawText(text, drawX, y, size, Fade(color, opacity));
+    }
+
+    // The combat interface uses deliberately simple, procedural shapes instead
+    // of imported UI art.  That keeps the look coherent at every resolution and
+    // gives the match layer a single visual language: a dark tactical scrim,
+    // a bright information edge, and small amber state accents.
+    private static void DrawArenaPanel(Rectangle rect, float opacity, Color? accent = null)
+    {
+        Color border = Fade(U.Rgba(232, 240, 244, 74), opacity);
+        Raylib.DrawRectangleRec(rect, Fade(U.Rgba(5, 8, 13, 206), opacity));
+        Raylib.DrawRectangleLinesEx(rect, 1f, border);
+
+        float corner = MathF.Min(12f, MathF.Min(rect.Width, rect.Height) * 0.24f);
+        Color cornerColor = accent is Color value
+            ? Fade(value, opacity)
+            : Fade(U.Rgba(232, 240, 244, 130), opacity);
+        DrawCornerBracket(rect.X, rect.Y, 1f, 1f, corner, cornerColor);
+        DrawCornerBracket(rect.X + rect.Width, rect.Y, -1f, 1f, corner, cornerColor);
+        DrawCornerBracket(rect.X, rect.Y + rect.Height, 1f, -1f, corner, cornerColor);
+        DrawCornerBracket(rect.X + rect.Width, rect.Y + rect.Height, -1f, -1f, corner, cornerColor);
+    }
+
+    private static void DrawCornerBracket(float x, float y, float horizontal, float vertical, float length, Color color)
+    {
+        Raylib.DrawLineEx(new Vector2(x, y), new Vector2(x + horizontal * length, y), 1.5f, color);
+        Raylib.DrawLineEx(new Vector2(x, y), new Vector2(x, y + vertical * length), 1.5f, color);
+    }
+
+    private static void DrawArenaText(string text, int x, int y, int size, Color color, float opacity,
+        bool centered = false)
+    {
+        int drawX = centered ? x - Raylib.MeasureText(text, size) / 2 : x;
+        Color outline = Fade(U.Rgba(0, 0, 0, 215), opacity);
+        Raylib.DrawText(text, drawX - 1, y, size, outline);
+        Raylib.DrawText(text, drawX + 1, y, size, outline);
+        Raylib.DrawText(text, drawX, y - 1, size, outline);
+        Raylib.DrawText(text, drawX, y + 1, size, outline);
+        Raylib.DrawText(text, drawX, y, size, Fade(color, opacity));
+    }
+
+    private static void DrawSegmentedBar(Rectangle bar, float amount, int segments, Color fill, Color empty, float opacity)
+    {
+        float gap = 2f;
+        float segmentWidth = (bar.Width - (segments - 1) * gap) / segments;
+        float active = U.Clamp01(amount) * segments;
+        for (int i = 0; i < segments; i++)
+        {
+            float intensity = U.Clamp01(active - i);
+            Color segment = intensity > 0.01f
+                ? U.Rgba(fill.R, fill.G, fill.B, (int)(fill.A * (0.48f + 0.52f * intensity)))
+                : empty;
+            Raylib.DrawRectangleRec(new Rectangle(bar.X + i * (segmentWidth + gap), bar.Y, segmentWidth, bar.Height),
+                Fade(segment, opacity));
+        }
+    }
+
     // ---------------------------------------------------------------- crosshair
 
     private static void DrawCrosshair(Simulation sim, Camera3D cam, int w, int h, CrosshairSettings settings)
     {
         Player p = sim.Player;
-        if (p.ZoomBlend > 0.75f) return;
+        if (IsCrosshairSuppressed(p.Current.Def, p.ZoomBlend)) return;
 
-        float spread = p.Current.SpreadFor(p.HorizontalSpeed, p.OnGround, p.Crouching);
+        float spread = p.Current.SpreadFor(p.HorizontalSpeed, p.OnGround, p.Crouching,
+            p.ZoomBlend, p.IsSliding);
         // The render camera can receive a tiny presentation-only FOV response.
         // Scale the visual gap with that exact projection FOV so the custom
         // reticle remains an honest pixel representation of weapon spread.
@@ -53,20 +151,47 @@ public static class Hud
         CrosshairRenderer.Draw(settings, cx, cy, spreadPixels, maxGap: h * 0.32f);
     }
 
+    /// <summary>
+    /// The reticle only disappears behind a real scope or a model with a
+    /// calibrated rear/front iron-sight picture. This keeps fallback weapons
+    /// playable while their ordinary aim view narrows the FOV.
+    /// </summary>
+    internal static bool IsCrosshairSuppressed(WeaponDef def, float zoomBlend) =>
+        zoomBlend > 0.75f && (def.HasScope || def.HasCalibratedIronSights);
+
     private static void DrawHitmarker(Simulation sim, int w, int h)
     {
         if (sim.Time > sim.HitmarkerUntil) return;
 
         int cx = w / 2, cy = h / 2;
-        Color c = sim.LastHitWasHeadshot
-            ? U.Rgba(255, 180, 60, 235)
-            : U.Rgba(245, 245, 245, 220);
-        int inner = 6, outer = 14;
+        // Simulation retains an event end time rather than allocating a UI
+        // animation object. The compact attack/release envelope therefore stays
+        // deterministic with the gameplay event: it expands on confirmation,
+        // then settles and fades instead of holding a static X.
+        const float hitmarkerLife = 0.12f;
+        float elapsed = U.Clamp01(1f - (sim.HitmarkerUntil - sim.Time) / hitmarkerLife);
+        float attack = U.Clamp01(elapsed / 0.62f);
+        float release = U.Clamp01((elapsed - 0.62f) / 0.38f);
+        float scale = U.Lerp(0.80f, 1.18f, attack) * U.Lerp(1f, 0.86f, release);
+        float fade = MathF.Pow(1f - elapsed, 0.68f);
 
-        Raylib.DrawLine(cx - outer, cy - outer, cx - inner, cy - inner, c);
-        Raylib.DrawLine(cx + inner, cy + inner, cx + outer, cy + outer, c);
-        Raylib.DrawLine(cx - outer, cy + outer, cx - inner, cy + inner, c);
-        Raylib.DrawLine(cx + inner, cy - inner, cx + outer, cy - outer, c);
+        Color c = sim.LastHitWasHeadshot
+            ? U.Rgba(255, 86, 70, (int)(245 * fade))
+            : U.Rgba(245, 245, 245, (int)(230 * fade));
+        float inner = 6f * scale;
+        float outer = 14f * scale;
+        float lineWidth = MathF.Max(1f, 1.35f * scale);
+
+        Raylib.DrawLineEx(new Vector2(cx - outer, cy - outer), new Vector2(cx - inner, cy - inner), lineWidth, c);
+        Raylib.DrawLineEx(new Vector2(cx + inner, cy + inner), new Vector2(cx + outer, cy + outer), lineWidth, c);
+        Raylib.DrawLineEx(new Vector2(cx - outer, cy + outer), new Vector2(cx - inner, cy + inner), lineWidth, c);
+        Raylib.DrawLineEx(new Vector2(cx + inner, cy - outer), new Vector2(cx + outer, cy - inner), lineWidth, c);
+
+        if (sim.LastHitWasHeadshot)
+        {
+            int labelAlpha = (int)(190 * fade * U.Clamp01((elapsed - 0.14f) / 0.28f));
+            Ui.TextCenter("HEADSHOT", cx, cy + (int)(24f * scale), 10, U.Rgba(255, 104, 82, labelAlpha));
+        }
     }
 
     private static void DrawDamageIndicators(Simulation sim, int w, int h)
@@ -98,6 +223,7 @@ public static class Hud
     private static void DrawScopeOverlay(Simulation sim, int w, int h)
     {
         Player p = sim.Player;
+        if (!p.Current.Def.HasScope) return;
         if (p.ZoomBlend < 0.25f) return;
 
         float t = U.Clamp01((p.ZoomBlend - 0.25f) / 0.75f);
@@ -127,82 +253,117 @@ public static class Hud
 
     // ---------------------------------------------------------------- vitals
 
-    private static void DrawVitals(Simulation sim, int w, int h)
+    private static void DrawVitals(Simulation sim, int w, int h, float opacity)
     {
         Player p = sim.Player;
-        int baseY = h - 84;
         float health = U.Clamp01(p.Health / Cfg.MaxHealth);
-        bool low = p.Health <= 30f;
-
+        bool low = p.Health < Cfg.LowHealthTraumaThreshold;
         Color healthColor = low
-            ? U.Rgb(226, 78, 62)
-            : health > 0.6f ? U.Rgb(214, 214, 210) : U.Rgb(232, 176, 72);
+            ? U.Rgb(246, 78, 66)
+            : health > 0.6f ? U.Rgb(238, 242, 244) : U.Rgb(255, 188, 70);
 
-        var healthBar = new Rectangle(30, baseY + 42, 220, 7);
-        Ui.Bar(healthBar, health, healthColor, U.Rgba(0, 0, 0, 150));
-        Raylib.DrawRectangleLinesEx(healthBar, 1f, U.Rgba(255, 255, 255, 55));
+        // The biological status card is intentionally large enough to read in a
+        // glance, but it is anchored below the active combat area rather than
+        // occupying it.  The left red rail acts as a non-text health cue.
+        const int margin = 24;
+        const int cardW = 250;
+        const int cardH = 88;
+        int cardY = h - margin - cardH;
+        var card = new Rectangle(margin, cardY, cardW, cardH);
+        DrawArenaPanel(card, opacity, healthColor);
+        Raylib.DrawRectangle(margin, cardY, 5, cardH, Fade(healthColor, opacity));
 
-        Ui.ShadowText($"{MathF.Ceiling(p.Health):0}", 28, baseY, 40, healthColor);
+        DrawArenaText($"{MathF.Ceiling(p.Health):0}", margin + 16, cardY + 23, 42, healthColor, opacity);
+        Ui.Text("HEALTH", margin + 78, cardY + 16, 10, Fade(Ui.Dim, opacity));
+        Ui.Text(low ? "CRITICAL" : "COMBAT READY", margin + 78, cardY + 30, 10,
+            Fade(low ? healthColor : Ui.Good, opacity));
 
-        var armorBar = new Rectangle(30 + 74, baseY + 42, 146, 7);
-        Ui.Bar(armorBar, U.Clamp01(p.Armor / Cfg.MaxArmor), U.Rgb(120, 186, 232), U.Rgba(0, 0, 0, 150));
-        Raylib.DrawRectangleLinesEx(armorBar, 1f, U.Rgba(255, 255, 255, 55));
+        var healthBar = new Rectangle(margin + 78, cardY + 46, 148, 8);
+        DrawSegmentedBar(healthBar, health, 10, healthColor, U.Rgba(255, 255, 255, 26), opacity);
+        Raylib.DrawRectangleLinesEx(healthBar, 1f, Fade(U.Rgba(255, 255, 255, 54), opacity));
 
-        Ui.ShadowText($"{MathF.Ceiling(p.Armor):0}", 30 + 76, baseY + 14, 20,
-            p.Armor > 0f ? U.Rgb(150, 200, 240) : Ui.Faint);
-        Ui.ShadowText(p.HasHelmet ? "HELMET" : "NO HELMET", 30 + 152, baseY + 2, 10, Ui.Dim);
+        float armor = U.Clamp01(p.Armor / Cfg.MaxArmor);
+        Ui.Text("ARMOR", margin + 78, cardY + 61, 10, Fade(Ui.Faint, opacity));
+        var armorBar = new Rectangle(margin + 122, cardY + 63, 104, 6);
+        DrawSegmentedBar(armorBar, armor, 5, U.Rgb(110, 194, 244), U.Rgba(255, 255, 255, 24), opacity);
+
+        string helmet = p.HasHelmet ? "HELMET" : "OPEN";
+        Ui.Text(helmet, margin + 78, cardY + 73, 9,
+            Fade(p.HasHelmet ? U.Rgb(150, 206, 242) : Ui.Danger, opacity));
+        Ui.TextRight($"${p.Money}", margin + cardW - 14, cardY + 73, 10, Fade(Ui.Accent, opacity));
     }
 
-    private static void DrawWeaponReadout(Simulation sim, int w, int h)
+    private static void DrawWeaponReadout(Simulation sim, int w, int h, float opacity)
     {
         Player p = sim.Player;
         Weapon weapon = p.Current;
-        int baseY = h - 84;
-
-        string ammo = $"{weapon.Mag} / {weapon.Reserve}";
+        const int margin = 24;
+        const int cardW = 260;
+        const int cardH = 88;
+        int cardX = w - margin - cardW;
+        int cardY = h - margin - cardH;
+        var card = new Rectangle(cardX, cardY, cardW, cardH);
         Color ammoColor = weapon.Mag == 0 ? Ui.Danger : Ui.Ink;
-        Ui.ShadowText(ammo, w - 30 - Ui.Width(ammo, 30), baseY, 30, ammoColor);
-        Ui.TextRight(weapon.Def.Name.ToUpperInvariant(), w - 30, baseY - 16, 10, Ui.Accent);
-        if (weapon.HasSelectableFireMode)
-        {
-            Ui.TextRight($"FIRE MODE  {weapon.FireModeLabel}  [V]", w - 30, baseY - 30, 10, Ui.Dim);
-        }
+        DrawArenaPanel(card, opacity, ammoColor);
 
-        // Weapon slot strip
-        int y = baseY + 40;
+        Ui.Text(weapon.Def.Name.ToUpperInvariant(), cardX + 15, cardY + 14, 12, Fade(Ui.Accent, opacity));
+        string weaponState = weapon.HasSelectableFireMode
+            ? $"{weapon.FireModeLabel}  •  PRIMARY"
+            : weapon.Def.Slot == WeaponSlot.Knife ? "MELEE" : "PRIMARY";
+        Ui.Text(weaponState, cardX + 15, cardY + 30, 10, Fade(Ui.Dim, opacity));
+
+        // The magazine uses a much larger numeral than reserve ammunition. It
+        // stays stable and legible while firing without turning the whole corner
+        // into a menu-like panel.
+        string mag = weapon.Mag.ToString("00");
+        string reserve = weapon.Reserve.ToString("000");
+        DrawArenaText(mag, cardX + 144, cardY + 33, 38, ammoColor, opacity);
+        Ui.Text("/", cardX + 197, cardY + 55, 16, Fade(Ui.Faint, opacity));
+        DrawArenaText(reserve, cardX + 213, cardY + 56, 18, Ui.Ink, opacity);
+        Ui.Text("MAG", cardX + 147, cardY + 74, 9, Fade(Ui.Faint, opacity));
+        Ui.Text("RES", cardX + 214, cardY + 74, 9, Fade(Ui.Faint, opacity));
+
+        float magFill = weapon.Def.Magazine <= 0 ? 0f : weapon.Mag / (float)weapon.Def.Magazine;
+        var magazineBar = new Rectangle(cardX + 15, cardY + 51, 111, 8);
+        DrawSegmentedBar(magazineBar, magFill, 8, ammoColor, U.Rgba(255, 255, 255, 24), opacity);
+        Raylib.DrawRectangleLinesEx(magazineBar, 1f, Fade(U.Rgba(255, 255, 255, 48), opacity));
+
+        // Weapon slot strip remains a live control hint, but it is treated as a
+        // quiet secondary layer above the ammunition card.
+        int stripY = cardY - 26;
         for (int i = 0; i < 3; i++)
         {
             WeaponSlot slot = (WeaponSlot)i;
-            Weapon? owned = p.Weapons.Find(x => x.Def.Slot == slot);
-            var box = new Rectangle(w - 30 - (3 - i) * 66, y, 58, 22);
+            Weapon? owned = p.Weapons.Find(candidate => candidate.Def.Slot == slot);
+            var box = new Rectangle(w - margin - (3 - i) * 70, stripY, 62, 21);
             bool active = owned is not null && p.Current.Def == owned.Def;
 
-            Ui.Panel(box,
-                active ? U.Rgba(255, 186, 56, 60) : U.Rgba(10, 12, 16, 140),
-                active ? Ui.Accent : Ui.PanelBorder);
+            DrawArenaPanel(box, opacity, active ? Ui.Accent : null);
+            if (active)
+                Raylib.DrawRectangle((int)box.X, (int)box.Y, 3, (int)box.Height, Fade(Ui.Accent, opacity));
 
             string label = owned is null ? "---" : ShortName(owned.Def.Name);
-            Ui.TextCenter(label, (int)box.X + 29, (int)box.Y + 7, 10, active ? Ui.Ink : Ui.Dim);
-            Ui.Text($"{i + 1}", (int)box.X + 3, (int)box.Y + 2, 10, Ui.Faint);
+            Ui.TextCenter(label, (int)box.X + 31, (int)box.Y + 6, 10, Fade(active ? Ui.Ink : Ui.Dim, opacity));
+            Ui.Text($"{i + 1}", (int)box.X + 3, (int)box.Y + 2, 10, Fade(Ui.Faint, opacity));
         }
 
         if (weapon.Reloading)
         {
             float duration = MathF.Max(0.001f, weapon.Def.ReloadTime);
             float t = U.Clamp01(1f - (weapon.ReloadEndTime - sim.Time) / duration);
-            var bar = new Rectangle(w - 200, baseY + 22, 170, 5);
-            Ui.Bar(bar, t, Ui.Accent, U.Rgba(0, 0, 0, 160));
+            var bar = new Rectangle(cardX + 15, cardY + 72, 111, 5);
+            Ui.Bar(bar, t, Fade(Ui.Accent, opacity), Fade(U.Rgba(0, 0, 0, 160), opacity));
             Ui.TextRight(weapon.ReloadStartedEmpty ? "EMPTY RELOAD" : "TACTICAL RELOAD",
-                w - 30, baseY + 22 - 14, 10, Ui.Accent);
+                cardX + 126, cardY + 63, 9, Fade(Ui.Accent, opacity));
         }
         else if (p.Inspecting)
         {
-            Ui.TextRight("INSPECTING  |  FIRE / ADS / SPRINT TO CANCEL", w - 30, baseY + 22 - 14, 10, Ui.Dim);
+            Ui.TextRight("INSPECTING", cardX + 126, cardY + 63, 9, Fade(Ui.Dim, opacity));
         }
         else if (weapon.Mag == 0)
         {
-            Ui.TextRight("PRESS R TO RELOAD", w - 30, baseY + 22 - 14, 10,
-                (int)(sim.Time * 3f) % 2 == 0 ? Ui.Danger : Ui.Dim);
+            Ui.TextRight("PRESS R", cardX + 126, cardY + 63, 9,
+                Fade((int)(sim.Time * 3f) % 2 == 0 ? Ui.Danger : Ui.Dim, opacity));
         }
     }
 
@@ -211,54 +372,133 @@ public static class Hud
     /// charge meter remains visible while it refills so tactical sprint is never
     /// a hidden timer; it does not affect any weapon/render state.
     /// </summary>
-    private static void DrawMobility(Simulation sim, int w, int h)
+    private static void DrawMobility(Simulation sim, int w, int h, float opacity)
     {
         _ = w;
         Player p = sim.Player;
         if (!p.Alive) return;
 
-        bool show = p.SprintState != PlayerSprintState.None || p.TacticalSprintStamina < 0.995f;
+        bool show = p.IsSliding || p.SprintState != PlayerSprintState.None || p.TacticalSprintStamina < 0.995f;
         if (!show) return;
 
-        int x = 30;
-        int y = h - 128;
+        const int x = 24;
+        int y = h - 148;
+        bool sliding = p.IsSliding;
         bool tactical = p.SprintState == PlayerSprintState.TacticalSprinting;
-        string state = tactical ? "TACTICAL SPRINT" : p.SprintState == PlayerSprintState.Sprinting ? "SPRINT" : "TAC STAMINA";
-        Color stateColor = tactical ? Ui.Accent : Ui.Good;
+        string state = sliding ? "SLIDE" : tactical ? "TACTICAL SPRINT"
+            : p.SprintState == PlayerSprintState.Sprinting ? "SPRINT" : "TAC STAMINA";
+        Color stateColor = sliding || tactical ? Ui.Accent : Ui.Good;
+        float meter = sliding ? 1f - p.SlideProgress : p.TacticalSprintStamina;
 
-        Ui.Text(state, x, y, 10, stateColor);
-        var bar = new Rectangle(x, y + 15, 164, 5);
-        Ui.Bar(bar, p.TacticalSprintStamina, stateColor, U.Rgba(0, 0, 0, 150));
-        Raylib.DrawRectangleLinesEx(bar, 1f, U.Rgba(255, 255, 255, 45));
-        Ui.Text("TAC", x + 170, y + 10, 10, Ui.Dim);
+        var panel = new Rectangle(x, y, 184, 26);
+        DrawArenaPanel(panel, opacity, stateColor);
+        Ui.Text(state, x + 10, y + 8, 10, Fade(stateColor, opacity));
+        var bar = new Rectangle(x + 82, y + 10, 72, 5);
+        DrawSegmentedBar(bar, meter, 6, stateColor, U.Rgba(255, 255, 255, 22), opacity);
+        Ui.Text(sliding ? "MOM" : "TAC", x + 160, y + 8, 9, Fade(Ui.Dim, opacity));
     }
 
-    private static void DrawTopBar(Simulation sim, int w, int h)
+    private static void DrawTopBar(Simulation sim, int w, int h, float opacity)
     {
-        string money = $"${sim.Player.Money}";
-        Ui.ShadowText(money, 30, 22, 20, Ui.Good);
-        Ui.Text("DEATHMATCH", 30, 46, 10, Ui.Dim);
-
         int minutes = (int)(sim.TimeLeft / 60f);
         int seconds = (int)(sim.TimeLeft % 60f);
         bool urgent = sim.TimeLeft < 30f;
-        Color timerColor = urgent ? Ui.Danger : Ui.Ink;
+        Color timerColor = urgent ? Ui.Danger : U.Rgb(242, 246, 248);
 
-        var panel = new Rectangle(w / 2f - 86f, 14f, 172f, 46f);
-        Ui.Panel(panel, Ui.PanelBg, Ui.PanelBorder);
-        Ui.TextCenter($"{minutes:00}:{seconds:00}", w / 2, 20, 20, timerColor);
-        Ui.TextCenter($"FIRST TO {sim.KillsToWin}", w / 2, 42, 10, Ui.Dim);
+        var panel = new Rectangle(w / 2f - 110f, 14f, 220f, 58f);
+        DrawArenaPanel(panel, opacity, urgent ? Ui.Danger : Ui.Accent);
+        Ui.TextCenter("MATCH CLOCK", w / 2, 20, 9, Fade(Ui.Faint, opacity));
+        DrawArenaText($"{minutes:00}:{seconds:00}", w / 2, 29, 28, timerColor, opacity, centered: true);
 
         Actor? leader = sim.Leaderboard().FirstOrDefault();
-        if (leader is not null)
-        {
-            string label = $"{leader.Name}  {leader.Kills}";
-            Ui.TextRight(label, w / 2 - 100, 30, 10, Ui.Dim);
-        }
+        int leadKills = leader?.Kills ?? 0;
+        string score = $"YOU {sim.Player.Kills:00}   •   LEAD {leadKills:00}   •   FT {sim.KillsToWin}";
+        Ui.TextCenter(score, w / 2, 57, 9, Fade(Ui.Dim, opacity));
     }
 
-    private static void DrawKillFeed(Simulation sim, int w, int h)
+    /// <summary>
+    /// A fixed screen-space heading tape. The world camera and the radar both
+    /// read Player.Yaw, but the tape keeps conventional compass headings so
+    /// spoken callouts remain stable while the radar terrain rotates.
+    /// </summary>
+    private static void DrawCompassTape(Simulation sim, int w, int h, float opacity)
     {
+        _ = h;
+        int tapeWidth = Math.Min(420, Math.Max(280, w / 3));
+        const int tapeHeight = 21;
+        int cx = w / 2;
+        const int y = 80;
+        int left = cx - tapeWidth / 2;
+        var strip = new Rectangle(left, y, tapeWidth, tapeHeight);
+
+        DrawArenaPanel(strip, opacity);
+
+        // Game yaw increases to the left. Flip it to report conventional
+        // clockwise compass degrees: N=000, E=090, S=180, W=270.
+        float heading = WrapHeading(-sim.Player.Yaw);
+        const float pixelsPerDegree = 1.05f;
+        float halfDegrees = tapeWidth * 0.5f / pixelsPerDegree;
+        int firstTick = (int)MathF.Floor((heading - halfDegrees) / 15f) * 15;
+        int lastTick = (int)MathF.Ceiling((heading + halfDegrees) / 15f) * 15;
+
+        for (int degree = firstTick; degree <= lastTick; degree += 15)
+        {
+            float delta = SignedHeadingDelta(heading, degree);
+            float x = cx + delta * pixelsPerDegree;
+            if (x < left - 2f || x > left + tapeWidth + 2f) continue;
+
+            int normalized = ((degree % 360) + 360) % 360;
+            bool labelled = normalized % 45 == 0;
+            float tickHeight = labelled ? 7f : 3.5f;
+            Color tickColor = Fade(labelled ? U.Rgba(236, 240, 244, 188) : U.Rgba(236, 240, 244, 92), opacity);
+            Raylib.DrawLineEx(new Vector2(x, y + 2f), new Vector2(x, y + 2f + tickHeight), 1f, tickColor);
+
+            if (labelled)
+            {
+                string label = CompassLabel(normalized);
+                Ui.TextCenter(label, (int)x, y + 10, 9, Fade(Ui.Dim, opacity));
+            }
+        }
+
+        // The centre caret identifies the exact current bearing while the
+        // heading number remains readable even when a cardinal label scrolls.
+        Raylib.DrawTriangle(new Vector2(cx, y), new Vector2(cx - 4f, y + 5f), new Vector2(cx + 4f, y + 5f),
+            Fade(Ui.Accent, opacity));
+        int headingDisplay = ((int)MathF.Round(heading)) % 360;
+        Ui.TextCenter($"{headingDisplay:000}", cx, y + tapeHeight + 2, 9, Fade(Ui.Faint, opacity));
+    }
+
+    private static float WrapHeading(float degrees)
+    {
+        float wrapped = degrees % 360f;
+        return wrapped < 0f ? wrapped + 360f : wrapped;
+    }
+
+    private static float SignedHeadingDelta(float current, float candidate)
+    {
+        float delta = (candidate - current) % 360f;
+        if (delta > 180f) delta -= 360f;
+        if (delta < -180f) delta += 360f;
+        return delta;
+    }
+
+    private static string CompassLabel(int degrees) => degrees switch
+    {
+        0 => "N",
+        45 => "NE",
+        90 => "E",
+        135 => "SE",
+        180 => "S",
+        225 => "SW",
+        270 => "W",
+        315 => "NW",
+        _ => $"{degrees:000}",
+    };
+
+    private static void DrawKillFeed(Simulation sim, int w, int h, float opacity)
+    {
+        _ = h;
+        const int rowHeight = 27;
         int y = 20;
         foreach (KillFeedEntry entry in Enumerable.Reverse(sim.KillFeed))
         {
@@ -266,27 +506,34 @@ public static class Hud
             float alpha = age > 5.5f ? U.Clamp01((6.5f - age) / 1f) : 1f;
             int a = (int)(255 * alpha);
 
-            string weapon = entry.Headshot ? $"* {entry.Weapon}" : entry.Weapon;
-            string text = $"{entry.Killer}   [{weapon}]   {entry.Victim}";
+            string weapon = entry.Headshot ? "HEAD" : entry.Weapon.ToUpperInvariant();
 
-            Color killerColor = entry.KillerIsPlayer ? Ui.Accent : U.Rgba(240, 240, 240, a);
-            Color victimColor = entry.VictimIsPlayer ? Ui.Danger : U.Rgba(200, 200, 200, a);
-            if (entry.KillerIsPlayer) killerColor = U.Rgba(killerColor.R, killerColor.G, killerColor.B, a);
-            if (entry.VictimIsPlayer) victimColor = U.Rgba(victimColor.R, victimColor.G, victimColor.B, a);
+            Color killerBase = entry.KillerIsPlayer
+                ? U.Rgba(Ui.Accent.R, Ui.Accent.G, Ui.Accent.B, a)
+                : U.Rgba(240, 240, 240, a);
+            Color victimBase = entry.VictimIsPlayer
+                ? U.Rgba(Ui.Danger.R, Ui.Danger.G, Ui.Danger.B, a)
+                : U.Rgba(200, 200, 200, a);
+            Color killerColor = Fade(killerBase, opacity);
+            Color victimColor = Fade(victimBase, opacity);
 
-            int killerW = Ui.Width(entry.Killer, 10);
-            int weaponW = Ui.Width($"[{weapon}]", 10);
-            int total = killerW + weaponW + 34 + Ui.Width(entry.Victim, 10);
+            int killerW = Ui.Width(entry.Killer, 12);
+            int weaponW = Ui.Width(weapon, 9);
+            int victimW = Ui.Width(entry.Victim, 12);
+            int total = killerW + weaponW + victimW + 62;
             int x = w - 24 - total;
 
-            var bg = new Rectangle(x - 8, y - 4, total + 16, 20);
-            Ui.Panel(bg, U.Rgba(8, 10, 14, (int)(150 * alpha)), U.Rgba(255, 255, 255, 0), 0f);
+            var bg = new Rectangle(x - 9, y - 5, total + 18, rowHeight - 2);
+            DrawArenaPanel(bg, opacity * alpha, entry.KillerIsPlayer ? Ui.Accent : U.Rgba(236, 240, 244, 120));
 
-            Ui.Text(entry.Killer, x, y, 10, killerColor);
-            Ui.Text($"[{weapon}]", x + killerW + 8, y, 10, entry.Headshot ? Ui.Accent : U.Rgba(220, 190, 140, a));
-            Ui.Text(entry.Victim, x + killerW + weaponW + 26, y, 10, victimColor);
+            Ui.Text(entry.Killer, x, y, 12, killerColor);
+            int weaponX = x + killerW + 12;
+            Ui.Text(">", weaponX, y + 1, 12, Fade(U.Rgba(236, 240, 244, a), opacity));
+            Ui.Text(weapon, weaponX + 13, y + 3, 9,
+                Fade(entry.Headshot ? Ui.Danger : Ui.Accent, opacity * alpha));
+            Ui.Text(entry.Victim, weaponX + 18 + weaponW, y, 12, victimColor);
 
-            y += 22;
+            y += rowHeight;
         }
     }
 
@@ -312,65 +559,173 @@ public static class Hud
 
     // ---------------------------------------------------------------- radar
 
-    private static void DrawRadar(Simulation sim, int w, int h)
+    private static void DrawRadar(Simulation sim, int w, int h, float opacity)
     {
-        const int size = 168;
-        int x0 = w - size - 24;
-        int y0 = h - size - 130;
+        // The scanner is player-centred and rotates the world under a stable
+        // up-facing player marker. It has a proper top-left home so it does not
+        // compete with the high-value ammunition card in the opposite corner.
+        // All geometry is clipped to the true circular boundary rather than a
+        // hidden square, keeping the scan readable while the player is moving.
+        const float radius = 67f;
+        const float worldRange = 720f;
+        _ = h;
+        Vector2 center = new(24f + radius, 22f + radius);
+        float scale = radius / worldRange;
 
-        var rect = new Rectangle(x0, y0, size, size);
-        Ui.Panel(rect, U.Rgba(8, 10, 14, 175), Ui.PanelBorder);
+        var radarBounds = new Rectangle(center.X - radius - 5f, center.Y - radius - 5f,
+            (radius + 5f) * 2f, (radius + 5f) * 2f);
+        DrawArenaPanel(radarBounds, opacity, U.Rgba(112, 205, 228, 180));
+        Raylib.DrawCircleV(center, radius + 2f, Fade(U.Rgba(0, 0, 0, 168), opacity));
+        Raylib.DrawCircleV(center, radius, Fade(U.Rgba(9, 16, 23, 226), opacity));
+        DrawRadarGrid(center, radius, opacity);
 
-        float scale = size / (Cfg.MapHalf * 2f + 80f);
-        Vector2 ToMap(Vector3 p) => new(
-            x0 + size * 0.5f + p.X * scale,
-            y0 + size * 0.5f + p.Z * scale);
+        Vector2 ToRadar(Vector3 world) => WorldToRadar(world, sim.Player.Position, sim.Player.Yaw, center, scale);
 
-        // Static geometry so the layout is readable.
-        foreach (var brush in sim.Map.Brushes)
+        foreach (Brush brush in sim.Map.Brushes)
         {
             if (brush.Kind == SurfaceKind.Floor) continue;
-            Vector2 a = ToMap(brush.Box.Min);
-            Vector2 b = ToMap(brush.Box.Max);
-            var r = new Rectangle(MathF.Min(a.X, b.X), MathF.Min(a.Y, b.Y), MathF.Abs(b.X - a.X), MathF.Abs(b.Y - a.Y));
-            if (r.Width < 0.7f) r.Width = 0.7f;
-            if (r.Height < 0.7f) r.Height = 0.7f;
-            Raylib.DrawRectangleRec(r, U.Rgba(150, 150, 145, 52));
+
+            Vector2 a = ToRadar(new Vector3(brush.Box.Min.X, 0f, brush.Box.Min.Z));
+            Vector2 b = ToRadar(new Vector3(brush.Box.Max.X, 0f, brush.Box.Min.Z));
+            Vector2 c = ToRadar(new Vector3(brush.Box.Max.X, 0f, brush.Box.Max.Z));
+            Vector2 d = ToRadar(new Vector3(brush.Box.Min.X, 0f, brush.Box.Max.Z));
+            Color geometry = brush.Kind == SurfaceKind.Crate
+                ? U.Rgba(226, 190, 108, 116)
+                : brush.Kind == SurfaceKind.Metal
+                    ? U.Rgba(114, 194, 226, 105)
+                    : U.Rgba(204, 212, 216, 80);
+            geometry = Fade(geometry, opacity);
+
+            DrawRadarSegment(a, b, center, radius - 1f, geometry);
+            DrawRadarSegment(b, c, center, radius - 1f, geometry);
+            DrawRadarSegment(c, d, center, radius - 1f, geometry);
+            DrawRadarSegment(d, a, center, radius - 1f, geometry);
         }
 
         Vector3 eye = sim.Player.EyePosition;
-
         foreach (Actor actor in sim.Actors)
         {
             if (actor.IsPlayer || !actor.Alive) continue;
+
             Vector3 delta = actor.Position - sim.Player.Position;
             float distance = U.FlatLength(delta);
             if (distance > 1500f) continue;
 
-            bool visible = sim.Map.LineOfSight(eye, actor.EyePosition)
-                && distance < 1100f;
-            float fade = U.Clamp01(1f - distance / 1500f);
-            Color c = visible
-                ? U.Rgba(236, 74, 62, (int)(120 + 135 * fade))
-                : U.Rgba(236, 74, 62, (int)(70 * fade));
+            bool visible = sim.Map.LineOfSight(eye, actor.EyePosition) && distance < 1100f;
+            float contactFade = U.Clamp01(1f - distance / 1500f);
+            Color contact = visible
+                ? U.Rgba(236, 74, 62, (int)(120 + 135 * contactFade))
+                : U.Rgba(236, 74, 62, (int)(70 * contactFade));
+            contact = Fade(contact, opacity);
 
-            Vector2 p = ToMap(actor.Position);
-            Raylib.DrawCircleV(p, visible ? 3.4f : 2.6f, c);
-            if (visible) Raylib.DrawCircleLines((int)p.X, (int)p.Y, 6f, U.Rgba(236, 74, 62, 90));
+            Vector2 contactPoint = ToRadar(actor.Position);
+            Vector2 fromCenter = contactPoint - center;
+            float contactRadius = fromCenter.Length();
+            if (contactRadius <= radius - 7f)
+            {
+                Raylib.DrawCircleV(contactPoint, visible ? 3.4f : 2.5f, contact);
+                if (visible)
+                    Raylib.DrawCircleLines((int)contactPoint.X, (int)contactPoint.Y, 6f,
+                        Fade(U.Rgba(236, 74, 62, 90), opacity));
+            }
+            else if (contactRadius > 1e-4f)
+            {
+                // Preserve the old map-wide awareness without filling the small
+                // radar with distant dots: an edge chevron identifies direction.
+                Vector2 direction = fromCenter / contactRadius;
+                DrawRadarEdgeChevron(center + direction * (radius - 7f), direction, contact);
+            }
         }
 
-        // Player arrow
-        Vector2 me = ToMap(sim.Player.Position);
-        float yaw = sim.Player.Yaw * U.Deg2Rad;
-        Vector2 forward = new(-MathF.Sin(yaw), -MathF.Cos(yaw));
-        Vector2 right = new(MathF.Cos(yaw), -MathF.Sin(yaw));
+        // The local player always points up because the terrain rotates under
+        // the radar. This is quicker to parse while sprinting or sliding.
         Raylib.DrawTriangle(
-            me + forward * 7f,
-            me - forward * 3f + right * 4.5f,
-            me - forward * 3f - right * 4.5f,
-            U.Rgba(120, 255, 140, 235));
+            center + new Vector2(0f, -7.5f),
+            center + new Vector2(4.75f, 4.5f),
+            center + new Vector2(-4.75f, 4.5f),
+            Fade(U.Rgba(120, 255, 140, 235), opacity));
+        Raylib.DrawCircleLines((int)center.X, (int)center.Y, 9f, Fade(U.Rgba(120, 255, 140, 70), opacity));
+        Raylib.DrawCircleLines((int)center.X, (int)center.Y, radius, Fade(U.Rgba(230, 240, 244, 102), opacity));
+        Raylib.DrawCircleLines((int)center.X, (int)center.Y, radius + 2f, Fade(U.Rgba(112, 205, 228, 92), opacity));
 
-        Ui.Text("RADAR", x0 + 8, y0 + size - 14, 10, Ui.Faint);
+        Ui.Text("FIELD SCANNER", (int)(center.X - radius + 7f), (int)(center.Y - radius + 7f), 9,
+            Fade(Ui.Faint, opacity));
+        Ui.TextRight("RANGE 72", (int)(center.X + radius - 7f), (int)(center.Y + radius - 16f), 8,
+            Fade(Ui.Faint, opacity));
+    }
+
+    private static void DrawRadarGrid(Vector2 center, float radius, float opacity)
+    {
+        Color grid = Fade(U.Rgba(184, 202, 206, 24), opacity);
+        Raylib.DrawCircleLines((int)center.X, (int)center.Y, radius * 0.50f, grid);
+        Raylib.DrawCircleLines((int)center.X, (int)center.Y, radius * 0.75f, grid);
+        Raylib.DrawLineEx(new Vector2(center.X - radius, center.Y), new Vector2(center.X + radius, center.Y), 1f, grid);
+        Raylib.DrawLineEx(new Vector2(center.X, center.Y - radius), new Vector2(center.X, center.Y + radius), 1f, grid);
+    }
+
+    private static Vector2 WorldToRadar(Vector3 world, Vector3 playerPosition, float playerYaw,
+        Vector2 center, float scale)
+    {
+        Vector3 delta = world - playerPosition;
+        Vector3 right = U.RightFromYaw(playerYaw);
+        Vector3 forward = U.DirFromAngles(playerYaw, 0f);
+        float localRight = delta.X * right.X + delta.Z * right.Z;
+        float localForward = delta.X * forward.X + delta.Z * forward.Z;
+        return center + new Vector2(localRight * scale, -localForward * scale);
+    }
+
+    private static void DrawRadarSegment(Vector2 a, Vector2 b, Vector2 center, float radius, Color color)
+    {
+        if (!TryClipSegmentToCircle(a, b, center, radius, out Vector2 clippedA, out Vector2 clippedB)) return;
+        Raylib.DrawLineEx(clippedA, clippedB, 1f, color);
+    }
+
+    private static bool TryClipSegmentToCircle(Vector2 a, Vector2 b, Vector2 center, float radius,
+        out Vector2 clippedA, out Vector2 clippedB)
+    {
+        Vector2 delta = b - a;
+        Vector2 relative = a - center;
+        float aa = Vector2.Dot(delta, delta);
+        if (aa < 1e-6f)
+        {
+            bool inside = relative.LengthSquared() <= radius * radius;
+            clippedA = a;
+            clippedB = b;
+            return inside;
+        }
+
+        float bb = 2f * Vector2.Dot(relative, delta);
+        float cc = Vector2.Dot(relative, relative) - radius * radius;
+        float discriminant = bb * bb - 4f * aa * cc;
+        if (discriminant < 0f)
+        {
+            clippedA = default;
+            clippedB = default;
+            return false;
+        }
+
+        float root = MathF.Sqrt(discriminant);
+        float enter = MathF.Max(0f, (-bb - root) / (2f * aa));
+        float exit = MathF.Min(1f, (-bb + root) / (2f * aa));
+        if (enter > exit)
+        {
+            clippedA = default;
+            clippedB = default;
+            return false;
+        }
+
+        clippedA = a + delta * enter;
+        clippedB = a + delta * exit;
+        return true;
+    }
+
+    private static void DrawRadarEdgeChevron(Vector2 point, Vector2 direction, Color color)
+    {
+        Vector2 perpendicular = new(-direction.Y, direction.X);
+        Raylib.DrawTriangle(point + direction * 3.5f,
+            point - direction * 2.5f + perpendicular * 2.8f,
+            point - direction * 2.5f - perpendicular * 2.8f,
+            color);
     }
 
     // ---------------------------------------------------------------- feedback
@@ -378,26 +733,71 @@ public static class Hud
     private static void DrawHealthVignette(Simulation sim, int w, int h)
     {
         Player p = sim.Player;
-        float intensity = 0f;
+        if (!p.Alive) return;
 
-        if (p.Alive && p.Health < 45f) intensity = (45f - p.Health) / 45f;
-        if (!p.Alive) intensity = 0.85f;
-        if (sim.DamageFlash > 0.02f) intensity = MathF.Max(intensity, sim.DamageFlash * 0.7f);
-
+        float healthTrauma = p.LowHealthTrauma;
+        float transientDamage = U.Clamp01(sim.DamageFlash) * 0.58f;
+        float intensity = MathF.Max(healthTrauma, transientDamage);
         if (intensity <= 0.01f) return;
 
-        float pulse = 0.72f + 0.28f * MathF.Sin(sim.Time * 5.2f);
-        int alpha = (int)(U.Clamp01(intensity) * 120 * pulse);
-        int band = (int)(h * 0.22f);
+        // The short event envelope comes from Player's simulation-owned heartbeat
+        // state, rather than from a render-frame timer, so the sound and visuals
+        // stay aligned and screenshot/headless paths cannot mutate it.
+        float pulse = 0.66f + 0.34f * p.TraumaPulse;
+        float vignette = U.Clamp01(intensity * pulse);
 
-        for (int i = 0; i < 26; i++)
+        // A restrained neutral wash is a low-cost desaturation cue. A true colour
+        // grading pass would require routing the whole world and UI through a
+        // post-process target; this preserves the existing HUD draw contract.
+        int washAlpha = (int)(healthTrauma * Cfg.LowHealthNeutralWashAlpha);
+        if (washAlpha > 0)
+            Raylib.DrawRectangle(0, 0, w, h, U.Rgba(142, 148, 154, washAlpha));
+
+        DrawPeripheralFringe(w, h, healthTrauma, p.TraumaPulse);
+        DrawTraumaMarks(w, h, healthTrauma, p.TraumaPulse);
+
+        int alpha = (int)(vignette * 164f);
+        int bandHeight = (int)(h * 0.255f);
+        int bandWidth = (int)(w * 0.225f);
+        // GPU interpolated bands produce a continuous edge falloff. The four
+        // gradients meet outside the central aim cone, preserving clear target
+        // acquisition while avoiding the striped artefacts a ring of 2D lines
+        // creates at different display resolutions.
+        Color outer = U.Rgba(147, 18, 17, alpha);
+        Color clear = U.Rgba(147, 18, 17, 0);
+        Raylib.DrawRectangleGradientV(0, 0, w, bandHeight, outer, clear);
+        Raylib.DrawRectangleGradientV(0, h - bandHeight, w, bandHeight, clear, outer);
+        Raylib.DrawRectangleGradientH(0, 0, bandWidth, h, outer, clear);
+        Raylib.DrawRectangleGradientH(w - bandWidth, 0, bandWidth, h, clear, outer);
+    }
+
+    private static void DrawPeripheralFringe(int w, int h, float healthTrauma, float pulse)
+    {
+        if (healthTrauma <= 0.01f) return;
+
+        int layers = 4;
+        for (int i = 0; i < layers; i++)
         {
-            float t = i / 26f;
-            int a = (int)(alpha * (1f - t));
-            Raylib.DrawRectangle(0, (int)(t * band), w, 2, U.Rgba(150, 20, 16, a));
-            Raylib.DrawRectangle(0, h - (int)(t * band) - 2, w, 2, U.Rgba(150, 20, 16, a));
-            Raylib.DrawRectangle((int)(t * band), 0, 2, h, U.Rgba(150, 20, 16, a));
-            Raylib.DrawRectangle(w - (int)(t * band) - 2, 0, 2, h, U.Rgba(150, 20, 16, a));
+            float t = i / (float)layers;
+            int alpha = (int)(healthTrauma * (0.34f + pulse * 0.22f) * 42f * (1f - t));
+            int width = Math.Max(1, (int)(2f + t * 4f));
+            int inset = (int)(t * 5f);
+            Raylib.DrawRectangle(inset, 0, width, h, U.Rgba(176, 34, 30, alpha));
+            Raylib.DrawRectangle(w - inset - width, 0, width, h, U.Rgba(42, 74, 140, alpha));
+        }
+    }
+
+    private static void DrawTraumaMarks(int w, int h, float healthTrauma, float pulse)
+    {
+        if (healthTrauma <= 0.025f) return;
+
+        int alpha = (int)(healthTrauma * (0.48f + pulse * 0.32f) * 118f);
+        foreach (TraumaMark mark in TraumaMarks)
+        {
+            float radius = MathF.Max(2f, mark.Radius * MathF.Min(w, h));
+            Raylib.DrawCircleV(new Vector2(mark.X * w, mark.Y * h), radius, U.Rgba(102, 15, 16, alpha));
+            Raylib.DrawCircleLines((int)(mark.X * w), (int)(mark.Y * h), radius + 1f,
+                U.Rgba(185, 58, 48, alpha / 3));
         }
     }
 

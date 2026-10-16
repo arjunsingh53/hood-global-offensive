@@ -7,15 +7,15 @@ hitscan gunplay with authored per-weapon spray patterns, a buy economy and a ful
 No game engine: every sound effect is synthesised at startup, while the authored static map and
 art meshes are loaded directly from local GLB assets.
 
-![status](https://img.shields.io/badge/status-early%20access%20v0.1.0-ffba38)
+![status](https://img.shields.io/badge/status-unreleased%20worktree-ffba38)
 ![language](https://img.shields.io/badge/C%23-.NET%2010-512bd4)
 ![framework](https://img.shields.io/badge/raylib--cs-8.1.0-2f6f4e)
 ![platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey)
 ![license](https://img.shields.io/badge/license-MIT-blue)
 
 > ### ⚠️ Early access
-> This is **v0.1.0** — the game is complete enough to play a full match and have fun, but it is
-> not finished. There is one map, one game mode, and no networking. See
+> This is the current **unreleased 0.1.1 worktree** — the game is complete enough to play a full
+> match and have fun, but it is not finished. There is one map, one game mode, and no networking. See
 > [Known issues](#known-issues) for the rough edges I already know about and
 > [the roadmap](docs/ROADMAP.md) for where it is going.
 
@@ -23,19 +23,19 @@ art meshes are loaded directly from local GLB assets.
 
 ## Screenshots
 
-![Main menu](shots/00-menu.png)
+![Sunset arena main menu](shots/20-sunset-menu.png)
 
-![AK-47 in a firefight](shots/01-ak47.png)
-
-![The Glock 17, the one weapon built from a real mesh](shots/06-glock17.png)
+![AK-47 iron sights in Industrial Zone](shots/01-ak47.png)
 
 | | |
 |---|---|
-| ![Desert Eagle](shots/02-deagle.png) | ![AWP scoped](shots/03-awp-scoped.png) |
-| ![Buy menu](shots/04-buy-menu.png) | ![Scoreboard](shots/05-scoreboard.png) |
+| ![Capsule combatant in the sunset arena](shots/21-capsule-sunset-showcase.png) | ![Live capsule-combatant hit feedback](shots/22-capsule-impact-sunset.png) |
+| ![Low Poly Industrial Zone](shots/07-industrial-zone.png) | ![Buy Station overlay](shots/04-buy-menu.png) |
 
 Every frame above is rendered by the real game rather than mocked up — see
-[Verification](#verification) for how they are produced and checked. There is also a
+[Verification](#verification) for how they are produced and checked. They show the
+current Industrial Zone build, including the native AK iron-sight path, the structured
+capsule combatant, combat feedback, and the live-match Buy Station. There is also a
 [standalone gallery page](gallery.html).
 
 ---
@@ -56,6 +56,10 @@ dotnet run
 On Windows you can also just double-click **`play.cmd`**, which sets up the environment and then
 launches the game. Arguments pass straight through: `play.cmd --headless --seconds 300`.
 
+There is no downloadable v0.1.1 package published yet. Build this worktree from source with the
+commands above; the next Windows package will be published only after its distributable asset set
+has completed provenance review.
+
 The first build takes a moment; after that the game starts immediately.
 
 `dotnet run -- --help` lists every option:
@@ -72,15 +76,16 @@ dotnet run -- --screenshot shot.png         # render one gameplay frame to a PNG
 
 | Input | Action |
 | --- | --- |
-| `W` `A` `S` `D` | Move — Quake/CS acceleration, strafe-jumping works |
+| `W` `A` `S` `D` | Move — acceleration-based ground movement with bounded air steering |
 | Mouse | Aim |
 | Left click | Fire |
-| Right click | Toggle scope (**AWP only**) |
+| Right click (hold) | Aim view. The **AK-47** raises its calibrated iron sights, other non-scoped weapons keep the reticle, and the **AWP** keeps its toggle scope |
 | `R` | Reload |
 | `1` `2` `3` | Knife / pistol / primary |
 | `Shift` (tap while moving forward) | Cycle **Sprint → Tactical Sprint → off** |
 | `Alt` (hold) | Walk (quiet, slower) |
 | `Ctrl` (hold) / `C` (tap) | Crouch (smaller hitbox, tighter spread) |
+| `Z` (tap) | Toggle prone. Leaving prone is clearance-checked, so low ceilings keep the safe low stance |
 | `Space` | Jump |
 | `B` | Buy menu |
 | `X` | Inspect the current weapon (visual only; firing, ADS, sprinting, reloading or switching cancels it) |
@@ -96,11 +101,11 @@ dotnet run -- --screenshot shot.png         # render one gameplay frame to a PNG
 
 ### Movement
 
-The deterministic Quake/CS character controller supplies ground friction, run acceleration, a
-30 unit/s air-acceleration cap (this is the thing that makes strafe-jumping work), 800 unit/s²
-gravity, crouch that refuses to stand up under a low ceiling, and swept AABB collision with
-automatic step-up onto ledges up to 20 units. On top of that, the player now has a forward-only,
-press-cycled **Sprint → Tactical Sprint → off** state: normal sprint targets 1.4× run speed;
+The deterministic character controller supplies ground friction, run acceleration, bounded air
+steering that cannot gain speed, 800 unit/s² gravity, crouch that refuses to stand up under a low
+ceiling, and swept AABB collision with automatic step-up onto ledges up to 20 units. On top of that,
+the player has a clearance-checked prone stance and a forward-only press-cycled
+**Sprint → Tactical Sprint → off** state: normal sprint targets 1.4× run speed;
 tactical sprint targets 1.7× for three seconds and visibly consumes/recharges its HUD meter.
 ADS, reloading, crouching, stopping forward movement and leaving the ground cancel it while keeping
 earned air momentum intact.
@@ -114,16 +119,16 @@ of this port.
 ### Camera feedback
 
 The first-person presentation now layers short responses for real footsteps, hard landings and
-incoming damage. **CAMERA FEEDBACK** in the main or pause menu switches the session-local strength
+incoming damage. **CAMERA FEEDBACK** in the main or pause menu switches the locally persisted strength
 between Normal, Low and Off. The new layer uses a tiny FOV response plus matching first-person
 weapon movement; it does not move the physical shot origin, alter `AimDirection`, change recoil or
-spread, or replace the Soldier and Gun Game weapon models.
+spread, or replace the HGO Capsule Combatant presentation and Gun Game weapon models.
 
 Its behaviour was designed independently after studying the public
 [CoDMW19 tracking repository](https://github.com/Syampuuh/CoDMW19/tree/15126f1fd21c15b5a17a0d5b84e2cd6acbf91b0a). That repository describes
 extracted client data rather than a buildable, licensed game source tree, so HGO copies no MW assets,
-configs, code, UI, animation or audio from it. Slide, mantle and mount remain deliberately out of
-scope until HGO has dedicated collision and animation systems for them.
+configs, code, UI, animation or audio from it. HGO's restricted mantle is its own collision-validated
+system; slide, mount and other reference-specific traversal systems remain out of scope.
 
 ### Weapon readiness
 
@@ -316,20 +321,15 @@ have left the scoreboard showing zero deaths forever.
 ### Visual verification
 
 `--screenshot` runs a match, waits until the player is alive with an enemy genuinely in view, then
-renders a single real frame. `tools/inspect_png.py` decodes the PNG with the standard library and
-measures where the view model and HUD actually land:
+renders a single real frame. With `--zoom`, it holds the production ADS input until the weapon is
+fully raised. `tools/verify_shots.py` decodes the curated PNGs with the standard library and checks
+the visible result:
 
 ```
-view model framing
-  shots/01-ak47.png
-    view model in lower-right :  23.9%  (want > 5)
-    view model in centre      :   0.7%  (want < 6)
-    view model in lower-left  :   0.4%  (want < 1)
-    -> PASS
-  shots/06-glock17.png
-    view model in lower-right :  11.5%  (want > 5)
-    view model in centre      :   0.7%  (want < 6)
-    view model in lower-left  :   0.0%  (want < 1)
+iron-sight framing
+  shots/01-ak47.png  (AK iron sights)
+    dark sight geometry at centre :  21.4%  (want 2..42)
+    corner scene luma             :  88.8  (want > 18, no scope mask)
     -> PASS
 title screen
   shots/00-menu.png
@@ -339,11 +339,10 @@ title screen
 ARTIFACTS: ALL PASS
 ```
 
-The box weapons are identified by their exact flat colours; the Glock 17's mesh is identified by
-shape instead — dark, near-neutral pixels — because it is a photo texture. That family is capped
-below the world's darkest flat surface and the checked regions stop short of the HUD's radar panel,
-which is a similar grey. Measured on a control frame with the view model suppressed: **0.0%** inside
-the checked regions, against 11.6% with it drawn, so the statistic can genuinely detect a weapon.
+The ADS check verifies that the real AK front/rear sight geometry is compact and visible at the
+centre, while bright scene corners prove that it is iron-sight ADS rather than a hidden weapon
+behind a scope mask. The public set also checks the current Industrial Zone, HGO Capsule Combatant,
+combat feedback, Buy Station, and unclipped menu rather than carrying forward obsolete Crossfire captures.
 
 `tools/sweep_weapons.py` runs the same check across all eight weapons at five different moments
 each, to catch animation states (reload dip, recoil, landing) that push the weapon where it should
@@ -374,25 +373,27 @@ after the fix below).
 
 ## Known issues
 
-Honest list of things I know are wrong in v0.1.0:
+Honest list of things I know are wrong in v0.1.1:
 
 - **`WeaponDef.ArmorPenetration` is defined per weapon but never read.** Armour is currently a flat
   model (see [the guide](docs/GUIDE.md#armour)) rather than CS's per-weapon armour ratio. The
   numbers are in the table, the logic is not wired up yet. Tracked in the roadmap.
-- **Armour is free and granted on every respawn**, which makes the $1000 "Kevlar + Helmet" buy
-  option redundant. The economy around armour needs a design pass.
+- **Armour is free and granted on every respawn.** The Buy Station now labels a full loadout as
+  equipped and refuses to charge for it; buying still restores damaged or incomplete armour. The
+  underlying economy model needs a design pass.
 - **No sound-occlusion or wall-bang audio** — you can hear a gunfight through three walls.
 - **Bots do not use grenades** (there are no grenades yet) and never buy, they are given loadouts.
 - **No networking, one map, one mode.** Deathmatch only.
-- **No config file** — options are set in the main menu per session and are not persisted, and
-  keys are not rebindable.
+- **Key bindings are not rebindable**, and display/audio settings are not yet exposed in-game.
+  Player preferences for bot setup, sensitivity, crosshair and camera feedback are saved locally;
+  match state, money, weapons and seeds are deliberately not.
 
 ---
 
 ## Roadmap
 
-Short version: fix the armour model, add a second map, add grenades, add persistence for settings,
-then consider team modes. The full list with reasoning is in
+Short version: fix the armour model, add a second map, add grenades, add key rebinding, then
+consider team modes. The full list with reasoning is in
 [**docs/ROADMAP.md**](docs/ROADMAP.md).
 
 ---

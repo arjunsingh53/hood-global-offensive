@@ -18,7 +18,18 @@ public static class IndustrialZoneLayout
     // against HGO's 72-unit character while preserving the exported scene's
     // proportions, materials, meshes and placement exactly.
     public const float AssetScale = 16f;
-    private static readonly Vector3 AssetOrigin = new(-133.7891f, 0f, 69.5419f);
+    private static readonly Vector3 AssetPlanarOrigin = new(-133.7891f, 0f, 69.5419f);
+
+    // The GLB's factory pavement is authored at raw Y=0.842124, not at zero.
+    // Collision, actor feet and hit-scan all use Y=0 as their shared play plane,
+    // so rendering the asset at its raw origin buried actors under its pavement.
+    // Keep the game coordinate conversion planar and expose a separate render
+    // origin that places that measured source pavement exactly at world Y=0.
+    // This was measured from the source's central and east-west service roads;
+    // do not fold it into RawToWorld, which is also used by spawns.
+    private const float PavementRawY = 0.842124f;
+    public static Vector3 AssetDrawPosition => AssetPlanarOrigin
+        - Vector3.UnitY * (PavementRawY * AssetScale);
 
     private const float RawPadding = 0.45f;
 
@@ -82,7 +93,12 @@ public static class IndustrialZoneLayout
         new(-24.0f, -22.0f, 42.0f, 44.0f, 3.1f),
     ];
 
-    public static Vector3 RawToWorld(float x, float z) => AssetOrigin + new Vector3(x * AssetScale, 0f, z * AssetScale);
+    /// <summary>
+    /// Converts the source's horizontal coordinates into HGO play-space. The
+    /// returned Y stays on the collision plane: use <see cref="AssetDrawPosition"/>
+    /// when positioning the visual GLB itself.
+    /// </summary>
+    public static Vector3 RawToWorld(float x, float z) => AssetPlanarOrigin + new Vector3(x * AssetScale, 0f, z * AssetScale);
 
     public static void AddCollision(List<Brush> brushes)
     {
@@ -108,24 +124,35 @@ public static class IndustrialZoneLayout
             // A roof sampled at the GLB's scale becomes the top of a solid
             // traversal blocker. A small cap prevents foot placement from
             // grazing a roof seam due to source/export floating-point noise.
-            float top = MathF.Max(Cfg.StandHeight, structure.Height * AssetScale + 4f);
+            // Structure heights were recorded in the GLB's raw vertical frame.
+            // Apply the same pavement-origin correction as the renderer so a
+            // roof or wall collider cannot hover one pavement thickness above
+            // its visible counterpart.
+            float top = MathF.Max(Cfg.StandHeight,
+                (structure.Height - PavementRawY) * AssetScale + 4f);
             Add(brushes, min.X, max.X, 0f, top, min.Z, max.Z, SurfaceKind.Crate);
         }
     }
 
     public static SpawnPoint[] CreateSpawns() =>
     [
-        Spawn(-64f, -50f, 90f),
+        // Every anchor below was checked against the GLB's upward-facing
+        // pavement, rather than only against the invisible floor brush. The
+        // previous (-64,-50) and (-66,14) points sat over a terrain void,
+        // while the three north anchors below were on lower decorative ground.
+        // Keeping respawns on the authored service roads prevents actors from
+        // appearing to float beside or sink through the supplied map.
+        Spawn(-64f, -46f, 90f),
         Spawn(-28f, -50f, 90f),
         Spawn(52f, -20f, 270f),
         Spawn(-66f, -6f, 90f),
         Spawn(50f, -10f, 270f),
-        Spawn(-66f, 14f, 90f),
+        Spawn(-52f, 14f, 90f),
         Spawn(0f, 20f, 180f),
         Spawn(55f, 20f, 270f),
-        Spawn(-4f, 50f, 0f),
-        Spawn(60f, 52f, 180f),
-        Spawn(-60f, 50f, 0f),
+        Spawn(-4f, 48f, 0f),
+        Spawn(60f, 46f, 180f),
+        Spawn(-52f, 46f, 0f),
         Spawn(22f, 12f, 180f),
     ];
 

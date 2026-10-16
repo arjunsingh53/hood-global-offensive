@@ -21,7 +21,10 @@ public static class IndustrialZoneModel
         EnsureLoaded();
         if (!_loaded) return false;
 
-        Raylib.DrawModel(_model, IndustrialZoneLayout.RawToWorld(0f, 0f), IndustrialZoneLayout.AssetScale, Color.White);
+        // The GLB's authored ground plane is not at raw Y=0.  Draw it at the
+        // layout's measured render origin so it meets the deterministic floor,
+        // actor feet, collision brushes and spawn plane instead of covering them.
+        Raylib.DrawModel(_model, IndustrialZoneLayout.AssetDrawPosition, IndustrialZoneLayout.AssetScale, Color.White);
         return true;
     }
 

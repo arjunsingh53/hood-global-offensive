@@ -33,48 +33,43 @@
 <body>
 <header>
   <h1>HOOD GLOBAL OFFENSIVE</h1>
-  <p class="sub">Early access v0.1.0 &middot; a Counter-Strike style deathmatch FPS in C# on Raylib-cs &middot; map: <b>Crossfire</b></p>
-  <p class="sub">Every frame below is rendered by the real game. Regenerate with <code>bash tools/capture_shots.sh</code>, then check them with <code>python tools/verify_shots.py</code>.</p>
+  <p class="sub">Unreleased 0.1.1 worktree &middot; a Counter-Strike style deathmatch FPS in C# on Raylib-cs &middot; map: <b>Industrial Zone</b></p>
+  <p class="sub">Every frame below is rendered by the real game. Capture a frame with <code>dotnet run -- --screenshot &lt;file&gt;</code>, then check the curated set with <code>python tools/verify_shots.py</code>.</p>
 </header>
 
 <main>
   <figure>
-    <img src="shots/00-menu.png" alt="Main menu" loading="lazy">
-    <figcaption><b>Main menu.</b> Bot count, bot skill, kill limit and mouse sensitivity are all set here before you start.</figcaption>
+    <img src="shots/20-sunset-menu.png" alt="Sunset arena main menu" loading="lazy">
+    <figcaption><b>Sunset arena main menu.</b> Bot count, bot skill, kill limit and mouse sensitivity are all set here before you start.</figcaption>
   </figure>
 
   <figure>
-    <img src="shots/01-ak47.png" alt="AK-47 in a firefight" loading="lazy">
-    <figcaption><b>AK-47 in a firefight.</b> The view model is rendered in its own pass, so level geometry can never hide it, even pressed against a wall.</figcaption>
+    <img src="shots/01-ak47.png" alt="AK-47 iron sights in Industrial Zone" loading="lazy">
+    <figcaption><b>AK-47 iron sights.</b> Hold right mouse to aim through the model's own rear U-notch and front post; this visual pose preserves the same authoritative centre ray used for hits.</figcaption>
   </figure>
 
   <figure>
-    <img src="shots/06-glock17.png" alt="Glock 17" loading="lazy">
-    <figcaption><b>Glock 17.</b> The default sidearm is the one weapon drawn from a real mesh rather than from boxes. Its placement - scale, centre and bore line - is measured from the model at load time.</figcaption>
+    <img src="shots/07-industrial-zone.png" alt="Low Poly Industrial Zone" loading="lazy">
+    <figcaption><b>Low Poly Industrial Zone.</b> The owner-supplied GLB is the visible arena. Its pavement, collision plane and spawn anchors are aligned rather than layered over procedural props.</figcaption>
   </figure>
 
   <figure>
-    <img src="shots/02-deagle.png" alt="Desert Eagle" loading="lazy">
-    <figcaption><b>Desert Eagle.</b> The crosshair gap is driven by the live spread value, so it opens as you move and tightens when you crouch.</figcaption>
+    <img src="shots/21-capsule-sunset-showcase.png" alt="Capsule combatant holding a carbine in Industrial Zone" loading="lazy">
+    <figcaption><b>Capsule combatant.</b> The current structured low-poly enemy is a rounded capsule character with a compact carbine, readable silhouette variants and locomotion states, while the player's Gun Game view-model path stays independent.</figcaption>
   </figure>
 
   <figure>
-    <img src="shots/03-awp-scoped.png" alt="AWP scoped" loading="lazy">
-    <figcaption><b>AWP scoped.</b> Right click raises the scope, the weapon is fully stowed while it is up, and the mask darkens everything outside the circle.</figcaption>
+    <img src="shots/22-capsule-impact-sunset.png" alt="Combat feedback on a capsule combatant" loading="lazy">
+    <figcaption><b>Combat feedback.</b> The native presentation combines camera-safe hit confirmation, impact mist, droplets and short-lived surface splats without replacing the simulation hit path.</figcaption>
   </figure>
 
   <figure>
     <img src="shots/04-buy-menu.png" alt="Buy menu" loading="lazy">
-    <figcaption><b>Buy menu (<code>B</code>).</b> Money comes from kills, so buying is a real decision rather than a formality.</figcaption>
-  </figure>
-
-  <figure>
-    <img src="shots/05-scoreboard.png" alt="Scoreboard" loading="lazy">
-    <figcaption><b>Scoreboard (hold <code>Tab</code>).</b> Kills, deaths, accuracy and headshot counts for you and every bot.</figcaption>
+    <figcaption><b>Buy Station (<code>B</code>).</b> The live-match overlay has large selectable purchase cards, affordability feedback, quick-buy keys and a B-key handoff that cannot close the menu on its opening press.</figcaption>
   </figure>
 
   <p class="note">
-    These captures are produced by running real matches and rendering a single frame, so nothing here is a mock-up. The scoped frame in particular waits until the scope is at least 97% raised before capturing.
+    These captures are produced by running real matches and rendering a single frame, so nothing here is a mock-up. The iron-sight frame in particular waits until ADS is at least 97% raised before capturing.
   </p>
 </main>
 </body>

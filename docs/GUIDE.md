@@ -1,6 +1,6 @@
 # Hood Global Offensive — Player Guide
 
-**Version:** early access v0.1.0 (map: Industrial Zone) · **Engine:** C# / .NET 10 / Raylib-cs
+**Worktree version:** 0.1.1 (unreleased; map: Industrial Zone) · **Engine:** C# / .NET 10 / Raylib-cs
 
 This is the complete guide to playing Hood Global Offensive. Everything below describes the
 behaviour that is actually implemented in the code — where the implementation differs from what
@@ -82,14 +82,17 @@ respawns.
 | **KILL LIMIT** | 30 | Kills needed to win the match |
 | **MOUSE SENSITIVITY** | 2.2 | Degrees of rotation per mouse count = `sensitivity × 0.04` |
 | **CROSSHAIR OPTIONS** | Classic | Opens the local reticle editor: preset, colour, dynamic gap, centre dot, gap, arm length and thickness |
-| **CAMERA FEEDBACK** | Normal | Session-local strength for footstep, landing and incoming-damage presentation: Normal / Low / Off |
+| **CAMERA FEEDBACK** | Normal | Strength for footstep, landing and incoming-damage presentation: Normal / Low / Off |
 | **QUIT** | — | Exit the game |
 
 Navigate with the mouse or the arrow keys; change values the same way or with `Enter`.
 
-**There is no persistence.** Settings are not written to disk, so a fresh launch resets them to the
-defaults. Note the values down if you find a setup you like, or change the defaults in
-[`src/Core/Cfg.cs`](../src/Core/Cfg.cs).
+**Player preferences persist locally.** Bot count, bot skill, kill limit, sensitivity, the full
+crosshair profile and camera-feedback choice are saved to
+`%LOCALAPPDATA%\\HoodGlobalOffensive\\settings.json` after a menu change or on exit. The document is
+bounded, versioned and contains no match state, money, weapons or seed; unreadable documents fall
+back to defaults and are preserved as a `settings.corrupt.*.json` copy. Key bindings, display and
+audio preferences are not yet configurable.
 
 ---
 
@@ -100,7 +103,7 @@ defaults. Note the values down if you find a setup you like, or change the defau
 | `W` `A` `S` `D` | Move forward / left / back / right |
 | Mouse | Aim |
 | Left click | Fire |
-| Right click | Toggle scope (**AWP only**) |
+| Right click (hold) | Aim view. The **AK-47** raises its calibrated iron sights, other non-scoped weapons keep the reticle, and the **AWP** keeps its toggle scope |
 | `R` | Reload |
 | `1` | Knife |
 | `2` | Pistol (secondary) |
@@ -108,7 +111,8 @@ defaults. Note the values down if you find a setup you like, or change the defau
 | `Shift` (tap while moving forward) | Cycle **Sprint → Tactical Sprint → off** |
 | `Alt` (hold) | Walk — quiet and slower, for peeking without giving away your position |
 | `Ctrl` (hold) / `C` (tap) | Crouch — smaller hitbox, tighter spread, slower |
-| `Space` | Jump |
+| `Z` (tap) | Toggle prone — a clearance check keeps you low under a ceiling instead of standing into it |
+| `Space` | Jump. Hold forward into valid low cover to mantle; traversal is collision-checked and cannot fire |
 | `B` | Open the buy menu (only while alive) |
 | `X` | Inspect the current weapon; visual only, and fire/ADS/sprint/reload/switch cancels it |
 | `V` | Toggle **AUTO / SEMI** on the compatible AK-47 or M4A4 in your hands |
@@ -119,7 +123,7 @@ defaults. Note the values down if you find a setup you like, or change the defau
 
 Notes:
 
-- **Keys are not rebindable** in v0.1.0.
+- **Keys are not rebindable** in this worktree.
 - Opening the buy menu, pause menu, weapon dossier or crosshair options releases the mouse cursor, so you may leave
   the window. Closing an in-match menu recaptures it.
 - Weapon switching while reloading cancels the reload.
@@ -131,13 +135,14 @@ Notes:
 | Element | Where | Notes |
 | --- | --- | --- |
 | **Crosshair** | Centre | The default is a green dynamic cross. Press `F2` or choose **CROSSHAIR OPTIONS** to change its preset, colour, gap, arms, dot and thickness. Dynamic gap is visual only: hit-scan and weapon spread are unchanged |
-| **Health** | Bottom left | Turns to a low-health pulse when you are badly hurt |
+| **Health** | Bottom left | Adds a peripheral critical-health pressure layer below 35 health; it never covers the sight picture |
 | **Armour + helmet** | Bottom left | The bar and label tell you whether you currently have kevlar |
 | **Sprint / TAC bar** | Above vitals while active or recovering | Current sprint state and remaining tactical-sprint charge |
 | **Ammo** | Bottom right | `magazine / reserve` |
 | **Fire control** | Beneath a compatible rifle | Current `AUTO` or `SEMI` selection and the `V` hint |
 | **Money** | Bottom left area | Current cash for the buy menu |
 | **Kill feed** | Top right | Colour-coded, with a marker for headshots |
+| **Match / compass** | Top centre | Match state plus a horizontal bearing tape; it fades while using a calibrated sight picture or scope |
 | **Hitmarker** | Centre | Brief confirmation that your shot connected |
 | **Damage numbers** | In world | Floating numbers at the point of impact |
 | **Damage direction arcs** | Around the centre | Show which direction incoming fire came from |
@@ -155,13 +160,13 @@ directional viewmodel push. Choose **CAMERA FEEDBACK** in the main or pause menu
 The feature is presentation-only. Its world-camera component is a tiny FOV change, while the gun
 receives a matching local offset; it does not translate the physical shot origin, mutate
 `Player.AimDirection`, change hit-scan, recoil, spread, collision or bot simulation. It therefore
-preserves the existing Soldier character, Gun Game model pipeline and crosshair contract.
+preserves the HGO Capsule Combatant presentation, Gun Game model pipeline and crosshair contract.
 
 The behaviour is an independent, clean-room interpretation of categories visible in the
 [CoDMW19 tracker](https://github.com/Syampuuh/CoDMW19/tree/15126f1fd21c15b5a17a0d5b84e2cd6acbf91b0a), not a direct port. No extracted assets,
-configs, source/bytecode, UI, audio or animation data are used. Its slide/mantle/mount configuration
-is not enabled here because HGO does not yet have the required traversal collision probes and
-animation path.
+configs, source/bytecode, UI, audio or animation data are used. HGO now has its own limited,
+collision-validated mantle route; mounting, wall-running and reference-specific traversal systems
+are not part of this worktree.
 
 ### Weapon readiness
 
@@ -192,13 +197,25 @@ behind cover, around corners or on the other side of the map are simply absent.
 This means you cannot use the radar to pre-aim at someone you have not seen. It is a confirmation
 tool, not a wallhack — and it cuts both ways, because the bots perceive you under the same rules.
 
+### Audio and combat feedback
+
+Gunshots use original generated layers for the transient, body, mechanical response and tail. World
+cues are attenuated and panned from the listener; long-range and static-map-occluded cues select
+separate original profiles. This is a gameplay-readable mix, not physical propagation: it has no
+material-aware filter, dynamic-actor occlusion, or delayed speed-of-sound arrival.
+
+At critical health, the HUD adds peripheral trauma marks and a heartbeat pulse while ducking only
+world sound. On an actor hit, the game emits a small mist/droplet burst and may leave a short-lived
+surface splat behind the target. These are bounded presentation pools; they do not alter damage,
+hitboxes, shot timing or the deterministic gameplay random stream.
+
 ---
 
 ## 5. Movement
 
-The character controller is a port of the Quake/CS model, which is why the movement has a
-particular feel: momentum matters, and you can accelerate in the air in ways that a modern engine
-would not allow.
+The character controller uses grounded acceleration and friction with intentionally bounded air
+steering. Momentum still matters, but repeated jumps and strafes cannot create extra horizontal
+speed.
 
 ### Base speeds (world units per second)
 
@@ -209,6 +226,7 @@ would not allow.
 | Tactical sprint (`Shift`, second tap) | **425** | 1.7× base for up to three seconds, before weapon movement scaling |
 | Walk (`Alt`) | **130** | Quiet, and does not widen your spread as much |
 | Crouch (`Ctrl` hold / `C` toggle) | **85** | Also halves your height and tightens spread by 38% |
+| Prone (`Z`) | **48** | Low profile; only leaves prone when a standing clearance probe succeeds |
 | Jump | **300** upward | |
 | Gravity | **800** /s² | |
 
@@ -222,14 +240,13 @@ While grounded and moving forward, tap `Shift` once for **Sprint**, a second tim
 **Tactical Sprint**, and a third time to turn it off. Tactical sprint lasts **3 seconds** and then
 falls back to regular sprint; its `TAC` bar refills at the same rate whenever it is not active.
 Leaving the ground, crouching, aiming, reloading, walking with `Alt`, or releasing forward cancels
-the sprint state without deleting your current horizontal velocity. That last rule retains the
-controller's existing air-control and bunny-hop behaviour instead of faking a speed boost in the
-renderer.
+the sprint state without deleting your current horizontal velocity. Air steering can redirect that
+earned speed but is clamped so repeated jump/strafe inputs cannot build a bunny-hop speed boost.
 
-The state transition/timing is based on the supplied Godot movement reference, but its collision
-code was not copied: HGO keeps its deterministic swept AABB controller, clear-headroom crouch test,
-and capped air acceleration. The reference contains no slide/mantle/wall-run implementation; prone,
-water and ladder systems require separate map/collision/art scope and are not claimed here.
+Sprint transition/timing is informed by the supplied Godot movement reference, but its collision
+code was not copied: HGO keeps its deterministic swept AABB controller, clear-headroom stance test
+and bounded air steering. HGO's prone and mantle are local implementations. Water, ladders,
+wall-running and mounting are not part of this worktree.
 
 ### Jumping and climbing
 
@@ -238,29 +255,18 @@ feet. That number matters, because it is what makes the map's vertical layout wo
 
 - **Step-up:** while walking you automatically step onto ledges up to **20 units** high. You do not
   need to jump for kerbs and low crates.
+- **Low cover between 22 and 78 units** can be mantled by holding forward as you jump. The route is
+  prevalidated against collision, takes 0.60 seconds, and blocks firing/reload/ADS until it completes.
 - **Ledges up to ~56 units** can be reached with a jump.
 - Architectural roofs and large containers in Industrial Zone are solid traversal blockers. The
   current build does not define a special climb route onto them; use ground-level lanes and cover
   rather than relying on decorative mesh edges.
 
-### Air control and strafe-jumping
+### Air control — not strafe-jumping
 
-While airborne, your acceleration is capped: any single tick of air movement contributes at most
-**30 units/s** of horizontal speed. This is the mechanic that makes strafe-jumping work in
-Counter-Strike, and it is deliberately preserved here.
-
-The practical technique:
-
-1. Run forward and jump.
-2. While in the air, hold `A` (or `D`) and turn your mouse smoothly in that same direction.
-3. Release the strafe key and press the opposite one as you swing the mouse back the other way.
-
-Each swing converts a little of your turning into forward speed, and because the cap applies per
-tick rather than as a total, correct rhythm adds up. Turning the mouse *into* the strafe is what
-matters; pressing `A` while looking straight ahead does nothing useful.
-
-You do not have to do this to play well. It matters mostly for crossing open ground under fire
-and for hopping between cover pieces quickly.
+While airborne, input has a modest steering cap. It can turn an existing velocity vector, but it
+cannot increase its horizontal magnitude. Use it to line up a landing or adjust a jump around cover,
+not to bunny-hop across the map faster than a sprint.
 
 ### Crouch
 
@@ -270,6 +276,14 @@ spread by **0.62**. It is the correct response to a long-range duel and to holdi
 The game refuses to let you stand up if there is a ceiling directly above you, so you will stay
 crouched when you release `Ctrl` under the metal roof block at mid — that is intentional, not a
 stuck key.
+
+### Prone
+
+Press `Z` to enter a low 34-unit stance with a 26-unit eye height. Prone is deliberately slow and
+does not let you jump; leaving it first tests the full standing volume, so a low ceiling keeps you
+safely prone rather than clipping you upright. The world character presents this state horizontally,
+but the authoritative collision and hitbox remain the same continuous stance system used by player
+movement.
 
 ---
 
@@ -314,7 +328,9 @@ Each weapon has a base damage figure (see the [weapon table](#10-weapon-referenc
 
 ### Step 2 — distance falloff
 
-If the weapon has falloff, damage is reduced exponentially with distance:
+AK-47, M4A4 and MP5-SD use explicit close/mid/long/far body-damage bands. Their damage changes
+only when a shot crosses an authored range boundary, which makes range behaviour readable and
+deterministic. The remaining legacy weapons still use exponential falloff:
 
 ```
 damage = base × (1 − falloff)^(distance / 1000)
@@ -322,13 +338,14 @@ damage = base × (1 − falloff)^(distance / 1000)
 
 Distances are in world units, and the exponent is measured per **1000 units**. Worked examples:
 
-| Weapon | Falloff | At 1000 units | At 2000 units | Meaning |
-| --- | --- | --- | --- | --- |
-| AK-47 | 0.15 | 31 | 26 | Keeps damage across the Industrial Zone |
-| Desert Eagle | 0.16 | 53 | 44 | Still hurts a long way out |
-| Glock 17 | 0.22 | 22 | 17 | Practical across long lanes |
-| MP5-SD | 0.22 | 21 | 16 | Stronger at close and medium range |
-| Nova | 0.55 | 11 per pellet | 5 per pellet | Still a close-range weapon |
+| Weapon | Authored body damage by distance | Meaning |
+| --- | --- | --- |
+| AK-47 | 34 to 540; 29 to 1080; 25 to 1440; 20 thereafter | Three-hit close fights, then deliberately slower long-range kills |
+| M4A4 | 32 to 576; 28 to 1152; 24 to 1584; 20 thereafter | Flatter rifle range curve with a readable far band |
+| MP5-SD | 30 to 432; 25 to 864; 21 to 1152; 18 thereafter | Stronger in close/mid lanes than at distance |
+| Desert Eagle | 0.16 legacy falloff: 53 at 1000, 44 at 2000 | Still hurts a long way out |
+| Glock 17 | 0.22 legacy falloff: 22 at 1000, 17 at 2000 | Practical across long lanes |
+| Nova | 0.55 legacy falloff: 11 per pellet at 1000, 5 at 2000 | Still a close-range weapon |
 
 ### Step 3 — hitbox multiplier
 
@@ -340,17 +357,17 @@ Each actor has three hitboxes: **head**, **body** (chest and stomach together) a
 | Body | ×1.0 |
 | Legs | **×0.75** |
 
-There is **no separate stomach hitbox** in v0.1.0, even though the code contains a 1.25× stomach
+There is **no separate stomach hitbox** in this worktree, even though the code contains a 1.25× stomach
 multiplier. See [known quirks](#18-under-the-hood-known-quirks).
 
 To make the headshot numbers concrete, against an unarmoured target at point blank:
 
 | Weapon | Body | Head |
 | --- | --- | --- |
-| AK-47 (36) | 36 | **144 — instant kill** |
-| M4A4 (33) | 33 | 132 — instant kill |
+| AK-47 (34 close) | 34 | **136 — instant kill** |
+| M4A4 (32 close) | 32 | 128 — instant kill |
 | Desert Eagle (63) | 63 | 252 — instant kill |
-| MP5-SD (27) | 27 | 108 — instant kill |
+| MP5-SD (30 close) | 30 | 120 — instant kill |
 | Glock 17 (28) | 28 | 112 — instant kill |
 | Nova (24 × 9) | 216 total | 72 per pellet |
 | AWP (115) | **115 — instant kill** | 172 |
@@ -375,16 +392,16 @@ Concrete numbers against a target with full 100 armour:
 
 | Weapon | Body shot reaching health | Body shots to kill (100 hp) |
 | --- | --- | --- |
-| AK-47 (36) | 18 | 6 |
-| M4A4 (33) | 17 | 6 |
+| AK-47 (34 close) | 17 | 6 |
+| M4A4 (32 close) | 16 | 7 |
 | Desert Eagle (63) | 32 | 4 |
-| MP5-SD (27) | 14 | 8 |
+| MP5-SD (30 close) | 15 | 7 |
 | Glock 17 (28) | 14 | 8 |
 | AWP (115) | 58 | 2 |
 
 Armour roughly doubles the number of body shots required, which is exactly why it is worth having.
 
-> **In practice, in v0.1.0, everyone always has armour.** Every respawn grants full armour and a
+> **In practice, in this worktree, everyone always has armour.** Every respawn grants full armour and a
 > helmet automatically (see [known quirks](#18-under-the-hood-known-quirks)). Treat the "unarmoured"
 > numbers above as reference, and expect your body shots to do about half the listed damage.
 
@@ -477,9 +494,9 @@ Every number below is read from the source table in
 | Knife | Melee | 1 | — | 55 | ×3 | — | 90 | 150 | — | — | 1.00 | $1500 |
 | Glock 17 | Pistol | 2 | $200 | 28 | ×4 | 0.22 | 3600 | 400 | 20 / 120 | 2.2 s | 1.00 | $300 |
 | Desert Eagle | Pistol | 2 | $700 | 63 | ×4 | 0.16 | 4200 | 267 | 7 / 35 | 2.2 s | 1.00 | $300 |
-| MP5-SD | SMG | 3 | $1500 | 27 | ×4 | 0.22 | 3400 | 750 | 30 / 120 | 2.6 s | 0.96 | $300 |
-| AK-47 | Rifle | 3 | $2700 | 36 | ×4 | 0.15 | 5200 | 600 | 30 / 90 | 2.5 s | 0.90 | $300 |
-| M4A4 | Rifle | 3 | $3100 | 33 | ×4 | 0.16 | 5200 | 666 | 30 / 90 | 3.1 s | 0.90 | $300 |
+| MP5-SD | SMG | 3 | $1500 | 30 close | ×4 | 30/25/21/18 tiers | 3400 | 750 | 30 / 120 | 2.6 s | 0.96 | $300 |
+| AK-47 | Rifle | 3 | $2700 | 34 close | ×4 | 34/29/25/20 tiers | 5200 | 600 | 30 / 90 | 2.5 s | 0.90 | $300 |
+| M4A4 | Rifle | 3 | $3100 | 32 close | ×4 | 32/28/24/20 tiers | 5200 | 666 | 30 / 90 | 3.1 s | 0.90 | $300 |
 | Nova | Shotgun | 3 | $1050 | 24 × 9 | ×3 | 0.55 | 1500 | 68 | 8 / 32 | 3.4 s | 0.95 | $900 |
 | AWP | Sniper | 3 | $4750 | 115 | ×1.5 | 0.08 | 7200 | 41 | 10 / 30 | 3.7 s | 0.83 | $100 |
 
@@ -503,18 +520,19 @@ recovers slowly, so it rewards one careful shot over a flurry. If you hit the fi
 win; if you miss, you are usually dead.
 
 **MP5-SD** — The cheapest automatic, and the only weapon in the game with a movement multiplier
-above 0.9. At 750 RPM with a modest movement spread penalty (3.2, against the AK's 6.5) it is the
-best weapon for running and gunning. Its 3400-unit reach is forgiving, but its spread still rewards
-short and medium-range fights.
+above 0.9. Its 30/25/21/18 damage bands favor 432-unit close lanes and 864-unit mid lanes; the
+3400-unit hit-scan reach is not a promise of full close-range damage. Its modest movement spread
+penalty (3.2, against the AK's 6.5) makes it the best weapon for running and gunning.
 
-**AK-47** — The reference rifle. 36 damage, 600 RPM, ×4 headshots, a 5200-unit range and only 15%
-falloff, so it remains lethal across the Industrial Zone. Its spray pattern is the signature rise-then-sweep:
-the first several bullets climb steeply, then it drifts sideways. Turn your sensitivity down and
-practice the first ten.
+**AK-47** — The reference rifle. Its 34/29/25/20 body-damage bands preserve a three-hit close
+fight inside 540 units, then make long lanes deliberate rather than silently decaying every frame.
+It still has 600 RPM, ×4 headshots and a 5200-unit hit-scan reach. Its spray pattern is the
+signature rise-then-sweep: the first several bullets climb steeply, then it drifts sideways. Turn
+your sensitivity down and practice the first ten.
 
-**M4A4** — Slightly less damage (33), slightly faster (666 RPM), a flatter and more horizontal
-pattern, a longer reload (3.1 s vs 2.5 s) and $400 more expensive. If you can hold the AK, the AK is
-the better buy in v0.1.0. The M4 is more forgiving for newer players because the climb is smaller.
+**M4A4** — Its 32/28/24/20 body-damage bands, 666 RPM and flatter, more horizontal pattern trade
+slightly less close damage for a more forgiving climb. Its reload is longer (3.1 s vs 2.5 s) and it
+costs $400 more than the AK. The M4 is the more forgiving rifle for newer players.
 
 **Nova** — 9 pellets × 24 damage with a ×3 headshot multiplier, but a strong 0.55 falloff: it does
 full damage only inside close rooms, and roughly 11 damage per pellet at 1000 units. Inside
@@ -571,7 +589,7 @@ Press `B` while alive. It contains:
 Buying a weapon you already have refills it. **You keep your loadout through death**, so once you
 own a rifle you never have to buy it again unless you want a different one.
 
-> **Important v0.1.0 quirk:** every respawn already gives you full armour and a helmet for free, so
+> **Important current-worktree quirk:** every respawn already gives you full armour and a helmet for free, so
 > the $1000 "Kevlar + Helmet" purchase does nothing. Spend that money on a weapon instead. See
 > [known quirks](#18-under-the-hood-known-quirks).
 
@@ -775,7 +793,7 @@ dotnet run [-- option value ...]
 | `--height <n>` | screenshot | 720 | Window height |
 | `--weapon <name>` | screenshot | default | Equip a weapon: `Knife`, `Glock 17`, `Desert Eagle`, `MP5-SD`, `AK-47`, `M4A4`, `Nova`, `AWP` |
 | `--screen <name>` | screenshot | play | `play`, `scoreboard`, `buy`, `menu`, `character`, `crosshair` or `dossier` |
-| `--zoom` | screenshot | off | Hold the AWP scope before capturing |
+| `--zoom` | screenshot | off | Hold production ADS / scope before capturing |
 | `--verbose` | headless | off | Also dump the kill feed |
 
 ### Examples
@@ -793,8 +811,8 @@ dotnet run -- --screenshot crosshair-options.png --screen crosshair --weapon "Gl
 # capture the read-only AK-47 weapon dossier on a real gameplay frame
 dotnet run -- --screenshot weapon-dossier.png --screen dossier --weapon "AK-47"
 
-# a scoped AWP frame at 1600x900, waiting 7 seconds of gameplay first
-dotnet run -- --screenshot awp.png --seconds 7 --weapon AWP --zoom --width 1600 --height 900
+# an AK iron-sight ADS frame at 1600x900, waiting 7 seconds of gameplay first
+dotnet run -- --screenshot ak-ads.png --seconds 7 --weapon AK-47 --zoom --width 1600 --height 900
 ```
 
 The `--headless` report ends in `RESULT: PASS` or `RESULT: FAIL` and exits with a matching status,
@@ -849,8 +867,10 @@ Press `Esc` to pause, which releases the cursor. Closing the pause menu recaptur
 
 ### The window is too small or the wrong size
 
-For gameplay, resize the window freely — the renderer adapts. For screenshots the size comes from
-`--width` and `--height`.
+For gameplay, the window can be resized down to **960 × 540**. Menus use a centered 1280 × 720
+logical canvas so their text and click targets stay intact; the 3D view and combat HUD keep using the
+real framebuffer. Screenshot size comes from `--width` and `--height` and can intentionally test
+other dimensions.
 
 ### The game feels too sensitive (or not sensitive enough)
 
@@ -903,7 +923,7 @@ penetrable. Check the hitmarker: if you got one, you hit; the damage numbers tel
 Because you cannot see them. The radar only shows enemies you currently have line of sight to.
 
 **Can I play with friends?**
-Not in v0.1.0. There is no networking at all — everything runs in one process.
+Not in this worktree. There is no networking at all — everything runs in one process.
 
 **How do I add a map?**
 The map is pure data: `GameMap.cs` builds a list of axis-aligned brushes with a single `Add(...)`

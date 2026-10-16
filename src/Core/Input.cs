@@ -15,8 +15,16 @@ public struct InputFrame
     public Vector2 Look;
     public bool Jump;
     public bool Crouch;
+    /// <summary>One-shot held-crouch edge. It can start a momentum slide without changing held crouch semantics.</summary>
+    public bool CrouchPressed;
     /// <summary>One-shot source-compatible crouch-toggle intent (C).</summary>
     public bool CrouchTogglePressed;
+    /// <summary>
+    /// One-shot prone toggle intent (Z).  It is deliberately separate from
+    /// crouch so a prone player cannot accidentally stand up while initiating a
+    /// slide or using the legacy C crouch toggle.
+    /// </summary>
+    public bool ProneTogglePressed;
     public bool Walk;
     /// <summary>One-shot sprint mode cycle intent (Shift).</summary>
     public bool SprintPressed;
@@ -27,6 +35,8 @@ public struct InputFrame
     /// <summary>One-shot AUTO/SEMI selector intent for compatible player weapons.</summary>
     public bool FireModePressed;
     public bool Reload;
+    /// <summary>Held secondary-fire state. Iron-sight weapons use hold-to-aim.</summary>
+    public bool ZoomDown;
     public bool ZoomPressed;
     /// <summary>Weapon slot to select this frame, or -1 for none.</summary>
     public int SwitchSlot;
@@ -76,7 +86,12 @@ public static class RealInput
         f.Look = acceptLook ? Raylib.GetMouseDelta() : Vector2.Zero;
         f.Jump = Raylib.IsKeyDown(KeyboardKey.Space);
         f.Crouch = Raylib.IsKeyDown(KeyboardKey.LeftControl);
+        f.CrouchPressed = Raylib.IsKeyPressed(KeyboardKey.LeftControl);
         f.CrouchTogglePressed = Raylib.IsKeyPressed(KeyboardKey.C);
+        // Z is intentionally unassigned elsewhere in the live input map. It
+        // toggles the safe low-prone stance; Ctrl and C retain their existing
+        // held/toggle crouch semantics.
+        f.ProneTogglePressed = Raylib.IsKeyPressed(KeyboardKey.Z);
         // The referenced movement controller uses a press edge, not a held key:
         // Shift cycles regular sprint -> tactical sprint -> off while moving forward.
         f.SprintPressed = Raylib.IsKeyPressed(KeyboardKey.LeftShift);
@@ -87,6 +102,7 @@ public static class RealInput
         f.InspectPressed = Raylib.IsKeyPressed(KeyboardKey.X);
         f.FireModePressed = Raylib.IsKeyPressed(KeyboardKey.V);
         f.Reload = Raylib.IsKeyPressed(KeyboardKey.R);
+        f.ZoomDown = Raylib.IsMouseButtonDown(MouseButton.Right);
         f.ZoomPressed = Raylib.IsMouseButtonPressed(MouseButton.Right);
 
         if (Raylib.IsKeyPressed(KeyboardKey.One)) f.SwitchSlot = 0;

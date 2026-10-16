@@ -1,6 +1,7 @@
 using System.Numerics;
 using HoodGlobalOffensive.Core;
 using HoodGlobalOffensive.Sim;
+using HoodGlobalOffensive.World;
 using Raylib_cs;
 
 namespace HoodGlobalOffensive.Audio;
@@ -14,7 +15,6 @@ namespace HoodGlobalOffensive.Audio;
 public sealed class AudioBank : IDisposable
 {
     private const int Voices = 3;
-    private const float MaxAudibleDistance = 2600f;
 
     private readonly Dictionary<string, Sound[]> _sounds = new();
     private readonly Dictionary<string, int> _cursor = new();
@@ -36,30 +36,35 @@ public sealed class AudioBank : IDisposable
 
         Raylib.SetMasterVolume(MasterVolume);
 
-        // Weapons: distinct body frequency, noise and tail per class. A licensed
-        // gun.wav reference may intentionally replace the shared presentation;
-        // individual class files take precedence when present.
-        AddReferenceOrGenerated("rifle", "assets/audio/gun-rifle.wav", "assets/audio/gun.wav",
-            WavGen.Gunshot(11, 0.34f, 128f, 0.95f, 0.55f, 0.5f));
-        AddReferenceOrGenerated("pistol", "assets/audio/gun-pistol.wav", "assets/audio/gun.wav",
-            WavGen.Gunshot(22, 0.24f, 176f, 0.8f, 0.45f, 0.35f));
-        AddReferenceOrGenerated("deagle", "assets/audio/gun-deagle.wav", "assets/audio/gun.wav",
-            WavGen.Gunshot(33, 0.38f, 104f, 1.0f, 0.75f, 0.6f));
-        AddReferenceOrGenerated("smg", "assets/audio/gun-smg.wav", "assets/audio/gun.wav",
-            WavGen.Gunshot(44, 0.20f, 190f, 0.75f, 0.38f, 0.3f));
-        AddReferenceOrGenerated("shotgun", "assets/audio/gun-shotgun.wav", "assets/audio/gun.wav",
-            WavGen.Gunshot(55, 0.46f, 78f, 1.0f, 0.85f, 0.75f));
-        AddReferenceOrGenerated("awp", "assets/audio/gun-sniper.wav", "assets/audio/gun.wav",
-            WavGen.Gunshot(66, 0.62f, 68f, 1.0f, 1.0f, 0.85f));
+        // Weapons use an original four-layer procedural stack.  Each fallback
+        // has a near, distant, and occluded spectrum so map-aware routing can
+        // remove crack/mechanical detail without a fragile run-time DSP path.
+        // Licensed local overrides still win unchanged; authors can optionally
+        // provide matching "-distant" / "-occluded" files for their own pack.
+        AddWeaponFamily("rifle_ak", "assets/audio/gun-ak47.wav", "assets/audio/gun-rifle.wav", "assets/audio/gun.wav",
+            11, 0.35f, 108f, 0.98f, 0.66f, 0.56f);
+        AddWeaponFamily("rifle_m4", "assets/audio/gun-m4a4.wav", "assets/audio/gun-rifle.wav", "assets/audio/gun.wav",
+            12, 0.28f, 154f, 0.82f, 0.48f, 0.40f);
+        AddWeaponFamily("pistol", "assets/audio/gun-pistol.wav", "assets/audio/gun.wav", string.Empty,
+            22, 0.24f, 176f, 0.8f, 0.45f, 0.35f);
+        AddWeaponFamily("deagle", "assets/audio/gun-deagle.wav", "assets/audio/gun.wav", string.Empty,
+            33, 0.38f, 104f, 1.0f, 0.75f, 0.6f);
+        AddWeaponFamily("smg", "assets/audio/gun-smg.wav", "assets/audio/gun.wav", string.Empty,
+            44, 0.20f, 190f, 0.75f, 0.38f, 0.3f);
+        AddWeaponFamily("shotgun", "assets/audio/gun-shotgun.wav", "assets/audio/gun.wav", string.Empty,
+            55, 0.46f, 78f, 1.0f, 0.85f, 0.75f);
+        AddWeaponFamily("awp", "assets/audio/gun-sniper.wav", "assets/audio/gun.wav", string.Empty,
+            66, 0.62f, 68f, 1.0f, 1.0f, 0.85f);
         Add("knife", WavGen.Swoosh(77));
 
         Add("hit_flesh", WavGen.Hit(88, 0.22f, 190f, 0.6f));
         Add("hit_head", WavGen.Hit(99, 0.3f, 320f, 0.5f));
         Add("impact", WavGen.Impact(111));
         AddReferenceOrGenerated("reload", "assets/audio/reload.wav", WavGen.Reload(122));
-        AddReferenceOrGenerated("step", "assets/audio/footstep.wav", WavGen.Step(133));
+        AddFootstepFamily();
         AddReferenceOrGenerated("hitmarker", "assets/audio/hitmarker.wav", WavGen.Hitmarker(144));
         AddReferenceOrGenerated("headshot", "assets/audio/headshot.wav", WavGen.Headshot(155));
+        AddReferenceOrGenerated("heartbeat", "assets/audio/heartbeat.wav", WavGen.Heartbeat(166));
         Add("buy", WavGen.Blip(520f, 900f, 0.16f, 0.35f));
         Add("spawn", WavGen.Blip(300f, 620f, 0.22f, 0.3f));
         Add("kill", WavGen.Blip(700f, 1180f, 0.2f, 0.4f));
@@ -103,6 +108,102 @@ public sealed class AudioBank : IDisposable
     }
 
     /// <summary>
+    /// Loads a firearm family without ever replacing a player-supplied local
+    /// recording. Generated HGO fallbacks receive all three spectral profiles;
+    /// an external pack remains its exact source unless it deliberately ships a
+    /// profile derivative beside it.
+    /// </summary>
+    private void AddWeaponFamily(string name, string preferredPath, string sharedPath, string genericPath,
+        ulong seed, float duration, float bodyFrequency, float noiseAmount, float punch, float tail)
+    {
+        byte[] near = WavGen.Gunshot(seed, duration, bodyFrequency, noiseAmount, punch, tail,
+            WavGen.GunshotPerspective.Near);
+        byte[] distant = WavGen.Gunshot(seed, duration, bodyFrequency, noiseAmount, punch, tail,
+            WavGen.GunshotPerspective.Distant);
+        byte[] occluded = WavGen.Gunshot(seed, duration, bodyFrequency, noiseAmount, punch, tail,
+            WavGen.GunshotPerspective.Occluded);
+
+        string? source = ResolveFirst(preferredPath, sharedPath, genericPath);
+        if (source is null)
+        {
+            Add(name, near);
+            Add(name + ".distant", distant);
+            Add(name + ".occluded", occluded);
+            return;
+        }
+
+        try
+        {
+            AddFromFile(name, source);
+            AddOptionalReference(name + ".distant", ProfilePath(preferredPath, "distant"),
+                ProfilePath(sharedPath, "distant"), ProfilePath(genericPath, "distant"));
+            AddOptionalReference(name + ".occluded", ProfilePath(preferredPath, "occluded"),
+                ProfilePath(sharedPath, "occluded"), ProfilePath(genericPath, "occluded"));
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"audio reference {source} could not load ({ex.Message}); using original {name} fallback");
+            Add(name, near);
+            Add(name + ".distant", distant);
+            Add(name + ".occluded", occluded);
+        }
+    }
+
+    /// <summary>
+    /// Keeps the existing footstep override route intact while exposing only the
+    /// material names actually authored by <see cref="GameMap"/>. No hidden
+    /// texture or imagined environment material is inferred here.
+    /// </summary>
+    private void AddFootstepFamily()
+    {
+        const string basePath = "assets/audio/footstep.wav";
+        string? source = ResolveAsset(basePath);
+        if (source is null)
+        {
+            Add("step", WavGen.Step(133));
+            Add("step.floor", WavGen.Step(134, WavGen.FootstepSurface.Floor));
+            Add("step.crate", WavGen.Step(135, WavGen.FootstepSurface.Crate));
+            Add("step.metal", WavGen.Step(136, WavGen.FootstepSurface.Metal));
+            Add("step.platform", WavGen.Step(137, WavGen.FootstepSurface.Platform));
+            return;
+        }
+
+        try
+        {
+            AddFromFile("step", source);
+            AddOptionalReference("step.floor", ProfilePath(basePath, "floor"));
+            AddOptionalReference("step.crate", ProfilePath(basePath, "crate"));
+            AddOptionalReference("step.metal", ProfilePath(basePath, "metal"));
+            AddOptionalReference("step.platform", ProfilePath(basePath, "platform"));
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"audio reference {source} could not load ({ex.Message}); using original step fallback");
+            Add("step", WavGen.Step(133));
+            Add("step.floor", WavGen.Step(134, WavGen.FootstepSurface.Floor));
+            Add("step.crate", WavGen.Step(135, WavGen.FootstepSurface.Crate));
+            Add("step.metal", WavGen.Step(136, WavGen.FootstepSurface.Metal));
+            Add("step.platform", WavGen.Step(137, WavGen.FootstepSurface.Platform));
+        }
+    }
+
+    private void AddOptionalReference(string name, params string[] paths)
+    {
+        string? source = ResolveFirst(paths);
+        if (source is null) return;
+
+        try
+        {
+            AddFromFile(name, source);
+        }
+        catch (Exception ex)
+        {
+            // An optional derivative must never disable the primary custom pack.
+            Console.Error.WriteLine($"audio reference {source} could not load ({ex.Message}); using base cue for {name}");
+        }
+    }
+
+    /// <summary>
     /// Uses the first supplied reference file that exists; otherwise preserves the
     /// original synthesized fallback.  This deliberately does not fetch media from
     /// a web page: callers must put a licensed source file in the asset folder.
@@ -111,8 +212,12 @@ public sealed class AudioBank : IDisposable
         => AddReferenceOrGenerated(name, assetPath, string.Empty, fallback);
 
     private void AddReferenceOrGenerated(string name, string preferredPath, string sharedPath, byte[] fallback)
+        => AddReferenceOrGenerated(name, preferredPath, sharedPath, string.Empty, fallback);
+
+    private void AddReferenceOrGenerated(string name, string preferredPath, string sharedPath, string genericPath,
+        byte[] fallback)
     {
-        string? source = ResolveAsset(preferredPath) ?? ResolveAsset(sharedPath);
+        string? source = ResolveFirst(preferredPath, sharedPath, genericPath);
         if (source is null)
         {
             Add(name, fallback);
@@ -121,26 +226,7 @@ public sealed class AudioBank : IDisposable
 
         try
         {
-            var voices = new Sound[Voices];
-            int loaded = 0;
-            try
-            {
-                for (; loaded < Voices; loaded++)
-                {
-                    Sound sound = Raylib.LoadSound(source);
-                    if (!Raylib.IsSoundValid(sound))
-                        throw new InvalidDataException($"The file did not produce a valid sound: {source}");
-                    voices[loaded] = sound;
-                }
-            }
-            catch
-            {
-                UnloadVoices(voices, loaded);
-                throw;
-            }
-
-            _sounds[name] = voices;
-            _cursor[name] = 0;
+            AddFromFile(name, source);
             Console.WriteLine($"audio reference {name}: {source}");
         }
         catch (Exception ex)
@@ -148,6 +234,49 @@ public sealed class AudioBank : IDisposable
             Console.Error.WriteLine($"audio reference {source} could not load ({ex.Message}); using original {name} fallback");
             Add(name, fallback);
         }
+    }
+
+    private void AddFromFile(string name, string source)
+    {
+        var voices = new Sound[Voices];
+        int loaded = 0;
+        try
+        {
+            for (; loaded < Voices; loaded++)
+            {
+                Sound sound = Raylib.LoadSound(source);
+                if (!Raylib.IsSoundValid(sound))
+                    throw new InvalidDataException($"The file did not produce a valid sound: {source}");
+                voices[loaded] = sound;
+            }
+        }
+        catch
+        {
+            UnloadVoices(voices, loaded);
+            throw;
+        }
+
+        _sounds[name] = voices;
+        _cursor[name] = 0;
+    }
+
+    private static string ProfilePath(string path, string profile)
+    {
+        if (string.IsNullOrWhiteSpace(path)) return string.Empty;
+        string directory = Path.GetDirectoryName(path) ?? string.Empty;
+        string stem = Path.GetFileNameWithoutExtension(path);
+        return Path.Combine(directory, $"{stem}-{profile}.wav");
+    }
+
+    private static string? ResolveFirst(params string[] paths)
+    {
+        foreach (string path in paths)
+        {
+            string? resolved = ResolveAsset(path);
+            if (resolved is not null) return resolved;
+        }
+
+        return null;
     }
 
     private static string? ResolveAsset(string path)
@@ -180,29 +309,43 @@ public sealed class AudioBank : IDisposable
         for (int i = 0; i < count; i++) Raylib.UnloadSound(voices[i]);
     }
 
-    public void Play(SoundEvent evt, Vector3 listener)
+    /// <summary>
+    /// Plays one simulation cue through deterministic listener routing. Passing
+    /// the live map enables static-geometry occlusion; callers without a map
+    /// retain the same distance/pan policy but cannot claim wall filtering.
+    /// </summary>
+    public void Play(SoundEvent evt, Vector3 listener, float listenerYaw, float worldTrauma = 0f,
+        GameMap? map = null)
     {
         if (!Ready) return;
 
-        float distance = evt.Name switch
-        {
-            "step" => (evt.Position - listener).Length(),
-            "buy" or "kill" or "match_end" or "spawn" or "hitmarker" or "headshot" => 0f,
-            _ => (evt.Position - listener).Length(),
-        };
-
-        float attenuation = distance <= 1f
-            ? 1f
-            : U.Clamp01(1f - distance / MaxAudibleDistance);
-        attenuation *= attenuation;
-
-        float volume = evt.Volume * attenuation * 1.6f;
-        if (volume < 0.012f) return;
-
-        Play(evt.Name, volume, evt.Pitch, distance <= 1f);
+        SoundPlayback mix = AudioMix.Resolve(evt, listener, listenerYaw, map, worldTrauma);
+        if (mix.Volume < 0.012f) return;
+        Play(ResolveCue(evt.Name, mix.Spectrum), mix.Volume, evt.Pitch, mix.Pan);
     }
 
-    public void Play(string name, float volume, float pitch = 1f, bool skipAttenuation = false)
+    private string ResolveCue(string requested, SoundSpectrumProfile spectrum)
+    {
+        string profileCue = spectrum switch
+        {
+            SoundSpectrumProfile.Distant => requested + ".distant",
+            SoundSpectrumProfile.Occluded => requested + ".occluded",
+            _ => requested,
+        };
+        if (_sounds.ContainsKey(profileCue)) return profileCue;
+        if (_sounds.ContainsKey(requested)) return requested;
+
+        // A custom footstep pack may only provide its legacy base file. Surface
+        // metadata still reaches the audio route; it cleanly falls back rather
+        // than silently dropping footsteps because an optional derivative is
+        // absent.
+        if (requested.StartsWith("step.", StringComparison.Ordinal) && _sounds.ContainsKey("step"))
+            return "step";
+
+        return requested;
+    }
+
+    public void Play(string name, float volume, float pitch = 1f, float pan = 0.5f)
     {
         if (!Ready || _disposed) return;
         if (!_sounds.TryGetValue(name, out Sound[]? voices)) return;
@@ -211,8 +354,9 @@ public sealed class AudioBank : IDisposable
         _cursor[name] = (index + 1) % voices.Length;
 
         Sound sound = voices[index];
-        Raylib.SetSoundVolume(sound, U.Clamp(volume * (skipAttenuation ? 1f : 1f), 0f, 1f) * 0.9f);
+        Raylib.SetSoundVolume(sound, U.Clamp(volume, 0f, 1f) * 0.9f);
         Raylib.SetSoundPitch(sound, U.Clamp(pitch, 0.3f, 3f));
+        Raylib.SetSoundPan(sound, U.Clamp(pan, 0f, 1f));
         Raylib.PlaySound(sound);
     }
 

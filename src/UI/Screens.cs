@@ -2,6 +2,7 @@ using System.Numerics;
 using HoodGlobalOffensive.Combat;
 using HoodGlobalOffensive.Core;
 using HoodGlobalOffensive.Entities;
+using HoodGlobalOffensive.Render;
 using HoodGlobalOffensive.Sim;
 using Raylib_cs;
 
@@ -31,6 +32,37 @@ public sealed class MatchSettings
     public ulong Seed = 20260114;
     public readonly CrosshairSettings Crosshair = new();
     public readonly CameraFeedbackSettings CameraFeedback = new();
+}
+
+/// <summary>
+/// Preserves the opening B press while the buy overlay takes ownership of the
+/// frame. The menu must see a release, then a new B press, before B can close
+/// it again. Escape is intentionally never delayed.
+/// </summary>
+public sealed class BuyMenuKeyLatch
+{
+    private bool _awaitingBuyRelease;
+
+    public void ArmForOpen() => _awaitingBuyRelease = true;
+
+    public void Reset() => _awaitingBuyRelease = false;
+
+    public bool ShouldClose(bool buyDown, bool buyPressed, bool escapePressed)
+    {
+        if (escapePressed)
+        {
+            _awaitingBuyRelease = false;
+            return true;
+        }
+
+        if (_awaitingBuyRelease)
+        {
+            if (!buyDown) _awaitingBuyRelease = false;
+            return false;
+        }
+
+        return buyPressed;
+    }
 }
 
 /// <summary>Interactive text menus built from a small immediate-mode list.</summary>
@@ -81,7 +113,9 @@ public static class Screens
         if (Raylib.IsKeyPressed(KeyboardKey.Up) || Raylib.IsKeyPressed(KeyboardKey.W)) selected--;
         selected = ((selected % Rows.Count) + Rows.Count) % Rows.Count;
 
-        Vector2 mouse = Raylib.GetMousePosition();
+        // Rows live in Ui's 1280×720 logical canvas, so hit testing must use
+        // the inverse-mapped cursor after a resized or ultrawide window.
+        Vector2 mouse = Ui.GetMousePosition();
         for (int i = 0; i < Rows.Count; i++)
         {
             if (Hit(mouse, Rows[i].Rect)) selected = i;
@@ -106,18 +140,29 @@ public static class Screens
     {
         private static int _selected;
 
-        public static ScreenAction Draw(MatchSettings settings, int w, int h)
+        public static ScreenAction Draw(MatchSettings settings, int screenW, int screenH)
         {
-            Raylib.ClearBackground(U.Rgb(16, 18, 24));
+            // A restrained live map backdrop gives the front end a sense of place
+            // without adding replacement props or changing the supplied scene.
+            Renderer.DrawMenuBackdrop(screenW, screenH);
+            Raylib.DrawRectangle(0, 0, screenW, screenH, U.Rgba(4, 7, 11, 94));
 
-            // Backdrop framing
-            Raylib.DrawRectangle(0, 0, w, 6, U.Rgb(255, 186, 56));
+            using Ui.CanvasScope canvas = Ui.BeginCanvas(screenW, screenH);
+            const int w = Ui.DesignWidth;
+            const int h = Ui.DesignHeight;
+
+            // Keep the command surface quiet enough for the Industrial Zone to
+            // remain visible, but give the text an intentional left-hand anchor.
+            Raylib.DrawRectangle(0, 0, 760, h, U.Rgba(8, 11, 16, 214));
+            Raylib.DrawRectangle(0, 0, w, 6, Ui.Accent);
+            Raylib.DrawRectangle(64, 145, 460, 1, U.Rgba(255, 255, 255, 34));
             Ui.Text(Cfg.GameName, 60, 54, 52, Ui.Ink);
-            Ui.Text($"early access v{Cfg.Version}  -  map: {Cfg.MapName}  -  a Counter-Strike style deathmatch in C#", 64, 118, 15, Ui.Dim);
+            Ui.Text($"EARLY ACCESS v{Cfg.Version}   •   {Cfg.MapName.ToUpperInvariant()}   •   OFFLINE BOT DEATHMATCH",
+                64, 118, 13, Ui.Dim);
 
-            int panelW = 460;
-            int x = 64;
-            int y = 200;
+            const int panelW = 460;
+            const int x = 64;
+            int y = 174;
             const int rowH = 44;
             const int gap = 8;
 
@@ -175,14 +220,39 @@ public static class Screens
                 }
             }
 
-            Ui.Text("WASD to move    MOUSE to aim    CLICK to fire    R reload    1/2/3 weapons",
+            DrawMatchBrief();
+            Ui.Text("WASD move    MOUSE aim    CLICK fire    RMB aim    R reload    1 / 2 / 3 weapon slots",
                 64, h - 96, 10, Ui.Faint);
-            Ui.Text("SHIFT sprint/tac/off    ALT walk    CTRL/C crouch    SPACE jump    B buy    F2 crosshair    TAB scores    ESC pause",
+            Ui.Text("SHIFT sprint cycle    ALT walk    CTRL/C crouch    SPACE jump    B buy    F2 crosshair    TAB scores    ESC pause",
                 64, h - 80, 10, Ui.Faint);
-            Ui.Text("Tip: crouch and tap-fire for accuracy, and drag down to fight AK recoil.",
+            Ui.Text("Tip: crouch and tap-fire for control. AK sights align to the centre ray.",
                 64, h - 56, 10, Ui.Dim);
 
             return ScreenAction.None;
+        }
+
+        private static void DrawMatchBrief()
+        {
+            const int x = 770;
+            const int y = 202;
+            const int w = 420;
+            const int h = 232;
+            Ui.Panel(new Rectangle(x, y, w, h), U.Rgba(8, 11, 16, 196), U.Rgba(255, 255, 255, 42), 1.25f);
+            Raylib.DrawRectangle(x, y, 5, h, Ui.Accent);
+            Ui.Text("LOCAL OPERATION", x + 26, y + 24, 11, Ui.Accent);
+            Ui.Text(Cfg.MapName.ToUpperInvariant(), x + 24, y + 48, 27, Ui.Ink);
+            Ui.Text("OFFLINE FREE-FOR-ALL", x + 25, y + 82, 11, Ui.Dim);
+            Raylib.DrawRectangle(x + 24, y + 108, w - 48, 1, U.Rgba(255, 255, 255, 28));
+
+            Ui.Text("MODE", x + 24, y + 130, 10, Ui.Faint);
+            Ui.Text("DEATHMATCH", x + 24, y + 148, 16, Ui.Ink);
+            Ui.Text("LOADOUT", x + 174, y + 130, 10, Ui.Faint);
+            Ui.Text("GUN GAME", x + 174, y + 148, 16, Ui.Ink);
+            Ui.Text("STATUS", x + 306, y + 130, 10, Ui.Faint);
+            Ui.Text("LOCAL", x + 306, y + 148, 16, Ui.Good);
+
+            Ui.Text("Use the menu to tune bots, sensitivity, reticle and camera feedback before deployment.",
+                x + 24, y + 194, 10, Ui.Dim);
         }
     }
 
@@ -192,9 +262,12 @@ public static class Screens
     {
         private static int _selected;
 
-        public static ScreenAction Draw(MatchSettings settings, Simulation sim, int w, int h)
+        public static ScreenAction Draw(MatchSettings settings, Simulation sim, int screenW, int screenH)
         {
-            Raylib.DrawRectangle(0, 0, w, h, U.Rgba(6, 8, 12, 175));
+            Raylib.DrawRectangle(0, 0, screenW, screenH, U.Rgba(6, 8, 12, 175));
+            using Ui.CanvasScope canvas = Ui.BeginCanvas(screenW, screenH);
+            const int w = Ui.DesignWidth;
+            const int h = Ui.DesignHeight;
 
             const int panelW = 420;
             int x = (w - panelW) / 2;
@@ -261,12 +334,15 @@ public static class Screens
     /// </summary>
     public static class WeaponDossier
     {
-        public static ScreenAction Draw(Simulation sim, int w, int h)
+        public static ScreenAction Draw(Simulation sim, int screenW, int screenH)
         {
             Weapon weapon = sim.Player.Current;
             WeaponDef def = weapon.Def;
 
-            Raylib.DrawRectangle(0, 0, w, h, U.Rgba(6, 8, 12, 132));
+            Raylib.DrawRectangle(0, 0, screenW, screenH, U.Rgba(6, 8, 12, 132));
+            using Ui.CanvasScope canvas = Ui.BeginCanvas(screenW, screenH);
+            const int w = Ui.DesignWidth;
+            const int h = Ui.DesignHeight;
 
             int panelW = Math.Min(660, Math.Max(480, w - 48));
             int panelH = Math.Min(548, h - 48);
@@ -344,9 +420,12 @@ public static class Screens
     {
         private static int _selected;
 
-        public static ScreenAction Draw(CrosshairSettings settings, int w, int h)
+        public static ScreenAction Draw(CrosshairSettings settings, int screenW, int screenH)
         {
-            Raylib.DrawRectangle(0, 0, w, h, U.Rgba(6, 8, 12, 88));
+            Raylib.DrawRectangle(0, 0, screenW, screenH, U.Rgba(6, 8, 12, 88));
+            using Ui.CanvasScope canvas = Ui.BeginCanvas(screenW, screenH);
+            const int w = Ui.DesignWidth;
+            const int h = Ui.DesignHeight;
 
             int panelW = Math.Min(440, Math.Max(340, w - 48));
             const int x = 24;
@@ -431,7 +510,15 @@ public static class Screens
 
     public sealed class BuyMenu
     {
+        internal enum ProtectionPurchaseOutcome
+        {
+            Purchased,
+            AlreadyEquipped,
+            InsufficientFunds,
+        }
+
         private readonly List<(string Name, int Price, string Kind)> _items = new();
+        private readonly BuyMenuKeyLatch _closeLatch = new();
         private int _selected;
         private float _messageUntil;
         private string _message = "";
@@ -452,46 +539,104 @@ public static class Screens
         {
             Rebuild();
             _selected = 0;
+            _closeLatch.Reset();
+        }
+
+        /// <summary>
+        /// Begins an interactive buy session. Unlike <see cref="Refresh"/>,
+        /// this retains the B edge that opened the menu until it is released.
+        /// </summary>
+        public void Open()
+        {
+            Refresh();
+            _closeLatch.ArmForOpen();
         }
 
         /// <summary>True when the menu should stay open.</summary>
-        public bool Draw(Simulation sim, int w, int h)
+        public bool Draw(Simulation sim, int screenW, int screenH)
         {
             Player p = sim.Player;
             if (_items.Count == 0) Rebuild();
 
-            Raylib.DrawRectangle(0, 0, w, h, U.Rgba(6, 8, 12, 190));
+            // The world remains visible enough to retain spatial context, while the
+            // matte isolates this from the combat HUD instead of reading as a debug list.
+            Raylib.DrawRectangle(0, 0, screenW, screenH, U.Rgba(5, 8, 13, 178));
+            using Ui.CanvasScope canvas = Ui.BeginCanvas(screenW, screenH);
+            const int w = Ui.DesignWidth;
+            const int h = Ui.DesignHeight;
+            Raylib.DrawRectangle(0, 0, w, 5, Ui.Accent);
 
-            const int panelW = 560;
+            int outer = Math.Clamp(w / 28, 24, 56);
+            int panelW = Math.Min(1_020, w - outer * 2);
+            int panelH = Math.Min(500, h - outer * 2);
             int x = (w - panelW) / 2;
-            int y = (int)(h * 0.16f);
+            int y = (h - panelH) / 2;
+            const int headerH = 106;
+            const int footerH = 54;
 
-            Ui.TextCenter("BUY MENU", w / 2, y - 60, 40, Ui.Ink);
-            Ui.TextCenter($"${p.Money}   -   press the number key or click to buy   -   B or ESC to close",
-                w / 2, y - 20, 15, Ui.Dim);
+            // An intentionally restrained command-board treatment: a clear title,
+            // live credits, then eight large click targets rather than tiny rows.
+            Ui.Panel(new Rectangle(x, y, panelW, panelH), U.Rgba(13, 18, 26, 246), U.Rgba(255, 255, 255, 52), 1.5f);
+            Raylib.DrawRectangle(x, y, panelW, 6, Ui.Accent);
+            Raylib.DrawRectangle(x, y + headerH - 1, panelW, 1, U.Rgba(255, 255, 255, 28));
+
+            Ui.Text("LOADOUT", x + 26, y + 25, 12, Ui.Accent);
+            Ui.Text("BUY STATION", x + 25, y + 41, 29, Ui.Ink);
+            Ui.Text("SELECT A WEAPON OR PROTECTION", x + 27, y + 76, 11, Ui.Dim);
+
+            const int moneyW = 184;
+            const int moneyH = 58;
+            int moneyX = x + panelW - moneyW - 26;
+            int moneyY = y + 24;
+            Ui.Panel(new Rectangle(moneyX, moneyY, moneyW, moneyH), U.Rgba(255, 186, 56, 24), U.Rgba(255, 186, 56, 120));
+            Ui.Text("AVAILABLE", moneyX + 14, moneyY + 10, 10, Ui.Dim);
+            Ui.TextRight($"${p.Money:N0}", moneyX + moneyW - 14, moneyY + 25, 22, Ui.Accent);
+
+            const int columns = 2;
+            int contentX = x + 22;
+            int contentY = y + headerH + 16;
+            int contentW = panelW - 44;
+            const int columnGap = 12;
+            const int rowGap = 10;
+            int rows = (_items.Count + columns - 1) / columns;
+            int cardW = (contentW - columnGap) / columns;
+            int usableHeight = panelH - headerH - footerH - 16;
+            int cardH = Math.Max(44, (usableHeight - rowGap * Math.Max(0, rows - 1)) / Math.Max(1, rows));
 
             Begin();
-            const int rowH = 34;
-            const int gap = 4;
-            int rowY = y;
             for (int i = 0; i < _items.Count; i++)
             {
-                (string name, int price, string kind) = _items[i];
-                string value = $"${price}";
-                if (kind == "primary") value = $"PRIMARY   {value}";
-                else if (kind == "secondary") value = $"PISTOL   {value}";
-                else value = $"GEAR   {value}";
-                Add(i.ToString(), $"{i + 1}. {name}", value, x, rowY, panelW, rowH);
-                rowY += rowH + gap;
+                int column = i % columns;
+                int row = i / columns;
+                int cardX = contentX + column * (cardW + columnGap);
+                int cardY = contentY + row * (cardH + rowGap);
+                Add(i.ToString(), _items[i].Name, "", cardX, cardY, cardW, cardH);
             }
 
             Navigate(ref _selected);
-            DrawRows(_selected);
+            DrawBuyCards(p);
 
-            bool clicked = Activated();
             int chosen = -1;
 
-            if (clicked) chosen = _selected;
+            // Unlike list-style menus, this surface must never buy the selected
+            // item when the player clicks decorative chrome, the message area or
+            // the dimmed world. Mouse activation is valid only over a card.
+            if (Raylib.IsKeyPressed(KeyboardKey.Enter) || Raylib.IsKeyPressed(KeyboardKey.KpEnter))
+            {
+                chosen = _selected;
+            }
+            else if (Raylib.IsMouseButtonPressed(MouseButton.Left))
+            {
+                Vector2 pointer = Ui.GetMousePosition();
+                for (int i = 0; i < Rows.Count; i++)
+                {
+                    if (Hit(pointer, Rows[i].Rect))
+                    {
+                        chosen = i;
+                        break;
+                    }
+                }
+            }
             else
             {
                 for (int i = 0; i < _items.Count && i < 9; i++)
@@ -506,31 +651,118 @@ public static class Screens
             if (sim.Time < _messageUntil)
             {
                 Color c = _messageGood ? Ui.Good : Ui.Danger;
-                Ui.TextCenter(_message, w / 2, rowY + 16, 15, c);
+                Ui.TextCenter(_message.ToUpperInvariant(), w / 2, y + panelH - 42, 13, c);
             }
 
-            if (Raylib.IsKeyPressed(KeyboardKey.B)) return false;
-            if (Raylib.IsKeyPressed(KeyboardKey.Escape)) return false;
+            Ui.Text("1-8 QUICK BUY", x + 26, y + panelH - 25, 11, Ui.Faint);
+            Ui.TextRight("CLICK TO BUY     B / ESC CLOSE", x + panelW - 26, y + panelH - 25, 11, Ui.Dim);
+
+            if (_closeLatch.ShouldClose(
+                    Raylib.IsKeyDown(KeyboardKey.B),
+                    Raylib.IsKeyPressed(KeyboardKey.B),
+                    Raylib.IsKeyPressed(KeyboardKey.Escape)))
+            {
+                return false;
+            }
+
             return true;
         }
+
+        private void DrawBuyCards(Player player)
+        {
+            for (int i = 0; i < _items.Count; i++)
+            {
+                Row row = Rows[i];
+                (string name, int price, string kind) = _items[i];
+                bool selected = i == _selected;
+                bool equipped = kind == "gear" && HasFullProtection(player);
+                bool affordable = player.Money >= price;
+                Color fill = equipped
+                    ? (selected ? U.Rgba(118, 206, 124, 42) : U.Rgba(118, 206, 124, 18))
+                    : selected ? U.Rgba(255, 186, 56, 42) : U.Rgba(255, 255, 255, 10);
+                Color border = equipped
+                    ? (selected ? Ui.Good : U.Rgba(118, 206, 124, 82))
+                    : selected ? Ui.Accent : U.Rgba(255, 255, 255, 32);
+                Color nameColor = selected ? Ui.Ink : U.Rgba(236, 236, 234, 206);
+                Color priceColor = equipped ? Ui.Good : affordable ? (selected ? Ui.Accent : Ui.Ink) : Ui.Danger;
+
+                Ui.Panel(row.Rect, fill, border, selected ? 1.5f : 1f);
+
+                int keySize = Math.Min(34, Math.Max(26, (int)row.Rect.Height - 22));
+                int keyX = (int)row.Rect.X + 14;
+                int keyY = (int)row.Rect.Y + ((int)row.Rect.Height - keySize) / 2;
+                Ui.Panel(new Rectangle(keyX, keyY, keySize, keySize),
+                    selected ? U.Rgba(255, 186, 56, 70) : U.Rgba(255, 255, 255, 16),
+                    selected ? U.Rgba(255, 186, 56, 180) : U.Rgba(255, 255, 255, 42));
+                Ui.TextCenter((i + 1).ToString(), keyX + keySize / 2, keyY + 7, 15, selected ? Ui.Accent : Ui.Dim);
+
+                int textX = keyX + keySize + 13;
+                int nameY = (int)row.Rect.Y + 13;
+                Ui.Text(name, textX, nameY, 17, nameColor);
+                Ui.Text(KindLabel(kind), textX, nameY + 22, 10, selected ? Ui.Accent : Ui.Dim);
+                Ui.TextRight($"${price:N0}", (int)(row.Rect.X + row.Rect.Width) - 16, nameY + 5, 17, priceColor);
+                if (equipped)
+                    Ui.TextRight("EQUIPPED", (int)(row.Rect.X + row.Rect.Width) - 16, nameY + 26, 9, Ui.Good);
+                else if (!affordable)
+                    Ui.TextRight("INSUFFICIENT", (int)(row.Rect.X + row.Rect.Width) - 16, nameY + 26, 9, Ui.Danger);
+            }
+        }
+
+        /// <summary>True when the protected loadout cannot provide any further value.</summary>
+        internal static bool HasFullProtection(Player player) =>
+            player.Armor >= Cfg.MaxArmor - 0.01f && player.HasHelmet;
+
+        /// <summary>
+        /// Applies the one meaningful armour transaction in the current free-respawn
+        /// deathmatch rules. Keeping this small branch independent of Raylib input
+        /// makes it impossible for the UI to charge a player for no improvement.
+        /// </summary>
+        internal static ProtectionPurchaseOutcome TryPurchaseProtection(Player player, int price)
+        {
+            ArgumentNullException.ThrowIfNull(player);
+            ArgumentOutOfRangeException.ThrowIfNegative(price);
+
+            if (HasFullProtection(player)) return ProtectionPurchaseOutcome.AlreadyEquipped;
+            if (player.Money < price) return ProtectionPurchaseOutcome.InsufficientFunds;
+
+            player.Armor = Cfg.MaxArmor;
+            player.HasHelmet = true;
+            player.Money -= price;
+            return ProtectionPurchaseOutcome.Purchased;
+        }
+
+        private static string KindLabel(string kind) => kind switch
+        {
+            "gear" => "PROTECTION",
+            "secondary" => "SIDEARM",
+            _ => "PRIMARY WEAPON",
+        };
 
         private void Purchase(Simulation sim, int index)
         {
             Player p = sim.Player;
             (string name, int price, string kind) = _items[index];
 
-            if (p.Money < price)
+            if (kind == "gear")
             {
-                Message($"not enough money for {name}", false, sim.Time);
+                switch (TryPurchaseProtection(p, price))
+                {
+                    case ProtectionPurchaseOutcome.AlreadyEquipped:
+                        Message("protection is already equipped", false, sim.Time);
+                        break;
+                    case ProtectionPurchaseOutcome.InsufficientFunds:
+                        Message($"not enough money for {name}", false, sim.Time);
+                        break;
+                    case ProtectionPurchaseOutcome.Purchased:
+                        Message("kevlar + helmet purchased", true, sim.Time);
+                        break;
+                }
                 return;
             }
 
-            if (kind == "gear")
+            if (p.Money < price)
             {
-                p.Armor = Cfg.MaxArmor;
-                p.HasHelmet = true;
-                p.Money -= price;
-                Message("kevlar + helmet purchased", true, sim.Time);
+                Message($"not enough money for {name}", false, sim.Time);
                 return;
             }
 
@@ -556,7 +788,7 @@ public static class Screens
             p.Money -= price;
             p.SelectWeapon(def.Slot);
             Message($"{name} purchased", true, sim.Time);
-            sim.Emit("buy", sim.Player.Position, 0.6f, 1f);
+            sim.Emit("buy", sim.Player.Position, 0.6f, 1f, SoundEventScope.Local);
         }
 
         private void Message(string text, bool good, float now)
@@ -569,7 +801,14 @@ public static class Screens
 
     // ================================================================ scoreboard
 
-    public static void DrawScoreboard(Simulation sim, int w, int h)
+    public static void DrawScoreboard(Simulation sim, int screenW, int screenH)
+    {
+        using Ui.CanvasScope canvas = Ui.BeginCanvas(screenW, screenH);
+        DrawScoreboardContent(sim, Ui.DesignWidth, Ui.DesignHeight);
+    }
+
+    /// <summary>Draws the logical scoreboard while an owning screen holds the UI canvas.</summary>
+    private static void DrawScoreboardContent(Simulation sim, int w, int h)
     {
         int panelW = Math.Min(760, w - 80);
         int x = (w - panelW) / 2;
@@ -628,10 +867,13 @@ public static class Screens
     {
         private static int _selected;
 
-        public static ScreenAction Draw(Simulation sim, MatchSettings settings, int w, int h)
+        public static ScreenAction Draw(Simulation sim, MatchSettings settings, int screenW, int screenH)
         {
-            Raylib.DrawRectangle(0, 0, w, h, U.Rgba(6, 8, 12, 200));
-            DrawScoreboard(sim, w, h);
+            Raylib.DrawRectangle(0, 0, screenW, screenH, U.Rgba(6, 8, 12, 200));
+            using Ui.CanvasScope canvas = Ui.BeginCanvas(screenW, screenH);
+            const int w = Ui.DesignWidth;
+            const int h = Ui.DesignHeight;
+            DrawScoreboardContent(sim, w, h);
 
             int panelW = 420;
             int x = (w - panelW) / 2;

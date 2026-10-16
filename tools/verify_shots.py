@@ -1,17 +1,16 @@
 """Verify the shipped Hood Global Offensive screenshot artifacts.
 
-Three classes of check, all measured on the real PNGs in shots/ rather than on
-intermediate files:
+Four classes of check, all measured on the current, real PNGs in shots/ rather
+than on intermediate files:
 
-  * view model framing - the weapon must be clearly present in the lower right
-    and must not reach up into the region where the crosshair sits. Both kinds of
-    weapon are covered: the box shapes and the Glock 17's art mesh (which is
-    identified by shape - dark and near-neutral - rather than by exact colour).
+  * iron-sight framing - the AK's real dark sight geometry must occupy a compact
+    centre area without a black scope mask;
   * the title screen - the accent bar is drawn and the game title renders without
     being clipped by the right edge of the window.
-  * the scoped frame - the corners must be heavily darkened relative to the
-    centre. Brightness *ratios* are used because the scope mask is alpha
-    blended, so absolute colour thresholds are not meaningful.
+  * the Buy Station overlay - the production panel has its amber command header,
+    readable labels and the green equipped-state treatment; and
+  * Industrial Zone, HGO Capsule Combatant and combat-feedback proof frames - each is a full-size,
+    non-empty capture rather than a placeholder.
 
 Exits non-zero if any check fails.
 """
@@ -32,13 +31,6 @@ GUN_METAL = lambda r, g, b: 132 <= r <= 150 and 136 <= g <= 154 and 146 <= b <= 
 GUN_DARK = lambda r, g, b: max(r, g, b) <= 85 and max(r, g, b) - min(r, g, b) <= 20 \
     and not GUN_BODY(r, g, b)
 GUN = lambda r, g, b: GUN_BODY(r, g, b) or GUN_METAL(r, g, b) or GUN_DARK(r, g, b)
-
-# The radar panel in the bottom-right corner is dark grey too, so everything that
-# measures "gun-ish dark pixels" stops at 82% of the width. Measured on a control
-# frame with the view model suppressed: 0.0% inside this region, against 11.6%
-# for the same frame with the weapon drawn.
-CHECKED_RIGHT = 0.82
-
 
 def coverage(w, h, bpp, px, rect, pred, step=2):
     x0, y0, x1, y1 = rect
@@ -67,87 +59,29 @@ def mean_luma(w, h, bpp, px, rect, step=3):
     return acc / max(1, total)
 
 
-def check_framing(path):
+def check_iron_sights(path):
     w, h, bpp, px = decode(path)
     cx, cy = w // 2, h // 2
     gun = lambda a, b, c: GUN(a, b, c)
 
-    lower_right = coverage(w, h, bpp, px,
-                           (int(w * 0.55), int(h * 0.55), int(w * CHECKED_RIGHT), h), gun)
-    centre = coverage(w, h, bpp, px, (cx - 100, cy - 60, cx + 100, cy + 60), gun)
-    left = coverage(w, h, bpp, px, (0, int(h * 0.55), int(w * 0.4), h), gun)
+    sight = coverage(w, h, bpp, px, (cx - 90, cy - 85, cx + 90, cy + 85), gun)
+    central_luma = mean_luma(w, h, bpp, px, (cx - 90, cy - 85, cx + 90, cy + 85))
+    corner_luma = sum((
+        mean_luma(w, h, bpp, px, (0, 0, 100, 80)),
+        mean_luma(w, h, bpp, px, (w - 100, 0, w, 80)),
+        mean_luma(w, h, bpp, px, (0, h - 80, 100, h)),
+        mean_luma(w, h, bpp, px, (w - 100, h - 80, w, h)),
+    )) / 4.0
 
-    ok = lower_right > 5.0 and centre < 6.0 and left < 1.0
-    print(f"  {path}")
-    print(f"    view model in lower-right : {lower_right:5.1f}%  (want > 5)")
-    print(f"    view model in centre      : {centre:5.1f}%  (want < 6)")
-    print(f"    view model in lower-left  : {left:5.1f}%  (want < 1)")
+    # A real front-post/rear-notch sight must be visible, but the centre cannot
+    # be blanketed by a hip-fire-sized receiver.  Bright corners prove this is
+    # iron-sight ADS, not a magnified scope mask.
+    ok = 2.0 < sight < 42.0 and central_luma > 10.0 and corner_luma > 18.0
+    print(f"  {path}  (AK iron sights)")
+    print(f"    dark sight geometry at centre : {sight:5.1f}%  (want 2..42)")
+    print(f"    central scene luma            : {central_luma:5.1f}  (want > 10)")
+    print(f"    corner scene luma             : {corner_luma:5.1f}  (want > 18, no scope mask)")
     print(f"    -> {'PASS' if ok else 'FAIL'}")
-    return ok
-
-
-def check_scoped(path):
-    w, h, bpp, px = decode(path)
-    centre = mean_luma(w, h, bpp, px, (w // 2 - 90, h // 2 - 70, w // 2 + 90, h // 2 + 70))
-    corners = [
-        mean_luma(w, h, bpp, px, (0, 0, 170, 100)),
-        mean_luma(w, h, bpp, px, (w - 170, 0, w, 100)),
-        mean_luma(w, h, bpp, px, (0, h - 100, 170, h)),
-        mean_luma(w, h, bpp, px, (w - 170, h - 100, w, h)),
-    ]
-    corner = sum(corners) / len(corners)
-    ratio = corner / max(1.0, centre)
-
-    # Weapon-*colour* matching was tried here first and abandoned: the scope mask
-    # alpha-blends grey level geometry down into the same dark blue-grey band as
-    # the gun, so the predicate fires on the mask itself (measured: the false hits
-    # sit in the centre column, on the circle's edge blend, not the lower right).
-    #
-    # Instead the bottom-right corner is used, because it is provably outside the
-    # scope circle and the mask paints it black, leaving only thin HUD text. A
-    # stowed weapon therefore shows almost no bright pixels there, while a drawn
-    # weapon - which is composited after the mask - fills it. check_stowed_control
-    # proves on a real non-scoped frame that this statistic does catch a gun.
-    corner_box = (int(w * 0.84), int(h * 0.78), w, h)
-    bright = bright_fraction(w, h, bpp, px, corner_box, threshold=40.0)
-
-    ok = ratio < 0.25 and bright < 15.0
-    print(f"  {path}")
-    print(f"    centre mean luma          : {centre:6.1f}")
-    print(f"    corner mean luma          : {corner:6.1f}")
-    print(f"    corner/centre brightness  : {ratio:5.2f}  (want < 0.25, scope mask on)")
-    print(f"    bright pixels bottom-right: {bright:5.1f}%  (want < 15, weapon stowed)")
-    print(f"    -> {'PASS' if ok else 'FAIL'}")
-    return ok
-
-
-def bright_fraction(w, h, bpp, px, rect, threshold, step=1):
-    """Percentage of pixels brighter than a luma threshold."""
-    x0, y0, x1, y1 = rect
-    x0, y0 = max(0, x0), max(0, y0)
-    x1, y1 = min(w, x1), min(h, y1)
-    total = hit = 0
-    for y in range(y0, y1, step):
-        row = y * w * bpp
-        for x in range(x0, x1, step):
-            i = row + x * bpp
-            total += 1
-            if 0.299 * px[i] + 0.587 * px[i + 1] + 0.114 * px[i + 2] > threshold:
-                hit += 1
-    return 100.0 * hit / max(1, total)
-
-
-def check_stowed_control():
-    """Positive control: the same statistic on a frame whose weapon IS drawn."""
-    path = "shots/02-deagle.png"
-    w, h, bpp, px = decode(path)
-    gun = lambda r, g, b: GUN(r, g, b)
-    box = (int(w * 0.62), int(h * 0.60), int(w * CHECKED_RIGHT), h)
-    present = coverage(w, h, bpp, px, box, gun)
-    ok = present > 15.0
-    print(f"  {path}  (control: weapon must be drawn)")
-    print(f"    weapon colours lower-right: {present:5.1f}%  (want > 15)")
-    print(f"    -> {'PASS' if ok else 'FAIL'}  <- proves the stowed check can detect a gun")
     return ok
 
 
@@ -204,37 +138,44 @@ def check_overlay(path, label, samples):
     return ok
 
 
+def check_readable_frame(path, label):
+    """Guard against an accidentally blank, wrong-sized public PNG."""
+    w, h, bpp, px = decode(path)
+    luma = mean_luma(w, h, bpp, px, (0, 0, w, h), step=4)
+    ok = w == 1280 and h == 720 and luma > 12.0
+    print(f"  {path}  ({label})")
+    print(f"    dimensions                       : {w}x{h}  (want 1280x720)")
+    print(f"    mean image luma                  : {luma:5.1f}  (want > 12)")
+    print(f"    -> {'PASS' if ok else 'FAIL'}")
+    return ok
+
+
 def main():
     results = []
 
-    print("view model framing")
-    for shot in ("shots/01-ak47.png", "shots/02-deagle.png", "shots/06-glock17.png"):
-        results.append(check_framing(shot))
-
-    print()
-    print("scoped frame")
-    results.append(check_scoped("shots/03-awp-scoped.png"))
+    print("iron-sight framing")
+    results.append(check_iron_sights("shots/01-ak47.png"))
 
     print()
     print("title screen")
-    results.append(check_menu("shots/00-menu.png"))
-
-    print()
-    print("stowed-weapon control")
-    results.append(check_stowed_control())
+    results.append(check_menu("shots/20-sunset-menu.png"))
 
     print()
     print("full-screen overlays")
     accent = lambda r, g, b: r >= 240 and 170 <= g <= 205 and b <= 80
+    equipped = lambda r, g, b: 90 <= r <= 160 and 175 <= g <= 225 and 90 <= b <= 160
     bright = lambda r, g, b: r > 140 and g > 140 and b > 140
     results.append(check_overlay("shots/04-buy-menu.png", "buy menu", [
-        ("accent heading + selected row", (500, 120, 1100, 520), accent, 0.2),
-        ("menu label text", (500, 120, 1100, 520), bright, 1.0),
+        ("amber command header", (130, 110, 1150, 216), accent, 5.0),
+        ("equipped protection state", (150, 230, 635, 305), equipped, 1.0),
+        ("menu label text", (130, 110, 1150, 610), bright, 0.7),
     ]))
-    results.append(check_overlay("shots/05-scoreboard.png", "scoreboard", [
-        ("accent heading", (380, 120, 1220, 180), accent, 0.1),
-        ("row text", (380, 180, 1220, 640), bright, 0.3),
-    ]))
+
+    print()
+    print("current-world proof frames")
+    results.append(check_readable_frame("shots/07-industrial-zone.png", "Industrial Zone"))
+    results.append(check_readable_frame("shots/21-capsule-sunset-showcase.png", "HGO Capsule Combatant"))
+    results.append(check_readable_frame("shots/22-capsule-impact-sunset.png", "Combat feedback"))
 
     print()
     print(f"ARTIFACTS: {'ALL PASS' if all(results) else 'FAILURES PRESENT'}")

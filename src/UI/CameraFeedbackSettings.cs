@@ -32,6 +32,12 @@ public sealed class CameraFeedbackSettings
         if (next < 0) next += count;
         Level = (CameraFeedbackLevel)next;
     }
+
+    /// <summary>Applies a bounded local presentation preference from disk.</summary>
+    public void Restore(CameraFeedbackLevel level) =>
+        Level = Enum.IsDefined(typeof(CameraFeedbackLevel), level)
+            ? level
+            : CameraFeedbackLevel.Normal;
 }
 
 public enum CameraFeedbackLevel

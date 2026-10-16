@@ -92,6 +92,38 @@ public sealed class Bot : Actor
     private float _repathCooldown;
     private Vector3 _lastPosition;
 
+    // ---------------------------------------------------------------- tactical cover
+    //
+    // HGO's navigation grid is sampled every 80 world units and a standing actor
+    // is 72 units tall (roughly 40 world units per real-world metre).  A 560-unit
+    // search therefore gives a bot a useful 10--15m local cover query without
+    // turning combat into a whole-map A* search.  These are all local planning
+    // values; they do not add procedural props or alter the supplied map.
+    private const float CoverSearchRadius = 560f;
+    private const float CoverMinimumTravel = 56f;
+    private const float CoverArrivalDistance = 50f;
+    private const float CoverPeekDistance = 56f;
+    private const float CoverRescanInterval = 0.80f;
+    private const float CoverLowHealthRetry = 1.50f;
+
+    private bool _hasCoverGoal;
+    private int _coverTargetId = -1;
+    private Vector3 _coverGoal;
+    private Vector3 _coverPeek;
+    private float _coverScore;
+    private float _nextCoverSearch;
+    private float _coverHoldUntil;
+    private float _coverRetryAfter;
+
+    /// <summary>
+    /// Read-only tactical intent for diagnostics and future presentation.  The
+    /// goal always comes from the static navigation graph, never a spawned prop.
+    /// </summary>
+    public bool SeekingCover => _hasCoverGoal;
+    public Vector3 CoverGoal => _coverGoal;
+    public Vector3 CoverPeek => _coverPeek;
+    public float CoverScore => _coverScore;
+
     public Bot(int id, string name, BotSkill skill)
     {
         Id = id;
@@ -113,33 +145,44 @@ public sealed class Bot : Actor
             Velocity = Vector3.Zero;
             State = BotState.Dead;
             _path.Clear();
+            ClearCoverPlan();
             return;
         }
 
         Current.Tick(now, dt);
         RecoverRecoil(now, dt);
 
-        Actor? target = AcquireTarget(sim);
-        if (target is not null)
+        Actor? visibleTarget = AcquireTarget(sim);
+        Actor? target = visibleTarget ?? ResolveCoverTarget(sim);
+        if (visibleTarget is not null)
         {
-            if (_targetId != target.Id)
+            if (_targetId != visibleTarget.Id)
             {
                 _reactionDelay = sim.Rand(Profile.ReactionMin, Profile.ReactionMax);
                 _acquiredAt = now;
                 _burstShotsLeft = 0;
                 _burstResume = 0f;
             }
-            _targetId = target.Id;
+            _targetId = visibleTarget.Id;
             _lastSeenTime = now;
-            _lastKnownTarget = target.EyePosition;
+            _lastKnownTarget = visibleTarget.EyePosition;
+            State = BotState.Engage;
+        }
+        else if (target is not null)
+        {
+            // A bot deliberately stepped behind a static blocker should finish
+            // its reload/brief low-health reset instead of instantly abandoning
+            // cover merely because that blocker also interrupts its sight ray.
             State = BotState.Engage;
         }
         else if (now - _lastSeenTime < 7f)
         {
+            ClearCoverPlan();
             State = BotState.Hunt;
         }
         else
         {
+            ClearCoverPlan();
             State = BotState.Patrol;
             _targetId = -1;
             _burstShotsLeft = 0;
@@ -207,8 +250,6 @@ public sealed class Bot : Actor
 
         AimAt(aimPoint, dt, Profile.TurnRate);
 
-        bool aimed = IsAimedAt(aimPoint, 4.5f);
-        bool reacted = now - _acquiredAt >= _reactionDelay;
         Weapon weapon = Current;
 
         if (weapon.Mag == 0 && !weapon.Reloading && weapon.Reserve > 0
@@ -217,7 +258,25 @@ public sealed class Bot : Actor
             sim.Emit("reload", EyePosition, 0.5f);
         }
 
-        if (aimed && reacted && weapon.CanFire(now))
+        bool lowHealth = Health < Cfg.LowHealthTraumaThreshold;
+        bool needsCover = weapon.Reloading || (lowHealth && now >= _coverRetryAfter);
+        if ((_hasCoverGoal && (needsCover || now < _coverHoldUntil)) || needsCover)
+        {
+            if (UpdateCoverPlan(sim, target, weapon.Reloading, now, dt))
+            {
+                // Cover movement is a defensive phase.  Bots do not blind-fire
+                // through the cover geometry that is deliberately protecting
+                // them; reloads in particular never cancel into a shot.
+                WantsFire = false;
+                return;
+            }
+        }
+
+        bool aimed = IsAimedAt(aimPoint, 4.5f);
+        bool reacted = now - _acquiredAt >= _reactionDelay;
+        bool hasTargetLos = sim.Map.LineOfSight(EyePosition, target.EyePosition);
+
+        if (hasTargetLos && aimed && reacted && weapon.CanFire(now))
         {
             if (_burstShotsLeft <= 0 && now >= _burstResume)
             {
@@ -242,14 +301,13 @@ public sealed class Bot : Actor
         Vector3 right = new(-toTarget.Z, 0f, toTarget.X);
         Vector3 wish = right * _strafeDir * 0.9f;
 
-        bool lowHealth = Health < 35f;
         float preferred = lowHealth ? Profile.PreferredRange * 1.5f : Profile.PreferredRange;
 
         if (distance > preferred + 220f) wish += toTarget;
         else if (distance < preferred - 320f) wish -= toTarget;
         else if (weapon.Def.Class == "Sniper") wish *= 0.15f;   // snipers hold still to shoot
 
-        if (!sim.Map.LineOfSight(EyePosition, target.EyePosition)) wish = toTarget;
+        if (!hasTargetLos) wish = toTarget;
 
         wish = U.FlatNormalized(wish);
         if (wish.LengthSquared() > 1e-4f)
@@ -264,6 +322,264 @@ public sealed class Bot : Actor
         bool jump = MaybeJump(sim, wish, dt);
         CharacterMover.Move(sim.Map, this, wish, Cfg.RunSpeed * weapon.Def.MoveScale, jump, crouch, walk: false, dt);
     }
+
+    // ---------------------------------------------------------------- tactical cover
+
+    /// <summary>
+    /// Keeps the last visible target as a short-lived tactical reference while
+    /// the bot is intentionally behind cover.  This is not omniscience: target
+    /// acquisition and aim/fire still require the ordinary sight ray, and the
+    /// reference is discarded as soon as the cover plan ends or the actor dies.
+    /// </summary>
+    private Actor? ResolveCoverTarget(Simulation sim)
+    {
+        if (!_hasCoverGoal || _coverTargetId < 0) return null;
+
+        foreach (Actor actor in sim.Actors)
+        {
+            if (actor.Id == _coverTargetId && actor.Alive) return actor;
+        }
+
+        ClearCoverPlan();
+        return null;
+    }
+
+    /// <summary>
+    /// Moves to an authored navigation point which is hidden from the target by
+    /// actual map collision.  A completed low-health reset has a short retry
+    /// window so injured bots do not freeze permanently behind one crate.
+    /// </summary>
+    private bool UpdateCoverPlan(Simulation sim, Actor target, bool reloading, float now, float dt)
+    {
+        bool currentCoverBlocksSight = _hasCoverGoal
+            && !sim.Map.LineOfSight(CoverEye(_coverGoal), target.EyePosition);
+
+        if (!_hasCoverGoal || _coverTargetId != target.Id || !currentCoverBlocksSight)
+        {
+            if (now < _nextCoverSearch) return false;
+            if (!TryChooseCover(sim, target, now)) return false;
+        }
+
+        float distance = U.FlatLength(_coverGoal - Position);
+        if (distance > CoverArrivalDistance)
+        {
+            FollowCoverPath(sim, dt);
+            return true;
+        }
+
+        if (reloading)
+        {
+            HoldCover(sim, dt);
+            return true;
+        }
+
+        if (_coverHoldUntil <= now)
+        {
+            // The hold duration is deterministic per bot.  It gives the bot a
+            // visible reset without consuming the simulation's combat RNG.
+            _coverHoldUntil = now + 0.38f + (Id % 3) * 0.08f;
+        }
+
+        if (now < _coverHoldUntil)
+        {
+            HoldCover(sim, dt);
+            return true;
+        }
+
+        // Low health is not healing in HGO.  Leave cover after the brief reset
+        // and retry later, allowing the normal range/strafe behaviour to resume.
+        _coverRetryAfter = now + CoverLowHealthRetry;
+        ClearCoverPlan();
+        return false;
+    }
+
+    /// <summary>
+    /// Scores nearby static navigation nodes as cover.  The core score follows
+    /// the supplied tactical rule: easy travel + a large LOS-block bonus + a
+    /// flank-angle bonus.  A side-step LOS probe rewards cover with a useful
+    /// peek rather than choosing a sealed dead-end whenever the map offers one.
+    /// </summary>
+    private bool TryChooseCover(Simulation sim, Actor target, float now)
+    {
+        _nextCoverSearch = now + CoverRescanInterval;
+
+        int bestNode = -1;
+        Vector3 bestPeek = Vector3.Zero;
+        float bestScore = float.NegativeInfinity;
+        float maxDistanceSq = CoverSearchRadius * CoverSearchRadius;
+        float minDistanceSq = CoverMinimumTravel * CoverMinimumTravel;
+
+        for (int i = 0; i < sim.Nav.Nodes.Length; i++)
+        {
+            Vector3 candidate = sim.Nav.Nodes[i].Position;
+            Vector3 travel = candidate - Position;
+            float travelSq = travel.X * travel.X + travel.Z * travel.Z;
+            if (travelSq < minDistanceSq || travelSq > maxDistanceSq) continue;
+
+            // A valid NavGraph node has room for a standing actor.  Require the
+            // target sight line to be physically blocked by the static map.
+            if (sim.Map.LineOfSight(CoverEye(candidate), target.EyePosition)) continue;
+
+            float targetDistance = U.FlatLength(candidate - target.Position);
+            if (targetDistance < Cfg.HalfWidth * 5f) continue;
+
+            bool hasPeek = TryFindQuickPeek(sim, candidate, target, out Vector3 peek);
+            float travelDistance = MathF.Sqrt(travelSq);
+
+            // DistanceScore(d): favour cover that is reachable promptly, while
+            // still accepting a slightly farther point when it yields a better
+            // flank or a safe peek.
+            float distanceScore = 60f * (1f - travelDistance / CoverSearchRadius);
+            const float blockedLosScore = 60f;
+
+            Vector3 targetForward = U.FlatNormalized(target.AimDirection);
+            Vector3 targetToCandidate = U.FlatNormalized(candidate - target.Position);
+            float facingDot = U.Clamp(Vector3.Dot(targetForward, targetToCandidate), -1f, 1f);
+            float flankAngle = MathF.Acos(facingDot) * U.Rad2Deg;
+            float flankScore = 20f * U.Clamp01((flankAngle - 45f) / 45f);
+
+            float preferredRangeScore = 24f * (1f - U.Clamp01(
+                MathF.Abs(targetDistance - Profile.PreferredRange) / MathF.Max(Profile.PreferredRange, 1f)));
+            float peekScore = hasPeek ? 18f : 0f;
+            float crowdPenalty = CoverCrowdPenalty(sim, candidate);
+            float score = distanceScore + blockedLosScore + flankScore
+                + preferredRangeScore + peekScore - crowdPenalty;
+
+            if (score <= bestScore) continue;
+            bestNode = i;
+            bestPeek = hasPeek ? peek : candidate;
+            bestScore = score;
+        }
+
+        if (bestNode < 0) return false;
+
+        Vector3 goal = sim.Nav.Nodes[bestNode].Position;
+        List<int> route = sim.Nav.FindPath(Position, goal);
+        if (route.Count == 0) return false;
+
+        _path.Clear();
+        _path.AddRange(route);
+        _pathIndex = 0;
+        _pathGoal = goal;
+        _repathTimer = 0.45f;
+        _hasCoverGoal = true;
+        _coverTargetId = target.Id;
+        _coverGoal = goal;
+        _coverPeek = bestPeek;
+        _coverScore = bestScore;
+        _coverHoldUntil = 0f;
+        return true;
+    }
+
+    /// <summary>Tests a small pair of side steps for a clean, standable peek line.</summary>
+    private bool TryFindQuickPeek(Simulation sim, Vector3 cover, Actor target, out Vector3 peek)
+    {
+        Vector3 toTarget = U.FlatNormalized(target.Position - cover);
+        if (toTarget.LengthSquared() < 1e-5f)
+        {
+            peek = cover;
+            return false;
+        }
+
+        Vector3 right = new(-toTarget.Z, 0f, toTarget.X);
+        Vector3 first = cover + right * CoverPeekDistance;
+        if (IsStandablePeek(sim, first, target))
+        {
+            peek = first;
+            return true;
+        }
+
+        Vector3 second = cover - right * CoverPeekDistance;
+        if (IsStandablePeek(sim, second, target))
+        {
+            peek = second;
+            return true;
+        }
+
+        // A shallow forward lean handles short freestanding blockers without
+        // asking the bot to run through the opponent's side of the cover.
+        Vector3 forward = cover + toTarget * (CoverPeekDistance * 0.55f);
+        if (IsStandablePeek(sim, forward, target))
+        {
+            peek = forward;
+            return true;
+        }
+
+        peek = cover;
+        return false;
+    }
+
+    private static bool IsStandablePeek(Simulation sim, Vector3 point, Actor target)
+    {
+        if (sim.Map.BoxBlocked(Aabb.Footprint(point, Cfg.HalfWidth, Cfg.StandHeight))) return false;
+        return sim.Map.LineOfSight(CoverEye(point), target.EyePosition);
+    }
+
+    private float CoverCrowdPenalty(Simulation sim, Vector3 candidate)
+    {
+        float penalty = 0f;
+        foreach (Actor other in sim.Actors)
+        {
+            if (ReferenceEquals(other, this) || !other.Alive) continue;
+            float distance = U.FlatLength(other.Position - candidate);
+            if (distance < 112f) penalty += 38f * (1f - distance / 112f);
+        }
+        return penalty;
+    }
+
+    private void FollowCoverPath(Simulation sim, float dt)
+    {
+        _repathTimer -= dt;
+        _repathCooldown -= dt;
+
+        if (_repathTimer <= 0f || _path.Count == 0)
+        {
+            RecomputePath(sim, _coverGoal);
+            _repathTimer = 0.45f;
+        }
+
+        while (_pathIndex < _path.Count)
+        {
+            Vector3 node = sim.Nav.Nodes[_path[_pathIndex]].Position;
+            if (U.FlatLength(node - Position) < 46f) _pathIndex++;
+            else break;
+        }
+
+        Vector3 steer = _pathIndex < _path.Count ? sim.Nav.Nodes[_path[_pathIndex]].Position : _coverGoal;
+        Vector3 wish = U.FlatNormalized(steer - Position);
+        if (wish.LengthSquared() > 1e-4f)
+        {
+            _hadIntent = true;
+            wish = AvoidWalls(sim, wish);
+            wish += Separation(sim) * 0.50f;
+            wish = U.FlatNormalized(wish);
+        }
+
+        bool jump = MaybeJump(sim, wish, dt);
+        CharacterMover.Move(sim.Map, this, wish, Cfg.RunSpeed * Current.Def.MoveScale,
+            jump, crouchHeld: true, walk: false, dt);
+    }
+
+    private void HoldCover(Simulation sim, float dt)
+    {
+        CharacterMover.Move(sim.Map, this, Vector3.Zero, Cfg.RunSpeed * Current.Def.MoveScale,
+            jump: false, crouchHeld: true, walk: false, dt);
+    }
+
+    private void ClearCoverPlan()
+    {
+        _hasCoverGoal = false;
+        _coverTargetId = -1;
+        _coverGoal = Vector3.Zero;
+        _coverPeek = Vector3.Zero;
+        _coverScore = 0f;
+        _coverHoldUntil = 0f;
+        _path.Clear();
+        _pathIndex = 0;
+        _repathTimer = 0f;
+    }
+
+    private static Vector3 CoverEye(Vector3 feet) => feet + new Vector3(0f, Cfg.EyeStand, 0f);
 
     private void AimAt(Vector3 point, float dt, float turnRate)
     {

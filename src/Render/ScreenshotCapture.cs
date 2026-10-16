@@ -46,6 +46,9 @@ public static class ScreenshotCapture
         bool characterScreen = screen.StartsWith("character", StringComparison.OrdinalIgnoreCase);
         bool crosshairScreen = screen.Equals("crosshair", StringComparison.OrdinalIgnoreCase);
         bool dossierScreen = screen.Equals("dossier", StringComparison.OrdinalIgnoreCase);
+        bool traumaScreen = screen.Equals("trauma", StringComparison.OrdinalIgnoreCase);
+        bool impactScreen = screen.Equals("impact", StringComparison.OrdinalIgnoreCase);
+        bool stagedFeedbackScreen = traumaScreen || impactScreen;
 
         if (!string.IsNullOrWhiteSpace(weaponName) && !weaponName.Equals("default", StringComparison.OrdinalIgnoreCase))
         {
@@ -56,8 +59,8 @@ public static class ScreenshotCapture
         }
 
         const float dt = 1f / 60f;
-        int ticks = menuScreen || characterScreen ? 0 : (int)(warmupSeconds / dt);
-        if (!menuScreen && !characterScreen)
+        int ticks = menuScreen || characterScreen || stagedFeedbackScreen ? 0 : (int)(warmupSeconds / dt);
+        if (!menuScreen && !characterScreen && !stagedFeedbackScreen)
         {
             for (int t = 0; t < ticks; t++)
             {
@@ -67,13 +70,19 @@ public static class ScreenshotCapture
         }
 
         // Keep stepping until the frame is worth capturing: the player is alive and
-        // healthy, an enemy is genuinely in view, and (when asked) the scope has
-        // fully come up. Zoom has to be re-asserted every step because dying resets it.
+        // healthy, an enemy is genuinely in view, and (when asked) ADS or the
+        // scope has fully come up. Iron sights use a held intent while scopes keep
+        // their existing toggle state, so the screenshot follows production input.
         int extra = 0;
         const int maxExtra = 12000;
-        while (extra < maxExtra && !menuScreen && !characterScreen)
+        while (extra < maxExtra && !menuScreen && !characterScreen && !stagedFeedbackScreen)
         {
-            if (zoom) sim.Player.ZoomHeld = true;
+            InputFrame captureInput = ScriptedPlay.Build(ticks + extra, sim, ref rng);
+            if (zoom)
+            {
+                if (sim.Player.Current.Def.HasScope) sim.Player.ZoomHeld = true;
+                else captureInput.ZoomDown = true;
+            }
 
             bool ready = sim.Player.Alive
                 && sim.Player.Health > 25f
@@ -81,11 +90,13 @@ public static class ScreenshotCapture
                 && (!zoom || sim.Player.ZoomBlend > 0.97f);
             if (ready) break;
 
-            sim.Update(ScriptedPlay.Build(ticks + extra, sim, ref rng), dt);
+            sim.Update(captureInput, dt);
             extra++;
         }
 
         if (characterScreen) StageCharacterPreview(sim, screen);
+        if (traumaScreen) StageTraumaPreview(sim, dt);
+        if (impactScreen) StageImpactPreview(sim, dt);
 
         int w = Raylib.GetScreenWidth();
         int h = Raylib.GetScreenHeight();
@@ -103,13 +114,16 @@ public static class ScreenshotCapture
             }
             else
             {
-                Renderer.DrawSky(w, h);
-
+                // Match the production Game path exactly: only the world is
+                // rendered to and colour-graded from the private target. The
+                // viewmodel and HUD remain outside it for trustworthy captures.
                 Camera3D cam = Renderer.BuildCamera(sim, settings.CameraFeedback.Strength);
+                Renderer.BeginWorldPass(cam, w, h);
                 Rlgl.SetClipPlanes(1.0, 9000.0);
                 Raylib.BeginMode3D(cam);
                 Renderer.DrawWorld(sim, cam);
                 Raylib.EndMode3D();
+                Renderer.EndWorldPass(w, h);
 
                 // Character-review frames isolate the bot asset. The normal game
                 // path (including Gun Game's first-person model) is untouched.
@@ -243,4 +257,82 @@ public static class ScreenshotCapture
         "character-crouch" => new Vector3(Cfg.CrouchSpeed, 0f, 0f),
         _ => Vector3.Zero,
     };
+
+    /// <summary>
+    /// Capture-only critical-condition frame. It exercises the actual Player
+    /// update and HUD state rather than painting a screenshot-only overlay.
+    /// </summary>
+    private static void StageTraumaPreview(Simulation sim, float dt)
+    {
+        PrepareFeedbackPreview(sim);
+        Player player = sim.Player;
+        player.Health = 8f;
+        player.Armor = 0f;
+
+        // Let the real low-health state converge and start a real local pulse.
+        for (int i = 0; i < 8; i++) sim.Update(InputFrame.Neutral, dt);
+    }
+
+    /// <summary>
+    /// Capture-only impact frame using the same simulation-owned mist, droplet,
+    /// and splat emitter that resolved actor hits use in normal play.
+    /// </summary>
+    private static void StageImpactPreview(Simulation sim, float dt)
+    {
+        PrepareFeedbackPreview(sim);
+        Player player = sim.Player;
+        player.Pitch = -14f;
+
+        // Put a normal world-model target behind the burst so the preview reads
+        // as an impact on a combatant, not as an abstract red particle test.
+        // It is capture-only; no bot AI or gameplay rules run in this setup.
+        var target = new Bot(88, "impact target", BotSkill.Easy)
+        {
+            Position = new Vector3(0f, 0f, 125f),
+            Velocity = Vector3.Zero,
+            Yaw = 180f,
+            Pitch = 0f,
+            OnGround = true,
+            Alive = true,
+            Health = Cfg.MaxHealth,
+            Armor = 0f,
+            HasHelmet = false,
+        };
+        sim.Actors.Add(target);
+
+        // Match the entry-side hit point a real ray from the local player would
+        // resolve on this target's front collision face.
+        Vector3 impactPoint = target.Position + new Vector3(0f, Cfg.StandHeight * 0.52f, 14f);
+        sim.SpawnActorHitVfx(impactPoint, -Vector3.UnitZ, HitGroup.Chest);
+
+        // Leave the burst live for the capture rather than advancing it until it
+        // has faded or landed. The emitter itself is the production code path.
+        _ = dt;
+    }
+
+    private static void PrepareFeedbackPreview(Simulation sim)
+    {
+        Player player = sim.Player;
+        player.Position = new Vector3(0f, 0f, 230f);
+        player.Velocity = Vector3.Zero;
+        player.Yaw = 0f;
+        player.Pitch = 0f;
+        player.Punch = Vector2.Zero;
+        player.CrouchAmount = 0f;
+        player.OnGround = true;
+        player.Alive = true;
+        player.Health = Cfg.MaxHealth;
+        player.Armor = 0f;
+        player.ResetMovementState();
+        player.ResetPresentationFeedback();
+
+        // Keep screenshot staging isolated: no live bot can alter the player
+        // between the deterministic setup and the captured feedback frame.
+        foreach (Actor actor in sim.Actors)
+        {
+            if (actor.IsPlayer) continue;
+            actor.Alive = false;
+            actor.RespawnAt = float.MaxValue;
+        }
+    }
 }

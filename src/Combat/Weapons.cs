@@ -21,6 +21,15 @@ public enum WeaponFireMode
     Auto,
 }
 
+/// <summary>
+/// An authored damage band for a hitscan weapon.  Distances use HGO's existing
+/// world-unit contract rather than assuming that an imported asset happens to
+/// be one metre wide.  The final band should normally use
+/// <see cref="float.PositiveInfinity"/> so a firearm can remain useful across
+/// a long clear lane without reverting to an accidental exponential curve.
+/// </summary>
+public readonly record struct DamageRangeTier(float MaxDistance, float Damage);
+
 /// <summary>Immutable description of a weapon. Runtime state lives in <see cref="Weapon"/>.</summary>
 public sealed class WeaponDef
 {
@@ -36,6 +45,14 @@ public sealed class WeaponDef
     public float LegMultiplier = 0.75f;
     /// <summary>Fraction of damage lost for each 1,000 world units travelled.</summary>
     public float Falloff;
+    /// <summary>
+    /// Optional authored body-damage bands, ordered nearest to farthest.  When
+    /// present they deliberately replace <see cref="Falloff"/> so weapon
+    /// ranges are readable, tuneable and covered by a deterministic test.
+    /// Older definitions remain on their existing falloff contract until they
+    /// receive an explicit balance profile.
+    /// </summary>
+    public DamageRangeTier[] DamageTiers = Array.Empty<DamageRangeTier>();
     /// <summary>Hard cap for the hit-scan ray, independent of damage falloff.</summary>
     public float Range = 3000f;
 
@@ -60,6 +77,12 @@ public sealed class WeaponDef
     public float SpreadBloomMax = 6f;
     public float SpreadDecay = 4.5f;
     public float SpreadCrouchScale = 0.62f;
+    /// <summary>
+    /// Multiplies only the steady and recoil-bloom portions of spread at full
+    /// ADS. Movement and air penalties remain explicit, so aiming is useful but
+    /// never turns a sprint or jump into laser accuracy.
+    /// </summary>
+    public float AimSpreadMultiplier = 0.55f;
 
     public Vector2[] Pattern = Array.Empty<Vector2>();
     public float RecoilRecoveryRate = 12f;
@@ -67,6 +90,19 @@ public sealed class WeaponDef
     public float VisualKick = 8f;
 
     public int Pellets = 1;
+    /// <summary>
+    /// First-person aim field of view. A positive value enables hold-to-aim on
+    /// secondary fire without drawing a scope mask.
+    /// </summary>
+    public float AdsFov;
+    /// <summary>
+    /// True only when the first-person model has a measured rear/front sight
+    /// picture aligned to the authoritative centre ray. Other hold-to-aim
+    /// weapons retain their reticle rather than pretending that a box model has
+    /// usable iron sights.
+    /// </summary>
+    public bool HasCalibratedIronSightPicture;
+    /// <summary>Magnified optic field of view. A positive value enables the AWP-style scope path.</summary>
     public float ZoomFov;
     public int PenetrationPower;
     public float PenetrationDamageScale = 0.55f;
@@ -75,7 +111,11 @@ public sealed class WeaponDef
     public string FireSound = "shot";
     public int KillAward = Cfg.KillReward;
 
-    public bool HasZoom => ZoomFov > 0f;
+    public bool HasScope => ZoomFov > 0f;
+    public bool HasIronSights => AdsFov > 0f;
+    public bool HasCalibratedIronSights => HasIronSights && HasCalibratedIronSightPicture;
+    public bool HasZoom => HasScope || HasIronSights;
+    public float AimFov => HasScope ? ZoomFov : AdsFov;
 
     public WeaponFireMode DefaultFireMode => FireModes.Length > 0
         ? FireModes[0]
@@ -129,13 +169,18 @@ public sealed class Weapon
         return true;
     }
 
-    public float SpreadFor(float horizontalSpeed, bool onGround, bool crouching)
+    public float SpreadFor(float horizontalSpeed, bool onGround, bool crouching, float aimBlend = 0f,
+        bool sliding = false)
     {
-        float spread = Def.SpreadIdle;
-        spread += Def.SpreadMove * U.Clamp01(horizontalSpeed / Cfg.RunSpeed);
+        float aimScale = Def.HasZoom
+            ? U.Lerp(1f, Def.AimSpreadMultiplier, U.Clamp01(aimBlend))
+            : 1f;
+        float spread = (Def.SpreadIdle + Bloom) * aimScale;
+        float movement = Def.SpreadMove * U.Clamp01(horizontalSpeed / Cfg.RunSpeed);
+        if (sliding) movement += Def.SpreadMove * Cfg.SlideSpreadPenalty;
+        spread += movement;
         if (!onGround) spread += Def.SpreadAir;
-        spread += Bloom;
-        if (crouching && onGround) spread *= Def.SpreadCrouchScale;
+        if (crouching && onGround && !sliding) spread *= Def.SpreadCrouchScale;
         return spread;
     }
 
@@ -219,6 +264,8 @@ public static class WeaponRegistry
         SpreadBloom = 0.32f, SpreadBloomMax = 5f, SpreadDecay = 5.5f,
         Pattern = Pattern4(new Vector2(0f, 1.0f), new Vector2(0f, 1.5f), new Vector2(-0.4f, 1.6f)),
         RecoilRecoveryRate = 16f, RecoilRecoveryDelay = 0.22f, VisualKick = 7f,
+        AdsFov = 67f,
+        AimSpreadMultiplier = 0.55f,
         Tracer = U.Rgb(255, 240, 180), FireSound = "pistol",
     };
 
@@ -231,6 +278,8 @@ public static class WeaponRegistry
         SpreadBloom = 1.9f, SpreadBloomMax = 6f, SpreadDecay = 6.5f,
         Pattern = Pattern4(new Vector2(0f, 4.2f), new Vector2(0.3f, 4.6f)),
         RecoilRecoveryRate = 18f, RecoilRecoveryDelay = 0.25f, VisualKick = 16f,
+        AdsFov = 65f,
+        AimSpreadMultiplier = 0.45f,
         PenetrationPower = 1, PenetrationDamageScale = 0.75f,
         Tracer = U.Rgb(255, 246, 200), FireSound = "deagle",
     };
@@ -239,17 +288,39 @@ public static class WeaponRegistry
     {
         Name = "MP5-SD", Class = "SMG", Slot = WeaponSlot.Primary, Price = 1500,
         Damage = 27f, ArmorPenetration = 0.62f, HeadshotMultiplier = 4f, Falloff = 0.22f, Range = 3400f,
+        // HGO's standing actor is 72 units tall.  These bands are explicit
+        // gameplay distances rather than a rescaled copy of any reference game.
+        DamageTiers = new[]
+        {
+            new DamageRangeTier(432f, 30f),
+            new DamageRangeTier(864f, 25f),
+            new DamageRangeTier(1_152f, 21f),
+            new DamageRangeTier(float.PositiveInfinity, 18f),
+        },
         CycleTime = 0.08f, Automatic = true, Magazine = 30, Reserve = 120, ReloadTime = 2.6f,
         MoveScale = 0.96f, SpreadIdle = 0.4f, SpreadMove = 3.2f, SpreadAir = 11f,
         SpreadBloom = 0.20f, SpreadBloomMax = 5f, SpreadDecay = 5.5f,
         Pattern = Smg(0.45f, 0.8f, 30), RecoilRecoveryRate = 14f, RecoilRecoveryDelay = 0.25f, VisualKick = 6f,
+        AdsFov = 64f,
+        AimSpreadMultiplier = 0.62f,
         Tracer = U.Rgb(255, 236, 160), FireSound = "smg",
     };
 
     public static readonly WeaponDef Ak47 = new()
     {
         Name = "AK-47", Class = "Rifle", Slot = WeaponSlot.Primary, Price = 2700,
-        Damage = 36f, ArmorPenetration = 0.775f, HeadshotMultiplier = 4f, Falloff = 0.15f, Range = 5200f,
+        Damage = 34f, ArmorPenetration = 0.775f, HeadshotMultiplier = 4f, Falloff = 0.15f, Range = 5200f,
+        // Four explicit bands give the rifle a repeatable close/mid/long
+        // identity.  Close body TTK is 200 ms at 600 RPM (three hits); the
+        // first drop moves it to four hits instead of silently decaying every
+        // frame through an exponential formula.
+        DamageTiers = new[]
+        {
+            new DamageRangeTier(540f, 34f),
+            new DamageRangeTier(1_080f, 29f),
+            new DamageRangeTier(1_440f, 25f),
+            new DamageRangeTier(float.PositiveInfinity, 20f),
+        },
         CycleTime = 0.1f, Automatic = true, Magazine = 30, Reserve = 90, ReloadTime = 2.5f,
         FireModes = new[] { WeaponFireMode.Auto, WeaponFireMode.Semi },
         MoveScale = 0.9f, SpreadIdle = 0.28f, SpreadMove = 6.5f, SpreadAir = 16f,
@@ -266,14 +337,24 @@ public static class WeaponRegistry
             new Vector2(-1.85f, 1.15f), new Vector2(-2.20f, 1.15f),
         },
         RecoilRecoveryRate = 11f, RecoilRecoveryDelay = 0.3f, VisualKick = 10f,
+        AdsFov = 61f,
+        AimSpreadMultiplier = 0.44f,
+        HasCalibratedIronSightPicture = true,
         PenetrationPower = 1, PenetrationDamageScale = 0.6f,
-        Tracer = U.Rgb(255, 232, 150), FireSound = "rifle",
+        Tracer = U.Rgb(255, 232, 150), FireSound = "rifle_ak",
     };
 
     public static readonly WeaponDef M4A4 = new()
     {
         Name = "M4A4", Class = "Rifle", Slot = WeaponSlot.Primary, Price = 3100,
-        Damage = 33f, ArmorPenetration = 0.70f, HeadshotMultiplier = 4f, Falloff = 0.16f, Range = 5200f,
+        Damage = 32f, ArmorPenetration = 0.70f, HeadshotMultiplier = 4f, Falloff = 0.16f, Range = 5200f,
+        DamageTiers = new[]
+        {
+            new DamageRangeTier(576f, 32f),
+            new DamageRangeTier(1_152f, 28f),
+            new DamageRangeTier(1_584f, 24f),
+            new DamageRangeTier(float.PositiveInfinity, 20f),
+        },
         CycleTime = 0.09f, Automatic = true, Magazine = 30, Reserve = 90, ReloadTime = 3.1f,
         FireModes = new[] { WeaponFireMode.Auto, WeaponFireMode.Semi },
         MoveScale = 0.9f, SpreadIdle = 0.24f, SpreadMove = 6f, SpreadAir = 15f,
@@ -290,8 +371,10 @@ public static class WeaponRegistry
             new Vector2(0.50f, 0.90f), new Vector2(1.40f, 0.90f),
         },
         RecoilRecoveryRate = 12f, RecoilRecoveryDelay = 0.28f, VisualKick = 9f,
+        AdsFov = 60f,
+        AimSpreadMultiplier = 0.43f,
         PenetrationPower = 1, PenetrationDamageScale = 0.6f,
-        Tracer = U.Rgb(255, 236, 160), FireSound = "rifle",
+        Tracer = U.Rgb(255, 236, 160), FireSound = "rifle_m4",
     };
 
     public static readonly WeaponDef Nova = new()
@@ -303,6 +386,8 @@ public static class WeaponRegistry
         SpreadBloom = 1.2f, SpreadBloomMax = 4f, SpreadDecay = 6f,
         Pattern = Pattern4(new Vector2(0f, 2.6f), new Vector2(0.4f, 3.0f)),
         Pellets = 9, RecoilRecoveryRate = 14f, RecoilRecoveryDelay = 0.3f, VisualKick = 18f,
+        AdsFov = 66f,
+        AimSpreadMultiplier = 0.70f,
         Tracer = U.Rgb(255, 220, 150), FireSound = "shotgun", KillAward = 900,
     };
 
@@ -315,6 +400,7 @@ public static class WeaponRegistry
         SpreadBloom = 3.5f, SpreadBloomMax = 9f, SpreadDecay = 8f,
         Pattern = Pattern4(new Vector2(0f, 7.5f)),
         ZoomFov = 20f, RecoilRecoveryRate = 20f, RecoilRecoveryDelay = 0.4f, VisualKick = 26f,
+        AimSpreadMultiplier = 0.25f,
         PenetrationPower = 2, PenetrationDamageScale = 0.85f,
         Tracer = U.Rgb(255, 250, 220), FireSound = "awp", KillAward = 100,
     };

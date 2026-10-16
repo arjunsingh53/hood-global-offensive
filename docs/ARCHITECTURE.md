@@ -53,6 +53,7 @@ be played with no window at all.
 | `Util.cs` | Vector/math helpers, colour helpers, and `Rng` — a deterministic xorshift generator so that a given seed always produces the same match. Determinism is what lets a failing headless run be reproduced. |
 | `Input.cs` | `InputFrame` (the abstract set of things a player can want to do this tick), `RealInput` (reads raylib), `ScriptedInput` (the robot player). |
 | `Game.cs` | Window creation, the state machine (menu → playing → paused → buy → match over), and the frame loop. Also owns the view-model render target. |
+| `UserSettingsStore.cs` | Versioned, bounded local player-preference persistence. It stores only menu choices and never serializes match state, player state, inventory, money or seeds. |
 
 ### `src/World` — space and movement
 

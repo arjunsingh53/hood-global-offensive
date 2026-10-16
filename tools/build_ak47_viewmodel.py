@@ -22,6 +22,10 @@ Run from the checkout with the bundled Blender:
 
     blender --factory-startup --disable-autoexec --background --python \
       tools/build_ak47_viewmodel.py -- assets/weapons/ak47-viewmodel.glb
+
+To make a standalone geometry review at the same time, append:
+
+    --preview shots/ak47-viewmodel-model-preview.png
 """
 
 from __future__ import annotations
@@ -33,19 +37,24 @@ from pathlib import Path
 import bpy
 
 
-def output_path() -> Path:
-    """Read a single output path after Blender's ``--`` separator."""
+def output_paths() -> tuple[Path, Path | None]:
+    """Read output and optional standalone-preview paths after ``--``."""
     try:
         args = sys.argv[sys.argv.index("--") + 1 :]
     except ValueError as exc:
-        raise SystemExit("expected: -- <output.glb>") from exc
-    if len(args) != 1:
-        raise SystemExit("expected: -- <output.glb>")
+        raise SystemExit("expected: -- <output.glb> [--preview <preview.png>]") from exc
+    if len(args) not in (1, 3) or (len(args) == 3 and args[1] != "--preview"):
+        raise SystemExit("expected: -- <output.glb> [--preview <preview.png>]")
     path = Path(args[0]).resolve()
     if path.suffix.lower() != ".glb":
         raise SystemExit("output must have a .glb extension")
     path.parent.mkdir(parents=True, exist_ok=True)
-    return path
+    preview = Path(args[2]).resolve() if len(args) == 3 else None
+    if preview is not None:
+        if preview.suffix.lower() != ".png":
+            raise SystemExit("preview must have a .png extension")
+        preview.parent.mkdir(parents=True, exist_ok=True)
+    return path, preview
 
 
 def clear_scene() -> None:
@@ -135,17 +144,23 @@ def prism(name: str, xz_profile: list[tuple[float, float]], half_side: float, ma
 
 
 def banana_magazine(name: str, mat: bpy.types.Material, accent: bpy.types.Material) -> bpy.types.Object:
-    """Make a curved stamped-magazine body from linked, tapering rectangular rings."""
-    rings = 11
+    """Make a compact curved magazine from linked, tapering stamped-steel rings.
+
+    This deliberately sits lower than the previous proof-of-concept magazine.
+    The old version was well-shaped in isolation but filled too much of the ADS
+    frame once the asset was scaled to the view-model barrel length.
+    """
+    rings = 9
     vertices: list[tuple[float, float, float]] = []
     for index in range(rings):
         t = index / (rings - 1)
         # It drops from the receiver then sweeps toward the muzzle (-X), the
         # unmistakable, functional AK-type magazine curve rather than a slab.
-        centre_x = 0.14 - 0.40 * (t ** 1.42)
-        centre_z = -0.055 - 0.66 * t
-        half_x = 0.125 - 0.020 * t
-        half_y = 0.105 - 0.012 * t
+        # It is intentionally compact for a clean, usable first-person sightline.
+        centre_x = 0.12 - 0.31 * (t ** 1.38)
+        centre_z = -0.055 - 0.47 * t
+        half_x = 0.098 - 0.015 * t
+        half_y = 0.080 - 0.010 * t
         vertices.extend([
             (centre_x - half_x, -half_y, centre_z),
             (centre_x + half_x, -half_y, centre_z),
@@ -168,11 +183,11 @@ def banana_magazine(name: str, mat: bpy.types.Material, accent: bpy.types.Materi
 
     # Three stamped reinforcement ribs catch a first-person light and make the
     # magazine read as metal even at the low polygon budget.
-    for index, t in enumerate((0.23, 0.48, 0.73), start=1):
-        centre_x = 0.14 - 0.40 * (t ** 1.42)
-        centre_z = -0.055 - 0.66 * t
-        cube(f"Magazine rib {index}", (centre_x, -0.112, centre_z), (0.19, 0.018, 0.038), accent, 0.006)
-        cube(f"Magazine rib mirrored {index}", (centre_x, 0.112, centre_z), (0.19, 0.018, 0.038), accent, 0.006)
+    for index, t in enumerate((0.28, 0.58, 0.82), start=1):
+        centre_x = 0.12 - 0.31 * (t ** 1.38)
+        centre_z = -0.055 - 0.47 * t
+        cube(f"Magazine rib {index}", (centre_x, -0.083, centre_z), (0.15, 0.014, 0.028), accent, 0.004)
+        cube(f"Magazine rib mirrored {index}", (centre_x, 0.083, centre_z), (0.15, 0.014, 0.028), accent, 0.004)
     return obj
 
 
@@ -185,54 +200,93 @@ def build(output: Path) -> None:
     wood_warm = material("Oiled walnut furniture", (0.31, 0.105, 0.025, 1.0), 0.0, 0.39)
     polymer = material("Dark polymer grip", (0.028, 0.033, 0.036, 1.0), 0.0, 0.52)
     brass = material("Brass hardware", (0.35, 0.19, 0.055, 1.0), 0.68, 0.31)
+    sight_black = material("Matte iron sights", (0.018, 0.023, 0.029, 1.0), 0.68, 0.42)
+    sight_edge = material("Sight edge gunmetal", (0.105, 0.135, 0.145, 1.0), 0.82, 0.30)
+    sight_mark = material("Daylight front-sight insert", (0.74, 0.48, 0.12, 1.0), 0.0, 0.46)
 
-    # Receiver and top cover: a faceted cover over a separate, deeper receiver
-    # creates the recognisable stepped profile instead of a single generic block.
-    prism("Stamped receiver", [(-0.28, 0.04), (-0.23, -0.12), (0.42, -0.12), (0.47, 0.02), (0.42, 0.22), (-0.20, 0.22)], 0.105, parkerized, 0.022)
-    prism("Ribbed top cover", [(-0.25, 0.22), (-0.16, 0.33), (0.32, 0.33), (0.44, 0.22)], 0.102, steel_edge, 0.018)
-    cube("Receiver lower rail", (0.06, 0.0, -0.105), (0.66, 0.19, 0.055), parkerized, 0.010)
+    # This is a purpose-built first-person proportioning pass.  Earlier versions
+    # were mechanically detailed, but their full-height stock, deep receiver and
+    # long magazine became a screen-sized rectangle at HGO's fixed 59 degree
+    # viewmodel FOV.  The new silhouette remains an AK-pattern rifle, while its
+    # receiver, furniture and magazine stay slim enough to preserve the target
+    # acquisition cone during ADS.
 
-    # Barrel group, muzzle device and gas system.  The extreme negative X end is
-    # intentionally the muzzle so WeaponModels can place flashes from its measured
-    # front slice without a per-weapon magic coordinate.
-    cylinder("Barrel", (-0.86, 0.0, 0.245), 0.034, 1.08, parkerized, 16, bevel=0.004)
-    cylinder("Front gas tube", (-0.59, 0.0, 0.365), 0.052, 0.70, steel_edge, 14, bevel=0.006)
-    cylinder("Muzzle brake", (-1.43, 0.0, 0.245), 0.064, 0.135, steel_edge, 12, bevel=0.008)
-    cube("Muzzle slot upper", (-1.43, -0.068, 0.27), (0.075, 0.015, 0.025), polymer, 0.002)
-    cube("Muzzle slot lower", (-1.43, 0.068, 0.27), (0.075, 0.015, 0.025), polymer, 0.002)
-    cube("Gas block", (-0.99, 0.0, 0.305), (0.115, 0.17, 0.20), parkerized, 0.016)
-    cube("Front sight tower", (-1.10, 0.0, 0.355), (0.070, 0.115, 0.30), parkerized, 0.012)
-    cylinder("Front sight post", (-1.10, 0.0, 0.515), 0.016, 0.045, brass, 8, bevel=0.002)
-    cube("Rear sight left", (-0.10, -0.068, 0.405), (0.12, 0.035, 0.08), steel_edge, 0.007)
-    cube("Rear sight right", (-0.10, 0.068, 0.405), (0.12, 0.035, 0.08), steel_edge, 0.007)
+    # Receiver: a shallow stamped body below a separate, faceted top cover.  The
+    # stepped parts read as a rifle from the hip but never merge into one slab.
+    prism("Stamped receiver", [(-0.22, 0.02), (-0.18, -0.095), (0.42, -0.095),
+                                (0.47, -0.025), (0.43, 0.145), (-0.16, 0.155)],
+          0.082, parkerized, 0.010)
+    # Keep the cover deliberately shallow.  In the native ADS framing it must sit
+    # below, rather than behind, the raised mechanical sight channel.
+    prism("Faceted top cover", [(-0.19, 0.140), (-0.12, 0.205), (0.34, 0.205),
+                                 (0.44, 0.140)], 0.072, steel_edge, 0.010)
+    cube("Receiver spine", (0.08, 0.0, -0.090), (0.59, 0.13, 0.036), parkerized, 0.006)
 
-    # Handguard and furniture use two distinct wood tones.  Their offsets make a
-    # layered wood-and-metal silhouette visible from the lowered FPS view.
-    prism("Lower wooden handguard", [(-0.82, 0.02), (-0.75, -0.11), (-0.35, -0.11), (-0.27, 0.01), (-0.34, 0.15), (-0.76, 0.15)], 0.145, wood_warm, 0.026)
-    prism("Upper wooden handguard", [(-0.77, 0.23), (-0.69, 0.31), (-0.36, 0.31), (-0.31, 0.225)], 0.115, wood_dark, 0.022)
-    cube("Handguard retaining band", (-0.76, 0.0, 0.10), (0.050, 0.31, 0.25), steel_edge, 0.006)
-    cube("Handguard forward band", (-0.35, 0.0, 0.10), (0.045, 0.30, 0.23), steel_edge, 0.006)
+    # Barrel group.  The source span is calibrated to the existing 59 degree
+    # first-person pass: enough barrel for a readable sight picture, without
+    # shrinking the complete rifle into a token at full ADS.
+    cylinder("Barrel", (-0.78, 0.0, 0.175), 0.026, 1.10, parkerized, 10, bevel=0.002)
+    cylinder("Gas tube", (-0.56, 0.0, 0.275), 0.038, 0.69, steel_edge, 10, bevel=0.003)
+    cylinder("Muzzle device", (-1.40, 0.0, 0.175), 0.047, 0.120, steel_edge, 10, bevel=0.004)
+    cube("Muzzle vent upper", (-1.40, -0.052, 0.194), (0.068, 0.010, 0.020), polymer, 0.001)
+    cube("Muzzle vent lower", (-1.40, 0.052, 0.194), (0.068, 0.010, 0.020), polymer, 0.001)
+    cube("Gas block", (-1.04, 0.0, 0.232), (0.098, 0.125, 0.150), parkerized, 0.006)
 
-    # A full stock, pistol grip, hinged trigger guard and tapered curved magazine.
-    # Keep the rear furniture compact.  A first-person barrel must extend toward
-    # the target, while the butt moves toward the camera; a full real-world stock
-    # at this projection becomes a distracting screen-sized wedge.  This shortened
-    # stock still reads as wood furniture but preserves a clean, usable sightline.
-    prism("Wooden stock", [(0.33, 0.105), (0.45, -0.01), (0.78, -0.01), (0.88, 0.055), (0.88, 0.21), (0.65, 0.25), (0.52, 0.20)], 0.13, wood_warm, 0.026)
-    cube("Butt plate", (0.885, 0.0, 0.105), (0.035, 0.285, 0.225), steel_edge, 0.008)
-    cube("Pistol grip", (0.28, 0.0, -0.285), (0.17, 0.16, 0.42), polymer, 0.020, (0.0, -0.28, 0.0))
-    torus("Trigger guard", (0.13, 0.0, -0.14), 0.115, 0.014, steel_edge, (math.pi / 2.0, 0.0, 0.0))
-    cube("Trigger", (0.09, 0.0, -0.15), (0.025, 0.026, 0.12), parkerized, 0.006, (0.0, -0.38, 0.0))
+    # The sights deliberately clear the receiver by a wide margin in the fixed
+    # 59-degree viewmodel camera.  Narrow twin risers carry the U-notch and the
+    # front hood upward without placing a solid wall on the sight line.  This is
+    # a physical, open rear channel--not a HUD reticle--so the player can see the
+    # front post and target through the centre of the rear notch while ADS.
+    cube("Rear sight base", (-0.055, 0.0, 0.245), (0.145, 0.102, 0.035), parkerized, 0.004)
+    cube("Rear sight left riser", (-0.055, -0.050, 0.352), (0.035, 0.014, 0.210), sight_edge, 0.003)
+    cube("Rear sight right riser", (-0.055, 0.050, 0.352), (0.035, 0.014, 0.210), sight_edge, 0.003)
+    cube("Rear U-notch shelf", (-0.055, 0.0, 0.465), (0.066, 0.100, 0.018), sight_black, 0.002)
+    cube("Rear sight left ear", (-0.055, -0.050, 0.500), (0.062, 0.016, 0.105), sight_edge, 0.003)
+    cube("Rear sight right ear", (-0.055, 0.050, 0.500), (0.062, 0.016, 0.105), sight_edge, 0.003)
+
+    cube("Front sight base", (-1.18, 0.0, 0.220), (0.078, 0.115, 0.090), parkerized, 0.004)
+    cube("Front sight left riser", (-1.18, -0.042, 0.350), (0.026, 0.012, 0.200), sight_edge, 0.002)
+    cube("Front sight right riser", (-1.18, 0.042, 0.350), (0.026, 0.012, 0.200), sight_edge, 0.002)
+    cube("Front sight left ear", (-1.18, -0.042, 0.502), (0.032, 0.014, 0.105), sight_edge, 0.002)
+    cube("Front sight right ear", (-1.18, 0.042, 0.502), (0.032, 0.014, 0.105), sight_edge, 0.002)
+    cube("Front sight post", (-1.18, 0.0, 0.518), (0.018, 0.018, 0.080), sight_black, 0.002)
+    # A deliberately small, non-emissive daylight insert lets players acquire the
+    # front post against HGO's pale Industrial Zone sky without adding a HUD dot.
+    cube("Front sight daylight insert", (-1.195, 0.0, 0.535), (0.008, 0.021, 0.035), sight_mark, 0.001)
+
+    # Layered furniture gives the hip-fire weapon a recognisable low-poly rifle
+    # silhouette.  Each element is kept shallow so ADS exposes the sight line.
+    prism("Lower wood handguard", [(-0.93, 0.005), (-0.86, -0.080), (-0.46, -0.080),
+                                   (-0.38, 0.005), (-0.44, 0.105), (-0.86, 0.105)],
+          0.105, wood_warm, 0.014)
+    prism("Upper wood handguard", [(-0.88, 0.182), (-0.80, 0.244), (-0.47, 0.244),
+                                   (-0.40, 0.182)], 0.080, wood_dark, 0.012)
+    cube("Forward handguard band", (-0.86, 0.0, 0.060), (0.040, 0.225, 0.175), steel_edge, 0.003)
+    cube("Rear handguard band", (-0.42, 0.0, 0.062), (0.040, 0.220, 0.168), steel_edge, 0.003)
+
+    # A compact skeleton stock reads clearly in hip fire but avoids the opaque
+    # board that previously covered the lower middle of the ADS image.
+    cube("Rear trunnion", (0.43, 0.0, 0.105), (0.090, 0.150, 0.125), parkerized, 0.006)
+    cube("Stock upper strut", (0.68, 0.0, 0.150), (0.540, 0.050, 0.050), wood_warm, 0.010, (0.0, -0.085, 0.0))
+    cube("Stock lower strut", (0.67, 0.0, 0.010), (0.500, 0.050, 0.046), wood_dark, 0.008, (0.0, 0.090, 0.0))
+    cube("Skeleton butt", (0.950, 0.0, 0.082), (0.070, 0.150, 0.170), steel_edge, 0.006)
+    cube("Pistol grip", (0.255, 0.0, -0.250), (0.125, 0.125, 0.295), polymer, 0.012, (0.0, -0.25, 0.0))
+    torus("Trigger guard", (0.105, 0.0, -0.118), 0.083, 0.010, steel_edge, (math.pi / 2.0, 0.0, 0.0))
+    cube("Trigger", (0.080, 0.0, -0.125), (0.018, 0.020, 0.086), parkerized, 0.003, (0.0, -0.34, 0.0))
     banana_magazine("Curved steel magazine", parkerized, steel_edge)
 
-    # Selector, charging handle and small rivets give the receiver a purposeful
-    # side profile without tying the presentation to a trademarked real-world make.
-    for side in (-0.122, 0.122):
-        cube("Safety selector" + (" L" if side < 0 else " R"), (0.17, side, 0.125), (0.42, 0.020, 0.040), steel_edge, 0.005, (0.0, -0.10, 0.0))
-        cylinder("Receiver rivet" + (" L1" if side < 0 else " R1"), (-0.06, side, 0.085), 0.018, 0.020, brass, 8, (math.pi / 2.0, 0.0, 0.0), 0.001)
-        cylinder("Receiver rivet" + (" L2" if side < 0 else " R2"), (0.30, side, 0.080), 0.018, 0.020, brass, 8, (math.pi / 2.0, 0.0, 0.0), 0.001)
-    cube("Charging handle arm", (0.03, -0.14, 0.225), (0.16, 0.10, 0.045), parkerized, 0.008)
-    cylinder("Charging handle knob", (0.10, -0.22, 0.225), 0.040, 0.13, steel_edge, 10, (math.pi / 2.0, 0.0, 0.0), 0.005)
+    # Restrained hardware breaks up the receiver in a side-on hip pose without
+    # adding trademarks, text, or dense high-frequency noise.
+    for side in (-0.096, 0.096):
+        cube("Safety selector" + (" L" if side < 0 else " R"), (0.16, side, 0.078),
+             (0.30, 0.014, 0.028), steel_edge, 0.003, (0.0, -0.08, 0.0))
+        cylinder("Receiver rivet" + (" L1" if side < 0 else " R1"), (-0.06, side, 0.055),
+                 0.012, 0.014, brass, 8, (math.pi / 2.0, 0.0, 0.0), 0.001)
+        cylinder("Receiver rivet" + (" L2" if side < 0 else " R2"), (0.27, side, 0.055),
+                 0.012, 0.014, brass, 8, (math.pi / 2.0, 0.0, 0.0), 0.001)
+    cube("Charging handle arm", (0.025, -0.094, 0.158), (0.085, 0.040, 0.024), parkerized, 0.003)
+    cylinder("Charging handle knob", (0.070, -0.126, 0.158), 0.020, 0.062, steel_edge, 8,
+             (math.pi / 2.0, 0.0, 0.0), 0.002)
 
     # Export only meshes.  A named scene custom property survives as glTF extras
     # when export_extras is enabled, preserving the placement contract beside the
@@ -255,14 +309,72 @@ def build(output: Path) -> None:
     )
 
 
+def render_preview(output: Path) -> None:
+    """Render a quick three-quarter review without changing the exported GLB.
+
+    The game capture remains the acceptance check for placement.  This preview is
+    deliberately an asset-only inspection: it makes silhouette, proportions and
+    material separation reviewable before an artist starts the game.
+    """
+    from mathutils import Vector
+
+    scene = bpy.context.scene
+    # Blender 5.2 exposes the real-time renderer as BLENDER_EEVEE in its Python
+    # enum even though the product UI calls this generation EEVEE Next.
+    scene.render.engine = "BLENDER_EEVEE"
+    scene.render.resolution_x = 1280
+    scene.render.resolution_y = 720
+    scene.render.resolution_percentage = 100
+    scene.render.image_settings.file_format = "PNG"
+    scene.render.filepath = str(output)
+    scene.render.film_transparent = False
+    scene.world.color = (0.018, 0.026, 0.040)
+
+    floor_mat = material("Preview floor", (0.055, 0.070, 0.090, 1.0), 0.0, 0.82)
+    bpy.ops.mesh.primitive_plane_add(size=8.0, location=(-0.25, 0.0, -0.55))
+    floor = bpy.context.object
+    floor.name = "Preview floor (not exported)"
+    floor.data.materials.append(floor_mat)
+
+    camera_data = bpy.data.cameras.new("Preview camera")
+    camera_data.lens = 58
+    camera = bpy.data.objects.new("Preview camera", camera_data)
+    scene.collection.objects.link(camera)
+    camera.location = (2.70, -5.20, 1.75)
+    camera.rotation_euler = (Vector((-0.35, 0.0, -0.035)) - camera.location).to_track_quat("-Z", "Y").to_euler()
+    scene.camera = camera
+
+    key_data = bpy.data.lights.new("Preview key", "AREA")
+    key_data.energy = 850
+    key_data.shape = "DISK"
+    key_data.size = 4.0
+    key = bpy.data.objects.new("Preview key", key_data)
+    scene.collection.objects.link(key)
+    key.location = (-1.5, -2.2, 3.2)
+    key.rotation_euler = (Vector((-0.35, 0.0, 0.02)) - key.location).to_track_quat("-Z", "Y").to_euler()
+
+    rim_data = bpy.data.lights.new("Preview rim", "AREA")
+    rim_data.energy = 450
+    rim_data.size = 3.0
+    rim = bpy.data.objects.new("Preview rim", rim_data)
+    scene.collection.objects.link(rim)
+    rim.location = (1.3, 2.0, 2.0)
+    rim.rotation_euler = (Vector((-0.10, 0.0, 0.05)) - rim.location).to_track_quat("-Z", "Y").to_euler()
+
+    bpy.ops.render.render(write_still=True)
+
+
 def main() -> int:
-    out = output_path()
+    out, preview = output_paths()
     build(out)
     meshes = [obj for obj in bpy.context.scene.objects if obj.type == "MESH"]
     triangles = sum(len(obj.data.polygons) for obj in meshes)
     print(f"wrote {out}")
     print(f"original AK-pattern model: {len(meshes)} meshes, {triangles} triangles")
     print("axis contract: +X length, muzzle at -X, glTF +Y up, +Z side")
+    if preview is not None:
+        render_preview(preview)
+        print(f"wrote review preview {preview}")
     return 0
 
 

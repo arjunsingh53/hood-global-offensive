@@ -24,6 +24,22 @@ if (HasFlag("--gameplay-check"))
     return GameplayInputAndReachVerifier.Run();
 }
 
+if (HasFlag("--settings-check"))
+{
+    return UserSettingsVerifier.Run();
+}
+
+if (HasFlag("--audio-check"))
+{
+    return AudioMixVerifier.Run();
+}
+
+if (HasFlag("--combat-feedback-check"))
+{
+    ulong seed = (ulong)IntArg("--seed", 20260114);
+    return CombatFeedbackVerifier.Run(seed);
+}
+
 if (HasFlag("--headless"))
 {
     float seconds = FloatArg("--seconds", 90f);
@@ -86,6 +102,9 @@ int PrintHelp()
           dotnet run -- --movement-check           run deterministic movement and visual-aim contract checks
           dotnet run -- --weapon-check             run deterministic weapon-readiness contract checks
           dotnet run -- --gameplay-check           run input-routing and firearm-reach regression checks
+          dotnet run -- --settings-check           verify isolated player-settings persistence and recovery
+          dotnet run -- --audio-check              verify deterministic audio scope, attenuation and pan routing
+          dotnet run -- --combat-feedback-check    verify low-health and impact-feedback contracts
           dotnet run -- --screenshot <file>        render one gameplay frame to a PNG
 
         Options:
@@ -97,14 +116,14 @@ int PrintHelp()
           --width <n>      screenshot: window width (default 1280)
           --height <n>     screenshot: window height (default 720)
           --weapon <name>  screenshot: equip a weapon, e.g. "AK-47", "AWP", "Desert Eagle"
-          --screen <name>  screenshot: play | scoreboard | buy | menu | character[-idle|-walk|-run|-crouch] | crosshair | dossier
-          --zoom           screenshot: hold the scope before capturing
+          --screen <name>  screenshot: play | scoreboard | buy | menu | character[-idle|-walk|-run|-crouch] | crosshair | dossier | trauma | impact
+          --zoom           screenshot: hold ADS / scope before capturing
           --verbose        headless: also dump the kill feed
 
         Controls:
           WASD move      mouse aim      left click fire      R reload      1/2/3 weapons
           SHIFT cycle sprint/tac/off    ALT walk             CTRL hold-crouch / C toggle crouch
-          SPACE jump     right click zoom (AWP)
+          Z toggle prone  SPACE jump / mantle              right click hold iron sights (AWP toggles scope)
           B buy menu     X inspect weapon    V fire mode     G weapon dossier
           F2 crosshair options                              TAB scoreboard ESC pause
         """);
