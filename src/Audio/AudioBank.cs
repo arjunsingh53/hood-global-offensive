@@ -16,6 +16,35 @@ public sealed class AudioBank : IDisposable
 {
     private const int Voices = 3;
 
+    /// <summary>
+    /// One synthesised firearm family: cue name, local-override paths (most
+    /// specific first), and the parameters of its generated report. Shared by
+    /// the live bank and the <c>--sfx-dump</c> audit so the two can never drift.
+    /// </summary>
+    internal readonly record struct WeaponFamily(
+        string Name, string Preferred, string Shared, string Generic,
+        ulong Seed, float Duration, float BodyFreq, float Noise, float Punch, float Tail);
+
+    internal static readonly WeaponFamily[] WeaponFamilies =
+    {
+        new("rifle_ak", "assets/audio/gun-ak47.wav", "assets/audio/gun-rifle.wav", "assets/audio/gun.wav",
+            11, 0.35f, 108f, 0.98f, 0.66f, 0.56f),
+        new("rifle_m4", "assets/audio/gun-m4a4.wav", "assets/audio/gun-rifle.wav", "assets/audio/gun.wav",
+            12, 0.28f, 154f, 0.82f, 0.48f, 0.40f),
+        new("pistol", "assets/audio/gun-pistol.wav", "assets/audio/gun.wav", string.Empty,
+            22, 0.24f, 176f, 0.8f, 0.45f, 0.35f),
+        new("deagle", "assets/audio/gun-deagle.wav", "assets/audio/gun.wav", string.Empty,
+            33, 0.38f, 104f, 1.0f, 0.75f, 0.6f),
+        new("smg", "assets/audio/gun-smg.wav", "assets/audio/gun.wav", string.Empty,
+            44, 0.20f, 190f, 0.75f, 0.38f, 0.3f),
+        new("shotgun", "assets/audio/gun-shotgun.wav", "assets/audio/gun.wav", string.Empty,
+            55, 0.46f, 78f, 1.0f, 0.85f, 0.75f),
+        new("awp", "assets/audio/gun-sniper.wav", "assets/audio/gun.wav", string.Empty,
+            66, 0.62f, 68f, 1.0f, 1.0f, 0.85f),
+        new("double_barrel", "assets/audio/gun-doublebarrel.wav", "assets/audio/gun-shotgun.wav",
+            "assets/audio/gun.wav", 71, 0.5f, 58f, 0.98f, 1.0f, 0.9f),
+    };
+
     private readonly Dictionary<string, Sound[]> _sounds = new();
     private readonly Dictionary<string, int> _cursor = new();
     private bool _disposed;
@@ -36,27 +65,12 @@ public sealed class AudioBank : IDisposable
 
         Raylib.SetMasterVolume(MasterVolume);
 
-        // Weapons use an original four-layer procedural stack.  Each fallback
+        // Weapons use an original layered procedural stack.  Each fallback
         // has a near, distant, and occluded spectrum so map-aware routing can
         // remove crack/mechanical detail without a fragile run-time DSP path.
         // Licensed local overrides still win unchanged; authors can optionally
         // provide matching "-distant" / "-occluded" files for their own pack.
-        AddWeaponFamily("rifle_ak", "assets/audio/gun-ak47.wav", "assets/audio/gun-rifle.wav", "assets/audio/gun.wav",
-            11, 0.35f, 108f, 0.98f, 0.66f, 0.56f);
-        AddWeaponFamily("rifle_m4", "assets/audio/gun-m4a4.wav", "assets/audio/gun-rifle.wav", "assets/audio/gun.wav",
-            12, 0.28f, 154f, 0.82f, 0.48f, 0.40f);
-        AddWeaponFamily("pistol", "assets/audio/gun-pistol.wav", "assets/audio/gun.wav", string.Empty,
-            22, 0.24f, 176f, 0.8f, 0.45f, 0.35f);
-        AddWeaponFamily("deagle", "assets/audio/gun-deagle.wav", "assets/audio/gun.wav", string.Empty,
-            33, 0.38f, 104f, 1.0f, 0.75f, 0.6f);
-        AddWeaponFamily("smg", "assets/audio/gun-smg.wav", "assets/audio/gun.wav", string.Empty,
-            44, 0.20f, 190f, 0.75f, 0.38f, 0.3f);
-        AddWeaponFamily("shotgun", "assets/audio/gun-shotgun.wav", "assets/audio/gun.wav", string.Empty,
-            55, 0.46f, 78f, 1.0f, 0.85f, 0.75f);
-        AddWeaponFamily("awp", "assets/audio/gun-sniper.wav", "assets/audio/gun.wav", string.Empty,
-            66, 0.62f, 68f, 1.0f, 1.0f, 0.85f);
-        AddWeaponFamily("double_barrel", "assets/audio/gun-doublebarrel.wav", "assets/audio/gun-shotgun.wav",
-            "assets/audio/gun.wav", 71, 0.5f, 58f, 0.98f, 1.0f, 0.9f);
+        foreach (WeaponFamily family in WeaponFamilies) AddWeaponFamily(family);
         Add("knife", WavGen.Swoosh(77));
 
         Add("hit_flesh", WavGen.Hit(88, 0.22f, 190f, 0.6f));
@@ -130,17 +144,17 @@ public sealed class AudioBank : IDisposable
     /// an external pack remains its exact source unless it deliberately ships a
     /// profile derivative beside it.
     /// </summary>
-    private void AddWeaponFamily(string name, string preferredPath, string sharedPath, string genericPath,
-        ulong seed, float duration, float bodyFrequency, float noiseAmount, float punch, float tail)
+    private void AddWeaponFamily(WeaponFamily family)
     {
-        byte[] near = WavGen.Gunshot(seed, duration, bodyFrequency, noiseAmount, punch, tail,
-            WavGen.GunshotPerspective.Near);
-        byte[] distant = WavGen.Gunshot(seed, duration, bodyFrequency, noiseAmount, punch, tail,
-            WavGen.GunshotPerspective.Distant);
-        byte[] occluded = WavGen.Gunshot(seed, duration, bodyFrequency, noiseAmount, punch, tail,
-            WavGen.GunshotPerspective.Occluded);
+        byte[] near = WavGen.Gunshot(family.Seed, family.Duration, family.BodyFreq, family.Noise, family.Punch,
+            family.Tail, WavGen.GunshotPerspective.Near);
+        byte[] distant = WavGen.Gunshot(family.Seed, family.Duration, family.BodyFreq, family.Noise, family.Punch,
+            family.Tail, WavGen.GunshotPerspective.Distant);
+        byte[] occluded = WavGen.Gunshot(family.Seed, family.Duration, family.BodyFreq, family.Noise, family.Punch,
+            family.Tail, WavGen.GunshotPerspective.Occluded);
 
-        string? source = ResolveFirst(preferredPath, sharedPath, genericPath);
+        string name = family.Name;
+        string? source = ResolveFirst(family.Preferred, family.Shared, family.Generic);
         if (source is null)
         {
             Add(name, near);
@@ -152,10 +166,10 @@ public sealed class AudioBank : IDisposable
         try
         {
             AddFromFile(name, source);
-            AddOptionalReference(name + ".distant", ProfilePath(preferredPath, "distant"),
-                ProfilePath(sharedPath, "distant"), ProfilePath(genericPath, "distant"));
-            AddOptionalReference(name + ".occluded", ProfilePath(preferredPath, "occluded"),
-                ProfilePath(sharedPath, "occluded"), ProfilePath(genericPath, "occluded"));
+            AddOptionalReference(name + ".distant", ProfilePath(family.Preferred, "distant"),
+                ProfilePath(family.Shared, "distant"), ProfilePath(family.Generic, "distant"));
+            AddOptionalReference(name + ".occluded", ProfilePath(family.Preferred, "occluded"),
+                ProfilePath(family.Shared, "occluded"), ProfilePath(family.Generic, "occluded"));
         }
         catch (Exception ex)
         {

@@ -127,7 +127,8 @@ world. Because the weapon never shares a depth buffer with the level, a wall can
 
 Every sound is generated to a WAV buffer at startup by `WavGen`, which keeps the repository almost
 entirely text, makes the sounds tunable in code, and removes any licensing question about shipped
-samples. The binary assets are the Industrial GLB (supplied, with attribution), and the generated
+samples. The binary assets are the Industrial GLB (supplied, with attribution), the owner-supplied
+animated viewmodel rig pack (see `assets/weapons/viewmodel-rig-SOURCE.md`), and the generated
 character/weapon meshes with checked-in build scripts.
 
 ### Why `ScriptedPlay` exists

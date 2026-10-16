@@ -1,11 +1,15 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <OutputType>Exe</OutputType>
+    <!-- GUI subsystem: double-clicking the exe opens the game without a console
+         window riding along. CLI modes (headless, screenshot, maps) still print
+         to the launching terminal via inherited handles, with an AttachConsole
+         fallback in Program.cs for launchers that pass none. -->
+    <OutputType>WinExe</OutputType>
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-    <Version>0.2.1</Version>
+    <Version>0.2.2</Version>
     <Product>HOODMATCH</Product>
     <Description>Fast-movement arena FPS with dual grappling hooks and kill-point upgrades.</Description>
     <!-- Raylib-cs hands out vertex data as pointers; WeaponModels reads it to

@@ -20,6 +20,7 @@ __pycache__/
 *.pyc
 .venv/
 tools/out/
+.assets-scratch/
 
 # ---------------------------------------------------------------- editor / OS
 .vs/

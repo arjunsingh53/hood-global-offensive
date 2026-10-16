@@ -1,8 +1,13 @@
+using HoodGlobalOffensive.Audio;
 using HoodGlobalOffensive.Core;
 using HoodGlobalOffensive.Entities;
 using HoodGlobalOffensive.Render;
 using HoodGlobalOffensive.Sim;
 using HoodGlobalOffensive.World;
+
+// The game ships as a GUI-subsystem exe so double-clicking it opens the window
+// with no console riding along. CLI modes still need their output to appear.
+ConsoleBridge.EnsureConsole();
 
 if (HasFlag("--help") || HasFlag("-h")) return PrintHelp();
 
@@ -13,6 +18,11 @@ if (HasFlag("--maps"))
         Console.WriteLine(name);
     }
     return 0;
+}
+
+if (HasFlag("--sfx-dump"))
+{
+    return AudioAudit.Dump(StringArg("--sfx-dump", "sfx-dump"));
 }
 
 if (HasFlag("--headless"))
@@ -41,8 +51,10 @@ if (HasFlag("--screenshot"))
     string screen = StringArg("--screen", "play");
     string map = MapRegistry.Normalize(StringArg("--map", MapRegistry.Default));
     bool zoom = HasFlag("--zoom");
+    bool reticle = HasFlag("--reticle");
+    string anim = StringArg("--anim", "");
 
-    return ScreenshotCapture.Run(path, seconds, bots, skill, seed, width, height, weapon, screen, zoom, map);
+    return ScreenshotCapture.Run(path, seconds, bots, skill, seed, width, height, weapon, screen, zoom, map, reticle, anim);
 }
 
 new Game().Run();
@@ -78,6 +90,7 @@ int PrintHelp()
           dotnet run -- --headless [options]       run a full match with no window and report
           dotnet run -- --screenshot <file>        render one gameplay frame to a PNG
           dotnet run -- --maps                     list the map catalog
+          dotnet run -- --sfx-dump <dir>           write the generated sound cues to WAV files
 
         Options:
           --seconds <n>    headless: simulated seconds (default 90)
@@ -91,6 +104,8 @@ int PrintHelp()
           --weapon <name>  screenshot: equip a weapon by its catalog name
           --screen <name>  screenshot: play | scoreboard | upgrade | menu | crosshair | trauma | impact
           --zoom           screenshot: hold aim / scope before capturing
+          --reticle        screenshot: mark the exact centre-ray pixel for sight calibration
+          --anim <a[:t]>   screenshot: pin a viewmodel action (DRAW|IDLE|INSPEC|RELOAD1|RELOAD2|SHOOT) at clip time t
           --verbose        headless: also dump the kill feed
 
         Controls:
@@ -101,4 +116,46 @@ int PrintHelp()
           V quick knife   F flashlight   TAB scoreboard   F2 crosshair   ESC pause
         """);
     return 0;
+}
+
+/// <summary>
+/// A GUI-subsystem process launched from a terminal inherits valid standard
+/// handles, so its output prints as usual. Some launchers pass none; for those
+/// the bridge attaches to the parent console and rebinds the streams. A
+/// double-clicked game has no parent console, so nothing is printed and no
+/// window appears.
+/// </summary>
+internal static class ConsoleBridge
+{
+    private const int AttachParentProcess = -1;
+    private const int StdOutputHandle = -11;
+
+    public static void EnsureConsole()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        if (GetConsoleWindow() != IntPtr.Zero) return;
+        // Never disturb an already-usable stdout: it may be an inherited
+        // console handle or a caller's pipe that a rebind would break.
+        if (StdHandleValid(StdOutputHandle)) return;
+
+        if (!AttachConsole(AttachParentProcess)) return;
+
+        Console.SetOut(new StreamWriter(Console.OpenStandardOutput()) { AutoFlush = true });
+        Console.SetError(new StreamWriter(Console.OpenStandardError()) { AutoFlush = true });
+    }
+
+    private static bool StdHandleValid(int handleKind)
+    {
+        IntPtr handle = GetStdHandle(handleKind);
+        return handle != IntPtr.Zero && handle != new IntPtr(-1);
+    }
+
+    [System.Runtime.InteropServices.DllImport("kernel32.dll")]
+    private static extern IntPtr GetConsoleWindow();
+
+    [System.Runtime.InteropServices.DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool AttachConsole(int processId);
+
+    [System.Runtime.InteropServices.DllImport("kernel32.dll", SetLastError = true)]
+    private static extern IntPtr GetStdHandle(int handleKind);
 }

@@ -18,11 +18,11 @@ public static class ScreenshotCapture
 {
     public static int Run(string path, float warmupSeconds, int botCount, BotSkill skill, ulong seed,
         int width = 1280, int height = 720, string weapon = "", string screen = "play", bool zoom = false,
-        string mapName = MapRegistry.Default)
+        string mapName = MapRegistry.Default, bool reticle = false, string anim = "")
     {
         try
         {
-            return Capture(path, warmupSeconds, botCount, skill, seed, width, height, weapon, screen, zoom, mapName);
+            return Capture(path, warmupSeconds, botCount, skill, seed, width, height, weapon, screen, zoom, mapName, reticle, anim);
         }
         catch (Exception ex)
         {
@@ -32,7 +32,7 @@ public static class ScreenshotCapture
     }
 
     private static int Capture(string path, float warmupSeconds, int botCount, BotSkill skill, ulong seed,
-        int width, int height, string weaponName, string screen, bool zoom, string mapName)
+        int width, int height, string weaponName, string screen, bool zoom, string mapName, bool reticle, string anim)
     {
         Raylib.SetConfigFlags(ConfigFlags.ResizableWindow | ConfigFlags.VSyncHint | ConfigFlags.Msaa4xHint);
         Raylib.InitWindow(width, height, Cfg.Title);
@@ -51,12 +51,13 @@ public static class ScreenshotCapture
         bool impactScreen = screen.Equals("impact", StringComparison.OrdinalIgnoreCase);
         bool stagedFeedbackScreen = traumaScreen || impactScreen;
 
+        WeaponDef? pinned = null;
         if (!string.IsNullOrWhiteSpace(weaponName) && !weaponName.Equals("default", StringComparison.OrdinalIgnoreCase))
         {
-            WeaponDef def = WeaponRegistry.ByName(weaponName);
-            sim.Player.GiveWeapon(def, SlotFor(def));
-            sim.Player.SelectWeaponNumber(SlotFor(def));
-            Console.WriteLine($"equipped {def.Name}");
+            pinned = WeaponRegistry.ByName(weaponName);
+            sim.Player.GiveWeapon(pinned, SlotFor(pinned));
+            sim.Player.SelectWeaponNumber(SlotFor(pinned));
+            Console.WriteLine($"equipped {pinned.Name}");
         }
 
         const float dt = 1f / 60f;
@@ -65,7 +66,9 @@ public static class ScreenshotCapture
         {
             for (int t = 0; t < ticks; t++)
             {
-                sim.Update(ScriptedPlay.Build(t, sim, ref rng), dt);
+                InputFrame warmupInput = ScriptedPlay.Build(t, sim, ref rng);
+                PinRequestedWeapon(sim, pinned, ref warmupInput);
+                sim.Update(warmupInput, dt);
                 if (sim.MatchOver) break;
             }
         }
@@ -79,6 +82,7 @@ public static class ScreenshotCapture
         while (extra < maxExtra && !menuScreen && !stagedFeedbackScreen)
         {
             InputFrame captureInput = ScriptedPlay.Build(ticks + extra, sim, ref rng);
+            PinRequestedWeapon(sim, pinned, ref captureInput);
             if (zoom)
             {
                 if (sim.Player.Current.Def.HasScope) sim.Player.ZoomHeld = true;
@@ -97,6 +101,39 @@ public static class ScreenshotCapture
 
         if (traumaScreen) StageTraumaPreview(sim, dt);
         if (impactScreen) StageImpactPreview(sim, dt);
+
+        // Capture-only: pin one viewmodel action clip so DRAW / RELOAD / SHOOT
+        // poses can be verified deterministically instead of hoping the live
+        // state machine happens to be mid-clip when the frame is taken.
+        if (!string.IsNullOrWhiteSpace(anim))
+        {
+            string name = anim;
+            float at = 0f;
+            int sep = anim.IndexOf(':');
+            if (sep >= 0)
+            {
+                name = anim[..sep];
+                float.TryParse(anim[(sep + 1)..], System.Globalization.NumberStyles.Float,
+                    System.Globalization.CultureInfo.InvariantCulture, out at);
+            }
+            AnimatedViewmodels.ForceAction(name, at);
+            Console.WriteLine($"forced viewmodel action {name} at {at:0.###}s");
+        }
+
+        // Let the viewmodel springs, sway and movement transients settle so the
+        // captured frame shows the steady-state weapon pose (and a true sight
+        // picture on ADS) instead of a mid-swing transient.
+        for (int t = 0; t < 45 && !menuScreen && !stagedFeedbackScreen; t++)
+        {
+            InputFrame settleInput = InputFrame.Neutral;
+            PinRequestedWeapon(sim, pinned, ref settleInput);
+            if (zoom)
+            {
+                if (sim.Player.Current.Def.HasScope) sim.Player.ZoomHeld = true;
+                else settleInput.ZoomDown = true;
+            }
+            sim.Update(settleInput, dt);
+        }
 
         int w = Raylib.GetScreenWidth();
         int h = Raylib.GetScreenHeight();
@@ -144,6 +181,18 @@ public static class ScreenshotCapture
                 }
             }
 
+            // Calibration aid: marks the exact pixel the hitscan centre ray
+            // resolves to, so a sight picture can be verified against ground
+            // truth instead of an eyeball estimate.
+            if (reticle)
+            {
+                int cx = w / 2, cy = h / 2;
+                Color mark = new(255, 0, 255, 255);
+                Raylib.DrawLine(cx - 16, cy, cx + 16, cy, mark);
+                Raylib.DrawLine(cx, cy - 16, cx, cy + 16, mark);
+                Raylib.DrawCircleLines(cx, cy, 3f, mark);
+            }
+
             Raylib.EndDrawing();
 
             if (frame == 1) Raylib.TakeScreenshot(path);
@@ -181,6 +230,25 @@ public static class ScreenshotCapture
         if (def.Melee) return 4;
         if (WeaponRegistry.SecondaryPool.Contains(def)) return 3;
         return 1;
+    }
+
+    /// <summary>
+    /// The scripted robot cycles slots for coverage and a respawn rebuilds the
+    /// settings loadout, both of which would silently replace an explicitly
+    /// requested capture weapon. Pinning suppresses the cycle and re-issues the
+    /// weapon after a respawn so the frame always shows what was asked for.
+    /// </summary>
+    private static void PinRequestedWeapon(Simulation sim, WeaponDef? pinned, ref InputFrame input)
+    {
+        if (pinned is null) return;
+
+        input.SwitchCycle = 0;
+        input.SwitchSlot = 0;
+        if (sim.Player.Alive && !ReferenceEquals(sim.Player.Current.Def, pinned))
+        {
+            sim.Player.GiveWeapon(pinned, SlotFor(pinned));
+            sim.Player.SelectWeaponNumber(SlotFor(pinned));
+        }
     }
 
     private static bool EnemyInView(Simulation sim)

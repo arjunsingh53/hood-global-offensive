@@ -230,6 +230,7 @@ public static class WeaponRegistry
         SpreadBloom = 0.30f, SpreadBloomMax = 5f, SpreadDecay = 5.5f,
         RecoilKick = 1.3f, RecoilYawKick = 0.35f, RecoilRecoveryRate = 16f, RecoilRecoveryDelay = 0.20f,
         VisualKick = 7f, AdsFov = 67f, AimSpreadMultiplier = 0.5f,
+        HasCalibratedIronSightPicture = true,
         Tracer = U.Rgb(255, 240, 180), FireSound = "pistol",
     };
 
@@ -260,6 +261,7 @@ public static class WeaponRegistry
         SpreadBloom = 0.34f, SpreadBloomMax = 6f, SpreadDecay = 5.5f,
         RecoilKick = 0.7f, RecoilYawKick = 0.28f, RecoilRecoveryRate = 14f, RecoilRecoveryDelay = 0.22f,
         VisualKick = 6f, AdsFov = 64f, AimSpreadMultiplier = 0.6f,
+        HasCalibratedIronSightPicture = true,
         Tracer = U.Rgb(255, 236, 160), FireSound = "smg",
     };
 

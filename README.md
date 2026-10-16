@@ -209,6 +209,7 @@ src/Entities/                Actor, Player, Bot
 src/Sim/                     the authoritative simulation and the headless harness
 src/Render/ src/UI/ src/Audio/   presentation only
 assets/maps/                 the supplied Industrial Zone GLB (CC-BY 4.0, see attribution)
+assets/weapons/              animated viewmodel rig pack (owner-supplied sources, see viewmodel-rig-SOURCE.md)
 shots/                       legacy captures from the pre-0.2.0 build
 ```
 
@@ -218,4 +219,6 @@ MIT licensed — see [LICENSE](LICENSE). HOODMATCH is an unofficial fan project 
 [Redmatch 2](https://store.steampowered.com/app/1280770/Redmatch_2/) by Etherous Games; it is not
 affiliated with or endorsed by them. The Low Poly Industrial Zone map is by novikto (CC-BY 4.0);
 keep its [attribution record](assets/maps/LOW-POLY-INDUSTRIAL-ZONE-ATTRIBUTION.md) with any
-distributed build.
+distributed build. The animated viewmodel weapon assets are project-owner supplied and are not
+covered by this repository's licence; see their
+[source record](assets/weapons/viewmodel-rig-SOURCE.md) before redistributing.

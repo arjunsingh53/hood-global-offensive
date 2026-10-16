@@ -118,6 +118,7 @@ public sealed class Game
                 break;
             case ScreenAction.OpenCrosshairOptions:
                 OpenCrosshairOptions(GameState.MainMenu);
+                StepCrosshairOptions(w, h, acceptInput: false);
                 break;
         }
     }
@@ -146,6 +147,10 @@ public sealed class Game
         {
             _state = GameState.Paused;
             Raylib.EnableCursor();
+            // Present the pause screen immediately. Returning before Begin/EndDrawing
+            // leaves the Escape press that opened the menu still live, so the new
+            // screen used to close itself on its very first drawn frame.
+            StepPaused(w, h, acceptInput: false);
             return;
         }
 
@@ -154,6 +159,9 @@ public sealed class Game
         if (Raylib.IsKeyPressed(KeyboardKey.F2))
         {
             OpenCrosshairOptions(GameState.Playing);
+            // Same input-ownership rule as the upgrade menu: present one frame of
+            // the new screen so this F2 press cannot also close it.
+            StepCrosshairOptions(w, h, acceptInput: false);
             return;
         }
 
@@ -187,7 +195,7 @@ public sealed class Game
         }
     }
 
-    private void StepPaused(int w, int h)
+    private void StepPaused(int w, int h, bool acceptInput = true)
     {
         Simulation sim = _sim!;
 
@@ -196,6 +204,11 @@ public sealed class Game
         ScreenAction action = Screens.Pause.Draw(_settings, sim, w, h);
         Raylib.EndDrawing();
         _userSettings.SaveIfChanged(_settings);
+
+        // A transition frame only presents the menu. Raylib polls input inside
+        // EndDrawing, so the press that opened this screen is still live until
+        // this frame completes; acting on it here would instantly undo the open.
+        if (!acceptInput) return;
 
         if (Raylib.IsKeyPressed(KeyboardKey.F2)) action = ScreenAction.OpenCrosshairOptions;
 
@@ -213,6 +226,7 @@ public sealed class Game
                 break;
             case ScreenAction.OpenCrosshairOptions:
                 OpenCrosshairOptions(GameState.Paused);
+                StepCrosshairOptions(w, h, acceptInput: false);
                 break;
         }
     }
@@ -237,7 +251,7 @@ public sealed class Game
         return stillOpen;
     }
 
-    private void StepCrosshairOptions(int w, int h)
+    private void StepCrosshairOptions(int w, int h, bool acceptInput = true)
     {
         Raylib.BeginDrawing();
         if (_crosshairReturnState == GameState.MainMenu || _sim is null)
@@ -252,6 +266,10 @@ public sealed class Game
         ScreenAction action = Screens.CrosshairOptions.Draw(_settings.Crosshair, w, h);
         Raylib.EndDrawing();
         _userSettings.SaveIfChanged(_settings);
+
+        // Transition frame: present only. The shortcut press that opened this
+        // screen must not also close it before it can be seen.
+        if (!acceptInput) return;
 
         if (action != ScreenAction.CloseCrosshairOptions) return;
 

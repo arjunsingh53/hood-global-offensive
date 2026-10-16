@@ -154,23 +154,7 @@ public static class Renderer
         }
 
         Raylib.ClearBackground(SkyZenith);
-
-        // A banded ramp avoids a new texture dependency while retaining enough
-        // colour precision for screenshots.  The warmer lower third is an
-        // atmosphere cue, not generated map geometry.
-        const int bands = 48;
-        for (int i = 0; i < bands; i++)
-        {
-            float t0 = i / (float)bands;
-            float t1 = (i + 1) / (float)bands;
-            float t = (t0 + t1) * 0.5f;
-            Color colour = SunsetGradient(t);
-            int y = (int)MathF.Floor(t0 * height);
-            int bandHeight = Math.Max(1, (int)MathF.Ceiling(t1 * height) - y);
-            Raylib.DrawRectangle(0, y, width, bandHeight, colour);
-        }
-
-        DrawSunsetGlowAndClouds(width, height);
+        DrawProceduralSky(camera, width, height);
     }
 
     /// <summary>
@@ -232,36 +216,181 @@ public static class Renderer
         return Blend(SkyRose, SkyHorizon, SmoothStep((t - 0.72f) / 0.28f));
     }
 
-    private static void DrawSunsetGlowAndClouds(int width, int height)
+    /// <summary>
+    /// One authored dusk cloud bank. Azimuth and elevation are sky angles in
+    /// degrees, so every element keeps its real place as the player looks and
+    /// turns; nothing is glued to the screen. Size is in 1080p pixels, phase
+    /// seeds the lobe scatter, stretch widens the bank horizontally.
+    /// </summary>
+    private readonly record struct SkyCloud(float AzimuthDeg, float ElevationDeg, float Size,
+        float Opacity, float Phase, float Stretch);
+
+    private static readonly SkyCloud[] SkyClouds =
     {
-        // Sun glow remains deliberately dim and off the centre target cone. A
-        // fixed composition gives deterministic captures and avoids a moving
-        // billboard that could be mistaken for a map prop.
-        Vector2 sun = new(width * 0.78f, height * 0.43f);
-        float glowRadius = MathF.Max(26f, height * 0.22f);
-        Raylib.DrawCircleGradient(sun, glowRadius, U.Rgba(255, 209, 139, 88), U.Rgba(255, 176, 133, 0));
-        Raylib.DrawCircleGradient(sun, glowRadius * 0.31f, U.Rgba(255, 237, 188, 110), U.Rgba(255, 195, 142, 0));
+        new(-162f, 8.5f, 122f, 0.50f, 1.7f, 1.9f),
+        new(-128f, 12.0f, 76f, 0.38f, 4.1f, 1.7f),
+        new(-96f, 6.5f, 146f, 0.58f, 0.4f, 2.0f),
+        new(-60f, 10.0f, 96f, 0.46f, 2.9f, 1.8f),
+        new(-26f, 6.0f, 122f, 0.55f, 5.6f, 2.0f),
+        new(10f, 14.5f, 68f, 0.36f, 1.2f, 1.6f),
+        new(46f, 8.0f, 136f, 0.58f, 3.4f, 2.0f),
+        new(84f, 11.5f, 86f, 0.44f, 0.8f, 1.7f),
+        new(120f, 6.5f, 124f, 0.54f, 4.9f, 1.9f),
+        new(152f, 9.5f, 82f, 0.42f, 2.2f, 1.8f),
+        new(-75f, 23.0f, 205f, 0.15f, 3.8f, 3.2f),
+        new(-8f, 26.0f, 245f, 0.13f, 1.4f, 3.4f),
+        new(70f, 24.0f, 212f, 0.14f, 5.9f, 3.0f),
+    };
 
-        // Low-alpha, layered banks read as a suggestion of high cloud rather
-        // than a row of visible vector ellipses. The fixed positions are kept
-        // outside the central target cone.
-        DrawCloud(width * 0.15f, height * 0.21f, width * 0.20f, height * 0.030f, U.Rgba(230, 197, 218, 8));
-        DrawCloud(width * 0.39f, height * 0.30f, width * 0.18f, height * 0.030f, U.Rgba(255, 201, 202, 10));
-        DrawCloud(width * 0.59f, height * 0.17f, width * 0.22f, height * 0.028f, U.Rgba(214, 199, 233, 7));
-        DrawCloud(width * 0.89f, height * 0.23f, width * 0.17f, height * 0.026f, U.Rgba(224, 201, 232, 8));
+    /// <summary>Anchor azimuth/elevation of the dusk sun, kept low and warm.</summary>
+    private const float SunAzimuthDeg = 34f;
+    private const float SunElevationDeg = 5.2f;
 
-        // Atmospheric haze is kept below the central horizon, so it warms the
-        // furthest lane rather than fogging the entire combat space.
-        Raylib.DrawRectangleGradientV(0, (int)(height * 0.42f), width, (int)(height * 0.25f),
-            U.Rgba(SkyHaze.R, SkyHaze.G, SkyHaze.B, 38), U.Rgba(SkyHaze.R, SkyHaze.G, SkyHaze.B, 0));
+    private static void DrawProceduralSky(in Camera3D camera, int width, int height)
+    {
+        Vector3 dir = Vector3.Normalize(camera.Target - camera.Position);
+        float pitch = MathF.Asin(U.Clamp(dir.Y, -1f, 1f));
+        float yaw = MathF.Atan2(-dir.X, -dir.Z);
+        float halfTanY = MathF.Max(0.05f, MathF.Tan(camera.FovY * U.Deg2Rad * 0.5f));
+        float halfTanX = halfTanY * width / MathF.Max(1f, height);
+
+        // Screen y of the true horizon for this camera pose, and the mapping
+        // used by every sky element: tan(angle) / tan(half fov). The sky moves
+        // with pitch and yaw like real air instead of behaving as wallpaper.
+        float horizon = height * 0.5f + height * 0.5f * MathF.Tan(U.Clamp(pitch, -1.35f, 1.35f)) / halfTanY;
+        float pixel = height / 1080f;
+        float SkyY(float elevationDeg)
+            => horizon - height * 0.5f * MathF.Tan(elevationDeg * U.Deg2Rad) / halfTanY;
+        float SkyX(float deltaAzimuthRad)
+            => width * 0.5f + width * 0.5f * MathF.Tan(deltaAzimuthRad) / halfTanX;
+
+        // Zenith-to-horizon ramp, then the dusk mist that sits below the
+        // horizon line so map edges fade into atmosphere instead of void.
+        float span = height * 1.15f;
+        const int bands = 56;
+        for (int i = 0; i < bands; i++)
+        {
+            float t0 = i / (float)bands;
+            int y = (int)MathF.Floor(horizon - span * (1f - t0));
+            int next = (int)MathF.Floor(horizon - span * (1f - (i + 1) / (float)bands));
+            int bandHeight = Math.Max(1, next - y);
+            if (y + bandHeight < 0 || y > height) continue;
+            Raylib.DrawRectangle(0, y, width, bandHeight, SunsetGradient(t0 + 0.5f / bands));
+        }
+
+        int belowHeight = (int)MathF.Max(1f, height * 0.95f);
+        Raylib.DrawRectangleGradientV(0, (int)horizon, width, belowHeight,
+            U.Rgba(188, 128, 114, 255), U.Rgba(42, 36, 66, 255));
+
+        // Warm glow smeared across the horizon seam in both directions so the
+        // sky and the below-horizon mist never meet on a hard line.
+        int glowAbove = (int)MathF.Max(1f, height * 0.11f);
+        Raylib.DrawRectangleGradientV(0, (int)(horizon - glowAbove), width, glowAbove,
+            U.Rgba(255, 185, 140, 0), U.Rgba(255, 185, 140, 58));
+        int glowBelow = (int)MathF.Max(1f, height * 0.09f);
+        Raylib.DrawRectangleGradientV(0, (int)horizon, width, glowBelow,
+            U.Rgba(255, 185, 140, 52), U.Rgba(255, 185, 140, 0));
+
+        // Warm air-light strongest at the horizon, fading upward.
+        int hazeHeight = (int)(height * 0.24f);
+        Raylib.DrawRectangleGradientV(0, (int)(horizon - hazeHeight), width, hazeHeight,
+            U.Rgba(SkyHaze.R, SkyHaze.G, SkyHaze.B, 0), U.Rgba(SkyHaze.R, SkyHaze.G, SkyHaze.B, 36));
+
+        // Sun glow, anchored to its sky angle.
+        float sunDx = WrapAngle(SunAzimuthDeg * U.Deg2Rad - yaw);
+        if (MathF.Abs(sunDx) < 1.08f)
+        {
+            var sun = new Vector2(SkyX(sunDx), SkyY(SunElevationDeg));
+            float glowRadius = MathF.Max(30f, height * 0.24f);
+            Raylib.DrawCircleGradient(sun, glowRadius, U.Rgba(255, 209, 139, 84), U.Rgba(255, 176, 133, 0));
+            Raylib.DrawCircleGradient(sun, glowRadius * 0.30f, U.Rgba(255, 238, 196, 118), U.Rgba(255, 197, 144, 0));
+        }
+
+        // Clouds: soft layered puffs with lit tops and shaded undersides.
+        // Lobes are deterministic (sine-scattered around the bank) so captures
+        // stay reproducible, and every bank fades as it approaches the haze.
+        foreach (SkyCloud cloud in SkyClouds)
+        {
+            float dx = WrapAngle(cloud.AzimuthDeg * U.Deg2Rad - yaw);
+            if (MathF.Abs(dx) > 1.15f) continue;
+
+            float cx = SkyX(dx);
+            float cy = SkyY(cloud.ElevationDeg);
+            float radius = cloud.Size * pixel;
+            if (cy < -height * 0.6f || cy > height * 1.7f) continue;
+
+            float elevate = SmoothStep(U.Clamp01((cloud.ElevationDeg - 1.5f) / 6.5f));
+            float facing = 0.68f + 0.32f * MathF.Cos(WrapAngle((cloud.AzimuthDeg - SunAzimuthDeg) * U.Deg2Rad));
+            int shadeAlpha = (int)(cloud.Opacity * elevate * facing * 142f);
+            int litAlpha = (int)(cloud.Opacity * elevate * facing * 238f);
+            // Backlit clouds sit against the brightest sunset band; a cool
+            // violet underbelly near the sun reads there where a warm tone
+            // would vanish into the glow, and drifts warmer farther away.
+            Color shadeCool = U.Rgba(116, 96, 148, shadeAlpha);
+            Color shadeWarm = U.Rgba(172, 118, 130, shadeAlpha);
+            Color shade = Blend(shadeCool, shadeWarm, 1f - facing);
+            Color lit = U.Rgba(255, 232, 205, litAlpha);
+
+            // Cumulus silhouette: a row of base puffs on a flat underside with
+            // a dome of caps above. The shade pass is offset downward so the
+            // underbellies read; the lit pass rides the caps so warm tops catch
+            // the dusk light. Deterministic sine scatter, no per-frame rng.
+            int baseCount = 4 + (int)(cloud.Size / 50f);
+            int capCount = Math.Max(2, baseCount - 1);
+            float halfWidth = radius * cloud.Stretch * 1.35f;
+
+            for (int pass = 0; pass < 2; pass++)
+            {
+                for (int row = 0; row < 2; row++)
+                {
+                    int count = row == 0 ? baseCount : capCount;
+                    for (int i = 0; i < count; i++)
+                    {
+                        float u = count <= 1 ? 0.5f : i / (float)(count - 1);
+                        float jitter = 0.5f + 0.5f * MathF.Sin(i * 12.9898f + cloud.Phase * 5.3f + row * 2.7f);
+                        float lx = cx + (u - 0.5f) * halfWidth * (row == 0 ? 1.9f : 1.5f)
+                            + MathF.Sin(i * 4.7f + cloud.Phase) * radius * 0.08f;
+                        float lr = row == 0
+                            ? radius * (0.32f + 0.14f * jitter)
+                            : radius * (0.40f + 0.26f * jitter);
+                        float ly = row == 0
+                            ? cy + lr * 0.16f
+                            : cy - lr * (0.30f + 0.42f * jitter);
+
+                        if (pass == 0)
+                        {
+                            DrawSkyBlob(lx, ly + lr * 0.18f, lr, cloud.Stretch, shade);
+                        }
+                        else
+                        {
+                            if (row == 0 && jitter < 0.45f) continue;
+                            DrawSkyBlob(lx - radius * 0.06f, ly - lr * 0.16f, lr * 0.88f, cloud.Stretch, lit);
+                        }
+                    }
+                }
+            }
+        }
     }
 
-    private static void DrawCloud(float centerX, float centerY, float width, float height, Color colour)
+    private static void DrawSkyBlob(float x, float y, float radius, float stretch, Color core)
     {
-        Color soft = U.Rgba(colour.R, colour.G, colour.B, Math.Max(1, colour.A / 2));
-        Raylib.DrawEllipse((int)centerX, (int)centerY, width * 0.50f, height * 0.78f, soft);
-        Raylib.DrawEllipse((int)(centerX - width * 0.23f), (int)(centerY + height * 0.10f), width * 0.34f, height * 0.55f, colour);
-        Raylib.DrawEllipse((int)(centerX + width * 0.24f), (int)(centerY + height * 0.12f), width * 0.36f, height * 0.58f, colour);
+        Rlgl.PushMatrix();
+        Rlgl.Translatef(x, y, 0f);
+        Rlgl.Scalef(stretch, 1f, 1f);
+        // A soft halo plus a denser core reads as a puff with form instead of
+        // a flat elliptical smudge.
+        Raylib.DrawCircleGradient(Vector2.Zero, radius,
+            U.Rgba(core.R, core.G, core.B, core.A / 2), U.Rgba(core.R, core.G, core.B, 0));
+        Raylib.DrawCircleGradient(Vector2.Zero, radius * 0.62f, core, U.Rgba(core.R, core.G, core.B, 0));
+        Rlgl.PopMatrix();
+    }
+
+    private static float WrapAngle(float radians)
+    {
+        radians %= MathF.Tau;
+        if (radians > MathF.PI) radians -= MathF.Tau;
+        if (radians < -MathF.PI) radians += MathF.Tau;
+        return radians;
     }
 
     private static float SmoothStep(float value)
@@ -740,6 +869,14 @@ public static class Renderer
             deployDip = t * t * (3f - 2f * t);
         }
 
+        // Animated rigs carry their own reload/deploy motion in the clip, so the
+        // generic flourish is scaled down instead of stacking on top of it.
+        if (AnimatedViewmodels.Has(def))
+        {
+            reloadDip *= AnimatedViewmodels.FlourishScale;
+            deployDip *= AnimatedViewmodels.FlourishScale;
+        }
+
         float kick = p.ViewKick;
         float bobX = MathF.Sin(p.BobPhase) * Cfg.ViewModelBobSide * p.BobAmount;
         float bobY = MathF.Cos(p.BobPhase * 2f) * Cfg.ViewModelBobVertical * p.BobAmount;
@@ -794,7 +931,7 @@ public static class Renderer
         Raylib.BeginMode3D(viewModelCamera);
 
         PushViewModelTransform(sim, offset, pose, kick, reloadDip, ironSight, springRotation);
-        Vector3? muzzle = DrawWeaponShape(def, p, kick, reloadDip);
+        Vector3? muzzle = DrawWeaponShape(sim, def, p, kick, reloadDip);
         // The knife already uses the simulation's melee slot; it must not inherit
         // the firearm-only flash just because it shares the general weapon pipeline.
         if (p.MuzzleFlash > 0f && def.Class != "Melee") DrawMuzzleFlash(sim, pose, muzzle);
@@ -1069,6 +1206,7 @@ public static class Renderer
 
         IndustrialZoneModel.Shutdown();
         WeaponModels.Shutdown();
+        AnimatedViewmodels.Shutdown();
         CharacterModels.Shutdown();
     }
 
@@ -1116,18 +1254,15 @@ public static class Renderer
     /// measured mesh placement: its rear/front sights are deliberately on the
     /// original GLB rather than a 2D reticle overlay.
     /// </summary>
-    private static Vector3 IronSightOffsetFor(WeaponDef def) => def.Name switch
+    private static Vector3 IronSightOffsetFor(WeaponDef def) => def.Class switch
     {
-        // The centred sight plane is calibrated from the reduced ADS model length
-        // used below.  It keeps the rear notch and vertical front post on the
-        // actual centre ray while pushing the receiver out of the aiming picture.
-        // Calibrated against the original rebuilt AK mesh at the fixed 59-degree
-        // viewmodel FOV. Its physical rear U-notch and front post meet on the
-        // centre ray without lifting the receiver into the protected aim area.
-        "Rifle" => new Vector3(-9.15f, 7.85f, -8.0f),
+        // The animated rig pack carries its own hip-to-sights move in the
+        // AnimatedViewmodels spec (AdsTarget), so rig weapons take no extra
+        // shift here; the class entries below serve the box weapons.
+        _ when AnimatedViewmodels.Has(def) => Vector3.Zero,
+        _ when def.Class == "Rifle" => new Vector3(-9.15f, 4.5f, -8.0f),
         _ when def.Class == "Pistol" => new Vector3(-11.0f, 12.0f, 2.5f),
         _ when def.Class == "SMG" => new Vector3(-11.0f, 12.0f, 3.5f),
-        _ when def.Class == "Rifle" => new Vector3(-11.0f, 14.5f, 3.0f),
         _ when def.Class == "Shotgun" => new Vector3(-11.0f, 13.0f, 3.0f),
         _ => Vector3.Zero,
     };
@@ -1146,15 +1281,6 @@ public static class Renderer
     /// </summary>
     private static readonly Dictionary<string, WeaponArtwork> Artwork = new(StringComparer.OrdinalIgnoreCase)
     {
-        // The reload dip and tilt are tuned for the box weapons, which are far
-        // chunkier than a real pistol: at their full angle this mesh swings almost
-        // entirely below the frame. The flourish is halved to keep it in frame.
-        ["Pistol"] = new("assets/weapons/glock17.glb", 25f, new Vector3(-1f, -9.5f, -10.5f), 0.45f, 0f),
-        // Original low-poly AK-pattern model.  It carries its own stock, wood
-        // furniture, curved magazine, gas tube and sight silhouette; this is a
-        // presentation-only replacement for the old generic Rifle boxes.  Its
-        // deliberately restrained reload swing keeps the full stock in frame.
-        ["Rifle"] = new("assets/weapons/ak47-viewmodel.glb", 47f, new Vector3(-2.8f, 7.0f, -24.0f), 0.42f, 11f),
         // Side-on presentation keeps the label, top loop, linked chain and split ring
         // readable; the compact cap remains the negative-X striking end of the mesh.
         ["Knife"] = new("assets/weapons/inhaler-keychain.glb", 15f, new Vector3(0.0f, 7.0f, -18.0f), 0.20f, 90f),
@@ -1162,13 +1288,17 @@ public static class Renderer
 
     /// <summary>
     /// Draws the weapon into the current view-model space. Returns the muzzle point
-    /// when the weapon is an art mesh, so the flash can be hung on the real barrel
-    /// rather than on the per-class bore estimate; box weapons return null.
+    /// when the weapon is a mesh, so the flash can be hung on the real barrel rather
+    /// than on the per-class bore estimate; box weapons return null.
     /// </summary>
-    private static Vector3? DrawWeaponShape(WeaponDef def, Player p, float kick, float reloadDip)
+    private static Vector3? DrawWeaponShape(Simulation sim, WeaponDef def, Player p, float kick, float reloadDip)
     {
+        // The animated rig pack owns Rifle/SMG/Sniper/Pistol; when its GLB is
+        // missing the weapon drops through to the static artwork or boxes.
+        if (AnimatedViewmodels.TryDraw(sim, def, out Vector3 rigMuzzle)) return rigMuzzle;
+
         if (Artwork.TryGetValue(def.Name, out WeaponArtwork art)
-            && WeaponModels.TryDraw(art.Path, ArtworkLengthFor(def, art, p), art.Centre,
+            && WeaponModels.TryDraw(art.Path, art.Length, art.Centre,
                 def.HasCalibratedIronSights ? U.Lerp(art.YawDegrees, 0f, p.ZoomBlend) : art.YawDegrees,
                 out Vector3 muzzle))
         {
@@ -1202,8 +1332,16 @@ public static class Renderer
 
             case "SMG":
                 Raylib.DrawCubeV(new Vector3(-1f, -1f, -34f), new Vector3(3f, 3f, 12f), metal);            // suppressor
-                Raylib.DrawCubeV(new Vector3(-1f, 1f, -14f), new Vector3(7f, 9f, 34f), body);             // receiver
+                // Front sight post rising off the muzzle: its tip meets the
+                // centre ray at full ADS with the class offset in IronSightOffsetFor.
+                Raylib.DrawCubeV(new Vector3(-1f, 2.6f, -30.5f), new Vector3(0.9f, 5.5f, 1.1f), body);
+                Raylib.DrawCubeV(new Vector3(-1f, -1f, -14f), new Vector3(7f, 9f, 34f), body);             // receiver
                 Raylib.DrawCubeV(new Vector3(-1f, 1.5f, -4f), new Vector3(8f, 6f, 14f), bodyLight);        // upper
+                // Rear sight: two blocks with a centre notch, top edge level with
+                // the front post tip.
+                Raylib.DrawCubeV(new Vector3(-3.2f, 4.9f, 0.5f), new Vector3(2.2f, 2.9f, 2.6f), body);
+                Raylib.DrawCubeV(new Vector3(1f, 4.9f, 0.5f), new Vector3(2.2f, 2.9f, 2.6f), body);
+                Raylib.DrawCubeV(new Vector3(-1f, 3.4f, 0.5f), new Vector3(6.6f, 1f, 2.6f), bodyLight);    // notch base
                 Raylib.DrawCubeV(new Vector3(-1f, -3f, -9f), new Vector3(5f, 14f, 7f), body);             // magazine
                 Raylib.DrawCubeV(new Vector3(-1f, -6f, -2f), new Vector3(8f, 11f, 9f), bodyLight);        // stock
                 Raylib.DrawCubeV(new Vector3(-6f, -9f, -12f), new Vector3(9f, 10f, 9f), skin);
@@ -1249,16 +1387,6 @@ public static class Renderer
         _ = kick;
         return null;
     }
-
-    /// <summary>
-    /// Keeps the hip-fire rifle presentation intact, but brings a compact, usable
-    /// sight picture up on ADS instead of magnifying the receiver into the centre
-    /// of the screen. This stays entirely inside the visual mesh path.
-    /// </summary>
-    private static float ArtworkLengthFor(WeaponDef def, in WeaponArtwork art, Player p) =>
-        def.Name == "Rifle" && def.HasCalibratedIronSights
-            ? U.Lerp(art.Length, art.Length * 0.60f, p.ZoomBlend)
-            : art.Length;
 
     private static void DrawMuzzleFlash(Simulation sim, in ViewModelPose pose, Vector3? muzzle)
     {

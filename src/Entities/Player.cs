@@ -145,7 +145,14 @@ public sealed class Player : Actor
                 if (weapon.CanFire(now)) ApplyShotVisuals(sim, weapon, kickScale: 1.8f);
             }
         }
-        else if (weapon.Def.HasScope && !weaponChanged && input.ZoomPressed) ZoomHeld = !ZoomHeld;
+        else if (weapon.Def.HasScope)
+        {
+            // A toggle, not a hold: only the press edge changes the state. The
+            // scope must stay up on frames without a press, otherwise the shared
+            // "nothing to aim" fallthrough below would drop it after one frame.
+            if (weaponChanged) ZoomHeld = false;
+            else if (input.ZoomPressed) ZoomHeld = !ZoomHeld;
+        }
         else if (weapon.Def.HasIronSights) ZoomHeld = weaponChanged ? false : input.ZoomDown;
         else ZoomHeld = false;
         ZoomBlend = U.Approach(ZoomBlend, ZoomHeld ? 1f : 0f, 15f, dt);

@@ -8,6 +8,51 @@ the minor number may contain breaking changes.
 
 ---
 
+## [0.2.2] — 2026-10-16
+
+Weapon-presentation and audio pass: the four primary weapons now use supplied animated rigs, the
+firearm cues are rebuilt from shaped noise instead of saturated tones, and the procedural sky is
+anchored to the camera.
+
+### Added
+
+- **Rig viewmodels** (`src/Render/AnimatedViewmodels.cs`): the rifle, sniper, SMG and pistol now
+  render four supplied animated rigs (`assets/weapons/viewmodel-{rifle,sniper,smg,pistol}.glb`,
+  mixamo-style skeletons with gun bones) instead of the legacy static meshes. Hip placement and
+  ADS alignment were calibrated per weapon from captured frames; every clip — draw, idle, inspect,
+  both reloads and shoot — plays from the rig itself, with the SMG and pistol reloads animated.
+  `assets/weapons/viewmodel-rig-README.md` documents the conversion pipeline and
+  `viewmodel-rig-SOURCE.md` records the origin and SHA-256 of every source drop; the legacy
+  `ak47-viewmodel-README.md` remains the fallback reference.
+- **`--anim <action[:t]>`** screenshot flag: pins a viewmodel action (DRAW | IDLE | INSPEC |
+  RELOAD1 | RELOAD2 | SHOOT) at a clip time so any pose can be captured deterministically.
+- **`--sfx-dump <dir>`**: writes every generated sound cue to WAV files for auditioning without
+  launching the game; the firearm table is shared with the live bank so the two cannot drift.
+
+### Changed
+
+- **Firearm audio rebuilt** (`src/Audio/WavGen.cs`): the synthesised reports no longer saturate
+  pure sine tones. Each layer is filter-shaped noise through an RBJ biquad chain — a muzzle snap
+  around 2 kHz over a midrange bark, a resonant low body with a filtered sub, a pressure tail whose
+  low-pass sweeps darker over the decay, a struck-metal mechanical clack, and a delayed first
+  reflection. Distant and occluded profiles reduce the snap and drop the mechanical layer on
+  purpose.
+- **Hitmarker, headshot, impact, flesh hit and reload cues rebuilt** on the same basis: clean
+  two- and three-partial confirmations with no saturation buzz (a 1245/1868 Hz pair and a
+  1440/2160/3240 Hz stagger), a thud-chip-ring wall impact, a low thud plus wet tick for flesh,
+  and four resonant metallic reload clicks.
+- **Procedural sky rebuilt** (`src/Render/Renderer.cs`): the backdrop is camera-anchored — the
+  horizon, sun and clouds all track pitch and yaw with correct parallax — and the clouds are
+  layered cumulus banks with shaded undersides, lit tops and a backlit tint near the sun, rather
+  than screen-glued blobs.
+
+### Fixed
+
+- **Heartbeat cue was never audible**: its envelope early-out ran at sample zero, so the whole
+  buffer was silent; the early-out now tests the decay term only.
+
+---
+
 ## [0.2.1] — 2026-10-16
 
 Reference-parity pass against Redmatch 2's published base stats and patch notes.
