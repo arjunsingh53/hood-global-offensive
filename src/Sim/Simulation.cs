@@ -12,6 +12,28 @@ public enum MatchMode
     Deathmatch,
 }
 
+/// <summary>One of the four cabinet stats.</summary>
+public enum UpgradeStat
+{
+    Health = 0,
+    Damage = 1,
+    Speed = 2,
+    Jump = 3,
+}
+
+/// <summary>A kill-point upgrade cabinet placed on the map.</summary>
+public sealed class UpgradeStation
+{
+    public readonly int Id;
+    public readonly Vector3 Position;
+
+    public UpgradeStation(int id, Vector3 position)
+    {
+        Id = id;
+        Position = position;
+    }
+}
+
 /// <summary>
 /// Owns every actor and resolves the whole frame. Rendering and audio only read
 /// from here, which is what lets the headless harness run the game without a window.
@@ -29,6 +51,12 @@ public sealed class Simulation
     public bool MatchOver;
     public string MatchResult = "";
     public int KillsToWin = Cfg.KillsToWin;
+
+    /// <summary>Slot-by-slot gun names the player respawns with (1-3).</summary>
+    public readonly string[] Loadout;
+
+    /// <summary>Cabinet positions, always derived from the static nav graph.</summary>
+    public readonly List<UpgradeStation> Stations = new();
 
     public readonly Rng SeedSource;
     private Rng _rng;
@@ -68,7 +96,8 @@ public sealed class Simulation
     /// <summary>How many times an actor has been brought back in after dying.</summary>
     public int RespawnCount;
 
-    public Simulation(int botCount, BotSkill skill, ulong seed, int killsToWin = Cfg.KillsToWin)
+    public Simulation(int botCount, BotSkill skill, ulong seed, int killsToWin = Cfg.KillsToWin,
+        string[]? loadout = null, string mapName = MapRegistry.Default)
     {
         _rng = new Rng(seed);
         _vfxRng = new Rng(seed ^ 0xB10D_D00D_91A7_5EEDUL);
@@ -76,8 +105,17 @@ public sealed class Simulation
         KillsToWin = killsToWin;
         Mode = MatchMode.Deathmatch;
 
-        Map = new GameMap();
+        Map = new GameMap(mapName);
         Nav = NavGraph.Build(Map);
+        BuildStations();
+
+        Loadout = new string[3];
+        for (int i = 0; i < 3; i++)
+        {
+            Loadout[i] = loadout is not null && i < loadout.Length && !string.IsNullOrWhiteSpace(loadout[i])
+                ? loadout[i]
+                : WeaponRegistry.DefaultLoadout[i];
+        }
 
         Player = new Player(0, "You");
         Player.Team = 0;
@@ -104,6 +142,48 @@ public sealed class Simulation
         foreach (Actor actor in Actors)
         {
             Respawn(actor, first: true);
+        }
+    }
+
+    /// <summary>
+    /// Places the upgrade cabinets on nodes of the static navigation graph so
+    /// they are always standable and reachable, spread across the map.
+    /// </summary>
+    private void BuildStations()
+    {
+        Stations.Clear();
+        NavGraph.Node[] nodes = Nav.Nodes;
+        if (nodes.Length == 0) return;
+
+        int wanted = Math.Min(3, Math.Max(1, nodes.Length / 8));
+        const float minSeparation = 900f;
+
+        for (int k = 0; k < wanted; k++)
+        {
+            int start = (int)((k + 0.5f) / wanted * nodes.Length);
+            for (int step = 0; step < nodes.Length; step++)
+            {
+                int idx = (start + step * 7) % nodes.Length;
+                Vector3 candidate = nodes[idx].Position;
+                if (Map.FindFloor(candidate + Vector3.UnitY * 10f, 10f, 160f, out float floorY))
+                {
+                    candidate = new Vector3(candidate.X, floorY, candidate.Z);
+                }
+
+                bool clash = false;
+                foreach (UpgradeStation s in Stations)
+                {
+                    if (U.FlatLength(s.Position - candidate) < minSeparation)
+                    {
+                        clash = true;
+                        break;
+                    }
+                }
+                if (clash) continue;
+
+                Stations.Add(new UpgradeStation(Stations.Count, candidate));
+                break;
+            }
         }
     }
 
@@ -143,6 +223,7 @@ public sealed class Simulation
         {
             Player.Update(input, this, dt);
             if (Player.WantsFire && Player.Alive) FireWeapon(Player);
+            if (Player.WantsSecondaryFire && Player.Alive) FireWeaponSecondary(Player);
         }
         else
         {
@@ -166,6 +247,7 @@ public sealed class Simulation
             }
         }
 
+        TickHealthRegen(dt);
         ActorSeparation();
         HandleRespawns();
         EmitFootsteps(dt);
@@ -173,6 +255,21 @@ public sealed class Simulation
 
         DamageFlash = U.Approach(DamageFlash, 0f, 3.2f, dt);
         ScopePulse = MathF.Max(0f, ScopePulse - dt);
+    }
+
+    /// <summary>
+    /// Out-of-combat health regeneration from the reference: a short delay
+    /// after the last hit, then a fast heal back to (upgraded) maximum.
+    /// </summary>
+    private void TickHealthRegen(float dt)
+    {
+        foreach (Actor actor in Actors)
+        {
+            if (!actor.Alive) continue;
+            if (Time - actor.LastDamageTime < Cfg.RegenDelay) continue;
+            if (actor.Health >= actor.MaxHealth) continue;
+            actor.Health = MathF.Min(actor.MaxHealth, actor.Health + Cfg.RegenRate * dt);
+        }
     }
 
     private void ActorSeparation()
@@ -197,8 +294,16 @@ public sealed class Simulation
                 float dist = MathF.Sqrt(distSq);
                 float push = (minDist - dist) * 0.5f;
                 float nx = dx / dist, nz = dz / dist;
-                a.Position = new Vector3(a.Position.X - nx * push, a.Position.Y, a.Position.Z - nz * push);
-                b.Position = new Vector3(b.Position.X + nx * push, b.Position.Y, b.Position.Z + nz * push);
+                Vector3 pressedA = new(a.Position.X - nx * push, a.Position.Y, a.Position.Z - nz * push);
+                Vector3 pressedB = new(b.Position.X + nx * push, b.Position.Y, b.Position.Z + nz * push);
+
+                // The soft push never re-checks the level, so refuse any shove
+                // that would press an actor into a wall; the next tick's mover
+                // resolves the rest once the pair separates naturally.
+                if (!Map.BoxBlocked(Aabb.Footprint(pressedA, Cfg.HalfWidth, a.HeadHeight)))
+                    a.Position = pressedA;
+                if (!Map.BoxBlocked(Aabb.Footprint(pressedB, Cfg.HalfWidth, b.HeadHeight)))
+                    b.Position = pressedB;
             }
         }
     }
@@ -214,17 +319,14 @@ public sealed class Simulation
         WeaponDef def = weapon.Def;
 
         float aimBlend = shooter is Player playerShooter ? playerShooter.ZoomBlend : 0f;
-        bool sliding = shooter is Player slidingPlayer && slidingPlayer.IsSliding;
-        float spread = weapon.SpreadFor(shooter.HorizontalSpeed, shooter.OnGround, shooter.Crouching,
-            aimBlend, sliding);
+        float spread = weapon.SpreadFor(shooter.HorizontalSpeed, shooter.OnGround, shooter.Crouching, aimBlend);
         if (shooter is Bot bot) spread += bot.Profile.AimError * 0.30f;
-        if (shooter.IsPlayer) spread = MathF.Max(spread, 0f);
 
         Vector3 origin = shooter.EyePosition;
         Vector3 baseDir = shooter.AimDirection;
 
         // Recoil is applied after the shot so the first bullet flies true.
-        Vector2 recoil = weapon.NextRecoil();
+        Vector2 recoil = weapon.NextRecoil(ref _rng);
         shooter.LastShotTime = now;
         weapon.RegisterShot(now);
         shooter.OnShotFired(now);
@@ -284,6 +386,151 @@ public sealed class Simulation
             U.Clamp(shooter.Punch.Y + recoil.Y, -36f, 36f));
 
         Emit(def.FireSound, origin, shooter.IsPlayer ? 0.85f : 0.7f, Rand(0.95f, 1.05f));
+    }
+
+    /// <summary>
+    /// The Double Barrel's right-click panic blast: a wide multi-pellet burst
+    /// that trades accuracy for huge close-range damage and launches the
+    /// shooter opposite their aim - the reference's built-in movement tool.
+    /// </summary>
+    public void FireWeaponSecondary(Actor shooter)
+    {
+        Weapon weapon = shooter.Current;
+        WeaponDef def = weapon.Def;
+        float now = Time;
+        if (!def.HasSecondary || !weapon.CanFire(now)) return;
+
+        float aimBlend = shooter is Player playerShooter ? playerShooter.ZoomBlend : 0f;
+        float spread = weapon.SpreadFor(shooter.HorizontalSpeed, shooter.OnGround, shooter.Crouching, aimBlend)
+            + def.SecondarySpreadBonus;
+
+        Vector3 origin = shooter.EyePosition;
+        Vector3 baseDir = shooter.AimDirection;
+
+        Vector2 recoil = weapon.NextRecoil(ref _rng);
+        shooter.LastShotTime = now;
+        weapon.RegisterShot(now);
+        shooter.OnShotFired(now);
+
+        ShotsFired.TryGetValue(shooter.Id, out int fired);
+        ShotsFired[shooter.Id] = fired + 1;
+
+        Vector3 muzzle = GetPhysicalMuzzleOrigin(shooter);
+        int pellets = Math.Max(1, def.SecondaryPellets);
+        float perPellet = def.SecondaryDamage / pellets;
+        var knockedVictims = new HashSet<int>();
+
+        for (int pellet = 0; pellet < pellets; pellet++)
+        {
+            Vector3 dir = Hitscan.ApplySpread(baseDir, spread, ref _rng);
+            ShotResult result = Hitscan.Trace(Map, Actors, shooter, origin, dir, def, ref _rng);
+
+            if (result.HitActor && result.Victim is not null)
+            {
+                Actor victim = result.Victim;
+
+                // The blast inherits the gun's authored falloff bands: divide
+                // the tier value by the point-blank damage to get the scale.
+                float distance = (result.Point - origin).Length();
+                float scale = def.Damage > 0.0001f
+                    ? Hitscan.BaseDamageAtRange(def, distance) / def.Damage
+                    : 1f;
+                float damage = perPellet * scale;
+
+                bool killed = victim.ApplyDamage(damage, result.Group, result.Point, shooter, now);
+
+                ShotsHit.TryGetValue(shooter.Id, out int hits);
+                ShotsHit[shooter.Id] = hits + 1;
+                if (result.Group == HitGroup.Head)
+                {
+                    Headshots.TryGetValue(shooter.Id, out int hs);
+                    Headshots[shooter.Id] = hs + 1;
+                }
+
+                SpawnActorHitVfx(result.Point, dir, result.Group);
+
+                // Victims get launched once per blast, not once per pellet.
+                if (def.SecondaryVictimKnockback > 0f && knockedVictims.Add(victim.Id))
+                {
+                    Vector3 push = U.FlatNormalized(dir);
+                    victim.Velocity += push * def.SecondaryVictimKnockback;
+                }
+
+                if (shooter.IsPlayer)
+                {
+                    HitmarkerUntil = now + 0.12f;
+                    LastHitWasHeadshot = result.Group == HitGroup.Head;
+                    LastHitWasKill = killed;
+                }
+
+                if (killed) OnKilled(victim, shooter, def, result.Group == HitGroup.Head);
+            }
+            else if (result.HitWorld)
+            {
+                SpawnWorldImpact(result, def, now);
+            }
+
+            Tracers.Add(new Tracer
+            {
+                From = muzzle,
+                To = result.Point,
+                Life = 0.075f,
+                MaxLife = 0.075f,
+                Color = def.Tracer,
+                Width = shooter.IsPlayer ? 1.6f : 1.2f,
+            });
+        }
+
+        // The blast shoves the shooter opposite the aim, plus a lift, so
+        // firing while looking down turns the gun into a jump.
+        shooter.Velocity += -baseDir * def.SecondarySelfKnockback + Vector3.UnitY * def.SecondarySelfUp;
+
+        shooter.Punch = new Vector2(
+            U.Clamp(shooter.Punch.X + recoil.X, -36f, 36f),
+            U.Clamp(shooter.Punch.Y + recoil.Y * 1.7f, -40f, 40f));
+
+        Emit(def.FireSound, origin, shooter.IsPlayer ? 0.95f : 0.8f, Rand(0.82f, 0.92f));
+    }
+
+    /// <summary>
+    /// The V-key quick knife swing: a short melee ray independent of the held
+    /// weapon. Returns true when the swing happens so the player can animate.
+    /// </summary>
+    public bool PerformQuickMelee(Player player)
+    {
+        WeaponDef def = WeaponRegistry.Knife;
+        float now = Time;
+        Vector3 origin = player.EyePosition;
+        Vector3 dir = player.AimDirection;
+
+        Emit("knife", origin, 0.5f, Rand(0.95f, 1.05f), SoundEventScope.Local);
+
+        ShotResult result = Hitscan.Trace(Map, Actors, player, origin, dir, def, ref _rng);
+        if (result.HitActor && result.Victim is not null)
+        {
+            ShotsFired.TryGetValue(player.Id, out int fired);
+            ShotsFired[player.Id] = fired + 1;
+            ShotsHit.TryGetValue(player.Id, out int hits);
+            ShotsHit[player.Id] = hits + 1;
+
+            bool killed = result.Victim.ApplyDamage(result.Damage, result.Group, result.Point, player, now);
+            SpawnActorHitVfx(result.Point, dir, result.Group);
+
+            HitmarkerUntil = now + 0.12f;
+            LastHitWasHeadshot = false;
+            LastHitWasKill = killed;
+
+            Emit(result.Group == HitGroup.Head ? "hit_head" : "hit_flesh",
+                result.Point, 0.9f, Rand(0.95f, 1.06f));
+
+            if (killed) OnKilled(result.Victim, player, def, false);
+        }
+        else if (result.HitWorld)
+        {
+            SpawnWorldImpact(result, def, now);
+        }
+
+        return true;
     }
 
     /// <summary>
@@ -353,7 +600,7 @@ public sealed class Simulation
         ShotsHit[shooter.Id] = hits + 1;
 
         float damage = result.Damage;
-        bool killed = victim.ApplyDamage(damage, result.Group, result.Point, shooter);
+        bool killed = victim.ApplyDamage(damage, result.Group, result.Point, shooter, now);
 
         if (result.Group == HitGroup.Head)
         {
@@ -362,6 +609,13 @@ public sealed class Simulation
         }
 
         if (emitImpactVfx) SpawnActorHitVfx(result.Point, shotDirection, result.Group);
+
+        // Weapons with authored knockback shove the victim along the shot line.
+        if (def.KnockbackOnHit > 0f && victim.Alive)
+        {
+            Vector3 push = U.FlatNormalized(shotDirection);
+            victim.Velocity += push * def.KnockbackOnHit;
+        }
 
         if (shooter.IsPlayer)
         {
@@ -523,6 +777,110 @@ public sealed class Simulation
         list.Add(value);
     }
 
+    // ---------------------------------------------------------------- upgrades
+
+    /// <summary>The nearest cabinet inside interact range, or null.</summary>
+    public UpgradeStation? NearbyStation(Actor actor)
+    {
+        UpgradeStation? best = null;
+        float bestDistance = Cfg.StationInteractRadius;
+        foreach (UpgradeStation station in Stations)
+        {
+            float distance = U.FlatLength(station.Position - actor.Position);
+            if (distance <= bestDistance)
+            {
+                bestDistance = distance;
+                best = station;
+            }
+        }
+        return best;
+    }
+
+    public static string StatName(UpgradeStat stat) => stat switch
+    {
+        UpgradeStat.Health => "HEALTH",
+        UpgradeStat.Damage => "DAMAGE",
+        UpgradeStat.Speed => "SPEED",
+        _ => "JUMP",
+    };
+
+    public static int UpgradeLevel(Actor actor, UpgradeStat stat) => stat switch
+    {
+        UpgradeStat.Health => actor.UpgradeHealth,
+        UpgradeStat.Damage => actor.UpgradeDamage,
+        UpgradeStat.Speed => actor.UpgradeSpeed,
+        _ => actor.UpgradeJump,
+    };
+
+    /// <summary>True when the actor can pay for the next level of this stat.</summary>
+    public static bool CanBuyUpgrade(Actor actor, UpgradeStat stat)
+        => actor.KillPoints >= Cfg.UpgradePointCost && UpgradeLevel(actor, stat) < Cfg.UpgradeMaxLevel;
+
+    /// <summary>
+    /// Spends kill points on one cabinet level. Points persist through death;
+    /// levels do not fully: dying costs the highest stat one level.
+    /// </summary>
+    public bool TryBuyUpgrade(Actor actor, UpgradeStat stat)
+    {
+        if (!CanBuyUpgrade(actor, stat))
+        {
+            if (actor.IsPlayer)
+                Emit("upgrade_deny", actor.EyePosition, 0.6f, 1f, SoundEventScope.Local);
+            return false;
+        }
+
+        actor.KillPoints -= Cfg.UpgradePointCost;
+        switch (stat)
+        {
+            case UpgradeStat.Health:
+                actor.UpgradeHealth++;
+                actor.Health = MathF.Min(actor.MaxHealth, actor.Health + Cfg.UpgradeHealthPerLevel);
+                break;
+            case UpgradeStat.Damage:
+                actor.UpgradeDamage++;
+                break;
+            case UpgradeStat.Speed:
+                actor.UpgradeSpeed++;
+                break;
+            default:
+                actor.UpgradeJump++;
+                break;
+        }
+
+        Emit("upgrade", actor.EyePosition, 0.8f, 1f, SoundEventScope.Local);
+        return true;
+    }
+
+    /// <summary>
+    /// Dying costs one level of the highest upgraded stat, if any. The reference
+    /// ruleset always charges this penalty; the Cfg flag records the rule.
+    /// </summary>
+    private static void ApplyDeathUpgradePenalty(Actor victim)
+    {
+        UpgradeStat best = UpgradeStat.Health;
+        int bestLevel = 0;
+        foreach (UpgradeStat stat in new[]
+                 { UpgradeStat.Health, UpgradeStat.Damage, UpgradeStat.Speed, UpgradeStat.Jump })
+        {
+            int level = UpgradeLevel(victim, stat);
+            if (level > bestLevel)
+            {
+                bestLevel = level;
+                best = stat;
+            }
+        }
+
+        if (bestLevel <= 0) return;
+
+        switch (best)
+        {
+            case UpgradeStat.Health: victim.UpgradeHealth--; break;
+            case UpgradeStat.Damage: victim.UpgradeDamage--; break;
+            case UpgradeStat.Speed: victim.UpgradeSpeed--; break;
+            default: victim.UpgradeJump--; break;
+        }
+    }
+
     // ---------------------------------------------------------------- death & scoring
 
     private void OnKilled(Actor victim, Actor killer, WeaponDef def, bool headshot)
@@ -530,9 +888,7 @@ public sealed class Simulation
         killer.Kills++;
         victim.Deaths++;
         if (headshot && killer.IsPlayer) PlayerHeadshots++;
-
-        int reward = def.KillAward + (headshot ? Cfg.HeadshotBonus : 0);
-        killer.Money = Math.Min(Cfg.MaxMoney, killer.Money + reward);
+        killer.KillPoints += Cfg.KillPointsPerKill;
 
         KillFeed.Add(new KillFeedEntry
         {
@@ -554,6 +910,7 @@ public sealed class Simulation
         if (victim.IsPlayer)
         {
             KilledFlashUntil = Time + 0.9f;
+            ApplyDeathUpgradePenalty(victim);
         }
         else if (killer.IsPlayer)
         {
@@ -596,60 +953,57 @@ public sealed class Simulation
         actor.Velocity = Vector3.Zero;
         actor.OnGround = false;
         actor.CrouchAmount = 0f;
-        actor.Health = Cfg.MaxHealth;
-        actor.Armor = Cfg.MaxArmor;
-        actor.HasHelmet = true;
+        actor.Health = actor.MaxHealth;
         actor.Alive = true;
         actor.RespawnAt = 0f;
+        actor.LastDamageTime = -100f;
         actor.LastShotTime = -10f;
 
         if (actor is Player player)
         {
+            player.FlashlightOn = false;
             player.ResetMovementState();
             player.ResetPresentationFeedback();
+
+            // Fresh guns every life: full magazines, no inherited reload state.
+            player.Weapons.Clear();
+            player.GiveWeapon(WeaponRegistry.Knife, 4);
+            for (int i = 0; i < Loadout.Length && i < 3; i++)
+            {
+                player.GiveWeapon(WeaponRegistry.ByName(Loadout[i]), i + 1);
+            }
+            player.SelectWeaponNumber(1);
         }
-
-        if (actor.Money < Cfg.RespawnTopUp) actor.Money = Cfg.RespawnTopUp;
-
-        if (actor is Bot bot)
+        else if (actor is Bot bot)
         {
             bot.Weapons.Clear();
-            bot.GiveWeapon(WeaponRegistry.Knife);
-            WeaponDef secondary = WeaponRegistry.SecondaryPool[_rng.RangeInt(0, WeaponRegistry.SecondaryPool.Length)];
-            bot.GiveWeapon(secondary);
+            bot.GiveWeapon(WeaponRegistry.Knife, 4);
 
-            // Tougher bots trend toward rifles; AWP only for the best.
+            WeaponDef secondary = WeaponRegistry.SecondaryPool[
+                _rng.RangeInt(0, WeaponRegistry.SecondaryPool.Length)];
+            bot.GiveWeapon(secondary, 1);
+
+            // Tougher bots trend toward real primaries; snipers only for the best.
             int roll = _rng.RangeInt(0, 100);
             int skillTier = (int)bot.Profile.TurnRate / 100;
             bool takePrimary = roll < 55 + skillTier * 12;
             if (takePrimary)
             {
-                WeaponDef primary = WeaponRegistry.PrimaryPool[_rng.RangeInt(0, WeaponRegistry.PrimaryPool.Length)];
-                if (primary == WeaponRegistry.Awp && bot.Difficulty < 0.6f)
+                WeaponDef primary = WeaponRegistry.PrimaryPool[
+                    _rng.RangeInt(0, WeaponRegistry.PrimaryPool.Length)];
+                if (primary == WeaponRegistry.Sniper && bot.Difficulty < 0.6f)
                 {
-                    primary = WeaponRegistry.Ak47;
+                    primary = WeaponRegistry.Rifle;
                 }
-                bot.GiveWeapon(primary);
+                bot.GiveWeapon(primary, 2);
+                bot.SelectWeaponNumber(2);
             }
-
-            bot.SelectWeapon(bot.Weapons.Count > 2 ? WeaponSlot.Primary : WeaponSlot.Secondary);
-            bot.State = BotState.Patrol;
-        }
-        else
-        {
-            foreach (Weapon weapon in actor.Weapons)
+            else
             {
-                weapon.Mag = weapon.Def.Magazine;
-                weapon.Reserve = weapon.Def.Reserve;
-                weapon.Reloading = false;
-                weapon.Bloom = 0f;
-                weapon.ResetRecoil();
+                bot.SelectWeaponNumber(1);
             }
 
-            if (actor.Weapons.Count == 0) actor.GiveWeapon(WeaponRegistry.Knife);
-            actor.SelectWeapon(actor.Weapons.Any(w => w.Def.Slot == WeaponSlot.Primary)
-                ? WeaponSlot.Primary
-                : WeaponSlot.Secondary);
+            bot.State = BotState.Patrol;
         }
 
         if (first && actor.IsPlayer) Emit("spawn", actor.Position, 0.5f, 1f, SoundEventScope.Local);
@@ -668,12 +1022,11 @@ public sealed class Simulation
             if (distanceToPlayer > 1600f) continue;
 
             actor.StepAccumulator += speed * dt;
-            float threshold = actor.Crouching ? 220f : 150f;
+            const float threshold = 150f;
             if (actor.StepAccumulator < threshold) continue;
             actor.StepAccumulator = 0f;
 
             float volume = actor.IsPlayer ? 0.32f : U.Clamp01(1f - distanceToPlayer / 1600f) * 0.5f;
-            if (actor.Crouching) volume *= 0.35f;
             // The map sidecar exposes only broad collision materials. Query it
             // rather than inventing texture types from the rendered GLB; custom
             // audio packs fall back to the legacy "step" cue when they do not
@@ -695,14 +1048,8 @@ public sealed class Simulation
 
             if (actor is Player player)
             {
-                float pace = player.SprintState switch
-                {
-                    PlayerSprintState.TacticalSprinting => 1f,
-                    PlayerSprintState.Sprinting => 0.82f,
-                    _ => 0.56f,
-                };
-                if (actor.Crouching) pace *= 0.45f;
-                player.TriggerFootstepFeedback(pace);
+                float pace = U.Clamp01(actor.HorizontalSpeed / Cfg.RunSpeed);
+                player.TriggerFootstepFeedback(0.4f + 0.6f * pace);
             }
         }
     }

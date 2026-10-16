@@ -3,12 +3,10 @@ name: verify
 # The headless match needs no window and no GPU, so the strongest check in this
 # project runs on a plain CI runner. It plays a complete match with a scripted
 # player and asserts the gameplay invariants, which catches regressions in
-# movement, collision, combat, damage, scoring and respawning.
+# movement, collision, grappling, combat, upgrades, scoring and respawning.
 #
-# The visual checks (tools/verify_shots.py, tools/sweep_weapons.py) need a real
-# GL context, so they are run locally rather than here -- see docs/BUILDING.md.
-# If you have a runner with a software GL stack, `xvfb-run -a bash
-# tools/capture_shots.sh && python tools/verify_shots.py` is the command to add.
+# Capturing screenshots (`dotnet run -- --screenshot`) needs a real GL context,
+# so that is done locally rather than here -- see docs/BUILDING.md.
 
 on:
   push:

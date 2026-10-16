@@ -11,9 +11,8 @@ public enum GameState
     MainMenu,
     Playing,
     Paused,
+    UpgradeMenu,
     CrosshairOptions,
-    WeaponDossier,
-    BuyMenu,
     MatchOver,
 }
 
@@ -28,9 +27,8 @@ public sealed class Game
     private readonly MatchSettings _settings = new();
     private readonly UserSettingsStore _userSettings = new();
     private readonly AudioBank _audio = new();
-    private readonly Screens.BuyMenu _buyMenu = new();
+    private readonly Screens.UpgradeMenu _upgradeMenu = new();
     private GameState _crosshairReturnState = GameState.MainMenu;
-    private GameState _dossierReturnState = GameState.Playing;
     private bool _exit;
 
     public Simulation? Simulation => _sim;
@@ -46,9 +44,9 @@ public sealed class Game
         // readable physical floor rather than allowing system resize to crush
         // click targets and option text into an unusable surface.
         Raylib.SetWindowMinSize(960, 540);
-        // Raylib maps Escape to WindowShouldClose by default. HGO owns Escape as
-        // a pause/resume control, so leave closing the window to its title-bar
-        // control or an explicit menu action instead.
+        // Raylib maps Escape to WindowShouldClose by default. HOODMATCH owns
+        // Escape as a pause/resume control, so leave closing the window to its
+        // title-bar control or an explicit menu action instead.
         Raylib.SetExitKey(KeyboardKey.Null);
         Raylib.SetTargetFPS(144);
 
@@ -83,9 +81,8 @@ public sealed class Game
                     case GameState.MainMenu: StepMainMenu(w, h); break;
                     case GameState.Playing: StepPlaying(w, h, dt); break;
                     case GameState.Paused: StepPaused(w, h); break;
+                    case GameState.UpgradeMenu: StepUpgradeMenu(w, h); break;
                     case GameState.CrosshairOptions: StepCrosshairOptions(w, h); break;
-                    case GameState.WeaponDossier: StepWeaponDossier(w, h); break;
-                    case GameState.BuyMenu: StepBuyMenu(w, h); break;
                     default: StepMatchOver(w, h); break;
                 }
             }
@@ -113,7 +110,7 @@ public sealed class Game
         switch (action)
         {
             case ScreenAction.StartMatch:
-                _audio.Play("buy", 0.5f);
+                _audio.Play("spawn", 0.5f);
                 StartMatch();
                 break;
             case ScreenAction.QuitApp:
@@ -127,11 +124,10 @@ public sealed class Game
 
     private void StartMatch()
     {
-        _sim = new Simulation(_settings.BotCount, _settings.Skill, _settings.Seed, _settings.KillsToWin);
+        _sim = new Simulation(_settings.BotCount, _settings.Skill, _settings.Seed,
+            _settings.KillsToWin, _settings.Loadout, _settings.MapName);
         _sim.Player.Sensitivity = _settings.Sensitivity;
         _settings.Seed = _settings.Seed * 6364136223846793005UL + 1442695040888963407UL;
-        ScriptedPlay.Reset();
-        _buyMenu.Refresh();
         _state = GameState.Playing;
         Raylib.DisableCursor();
         _audio.Play("spawn", 0.5f);
@@ -141,37 +137,15 @@ public sealed class Game
     {
         Simulation sim = _sim!;
 
-        // Route full-screen controls before gameplay input. This prevents a
-        // final movement/fire tick under the menu and keeps B available even
-        // while the player is waiting to respawn.
+        // Route the full-screen control before gameplay input. This prevents a
+        // final movement/fire tick under the menu and keeps Escape available
+        // even while the player is waiting to respawn.
         GameplayOverlayAction overlay = GameplayOverlayInput.Resolve(
-            Raylib.IsKeyPressed(KeyboardKey.Escape),
-            Raylib.IsKeyPressed(KeyboardKey.B),
-            sim.MatchOver);
+            Raylib.IsKeyPressed(KeyboardKey.Escape), sim.MatchOver);
         if (overlay == GameplayOverlayAction.Pause)
         {
             _state = GameState.Paused;
             Raylib.EnableCursor();
-            return;
-        }
-        if (overlay == GameplayOverlayAction.Buy)
-        {
-            _buyMenu.Open();
-            _state = GameState.BuyMenu;
-            Raylib.EnableCursor();
-            // Present the new state immediately. Returning before Begin/EndDrawing
-            // leaves Raylib on the opening input frame, which used to hand that
-            // same B press to BuyMenu.Draw and close it before it could be seen.
-            PresentBuyMenu(sim, w, h);
-            return;
-        }
-
-        // The dossier is informational and freezes the game exactly like the
-        // existing menu states. Open it before polling gameplay input so G never
-        // becomes a stray movement/fire frame.
-        if (Raylib.IsKeyPressed(KeyboardKey.G))
-        {
-            OpenWeaponDossier(GameState.Playing);
             return;
         }
 
@@ -184,11 +158,26 @@ public sealed class Game
         }
 
         InputFrame input = RealInput.Poll(Raylib.IsWindowFocused());
+
+        // The cabinet key (E) is resolved inside the simulation against hook
+        // input, so the player only leaves gameplay when actually at a station.
         sim.Update(input, dt);
         sim.Player.Sensitivity = _settings.Sensitivity;
 
         PlaySimulationSounds(sim);
         RenderFrame(sim, w, h);
+
+        if (sim.Player.WantsOpenUpgrade && sim.Player.Alive && !sim.MatchOver)
+        {
+            _upgradeMenu.Open();
+            _state = GameState.UpgradeMenu;
+            Raylib.EnableCursor();
+            // Present the new state immediately. Returning before Begin/EndDrawing
+            // leaves Raylib on the opening input frame, which used to hand that
+            // same E press to the menu before it could be seen.
+            PresentUpgradeMenu(sim, w, h);
+            return;
+        }
 
         if (sim.MatchOver)
         {
@@ -225,10 +214,27 @@ public sealed class Game
             case ScreenAction.OpenCrosshairOptions:
                 OpenCrosshairOptions(GameState.Paused);
                 break;
-            case ScreenAction.OpenWeaponDossier:
-                OpenWeaponDossier(GameState.Paused);
-                break;
         }
+    }
+
+    private void StepUpgradeMenu(int w, int h)
+    {
+        Simulation sim = _sim!;
+
+        if (!PresentUpgradeMenu(sim, w, h))
+        {
+            _state = GameState.Playing;
+            Raylib.DisableCursor();
+        }
+    }
+
+    private bool PresentUpgradeMenu(Simulation sim, int w, int h)
+    {
+        Raylib.BeginDrawing();
+        RenderWorldOnly(sim, w, h);
+        bool stillOpen = _upgradeMenu.Draw(sim, w, h);
+        Raylib.EndDrawing();
+        return stillOpen;
     }
 
     private void StepCrosshairOptions(int w, int h)
@@ -254,42 +260,6 @@ public sealed class Game
         else Raylib.EnableCursor();
     }
 
-    private void StepWeaponDossier(int w, int h)
-    {
-        Simulation sim = _sim!;
-
-        Raylib.BeginDrawing();
-        RenderWorldOnly(sim, w, h);
-        ScreenAction action = Screens.WeaponDossier.Draw(sim, w, h);
-        Raylib.EndDrawing();
-
-        if (action != ScreenAction.CloseWeaponDossier) return;
-
-        _state = _dossierReturnState;
-        if (_state == GameState.Playing) Raylib.DisableCursor();
-        else Raylib.EnableCursor();
-    }
-
-    private void StepBuyMenu(int w, int h)
-    {
-        Simulation sim = _sim!;
-
-        if (!PresentBuyMenu(sim, w, h))
-        {
-            _state = GameState.Playing;
-            Raylib.DisableCursor();
-        }
-    }
-
-    private bool PresentBuyMenu(Simulation sim, int w, int h)
-    {
-        Raylib.BeginDrawing();
-        RenderWorldOnly(sim, w, h);
-        bool stillOpen = _buyMenu.Draw(sim, w, h);
-        Raylib.EndDrawing();
-        return stillOpen;
-    }
-
     private void StepMatchOver(int w, int h)
     {
         Simulation sim = _sim!;
@@ -302,7 +272,7 @@ public sealed class Game
         switch (action)
         {
             case ScreenAction.Restart:
-                _audio.Play("buy", 0.5f);
+                _audio.Play("spawn", 0.5f);
                 StartMatch();
                 break;
             case ScreenAction.QuitToMenu:
@@ -357,13 +327,6 @@ public sealed class Game
     {
         _crosshairReturnState = returnState;
         _state = GameState.CrosshairOptions;
-        Raylib.EnableCursor();
-    }
-
-    private void OpenWeaponDossier(GameState returnState)
-    {
-        _dossierReturnState = returnState;
-        _state = GameState.WeaponDossier;
         Raylib.EnableCursor();
     }
 

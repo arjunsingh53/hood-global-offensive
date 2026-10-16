@@ -8,14 +8,15 @@ namespace HoodGlobalOffensive.Sim;
 
 /// <summary>
 /// Runs the whole simulation with a scripted robot player. Used by
-/// <c>--headless</c> to prove the movement, collision, combat, AI, scoring and
-/// respawn paths all work without opening a window.
+/// <c>--headless</c> to prove the movement, collision, grapple, combat, AI,
+/// upgrade economy, scoring and respawn paths all work without opening a window.
 /// </summary>
 public static class HeadlessRunner
 {
-    public static int Run(float seconds, int botCount, BotSkill skill, ulong seed, bool verbose)
+    public static int Run(float seconds, int botCount, BotSkill skill, ulong seed, bool verbose,
+        string mapName = MapRegistry.Default)
     {
-        var sim = new Simulation(botCount, skill, seed);
+        var sim = new Simulation(botCount, skill, seed, mapName: mapName);
         var rng = new Rng(seed ^ 0xA5A5_1234_ABCD_0001UL);
 
         const float dt = 1f / 60f;
@@ -23,10 +24,17 @@ public static class HeadlessRunner
 
         int insideGeometry = 0;
         int nonFinite = 0;
+        int ropeViolations = 0;
         int deaths = 0;
         float distanceWalked = 0f;
         float peakSpeed = 0f;
         int headshots = 0;
+        int grapplesFired = 0;
+        int upgradesBought = 0;
+        bool prevLeftAttached = false;
+        bool prevRightAttached = false;
+        int nextUpgradeTick = 300;
+        int upgradeCursor = 0;
 
         Vector3 previousPosition = sim.Player.Position;
 
@@ -39,13 +47,41 @@ public static class HeadlessRunner
             sim.Update(input, dt);
 
             // ---- invariant checks
-            if (sim.Map.BoxBlocked(sim.Player.Bounds)) insideGeometry++;
+            if (sim.Map.BoxBlocked(sim.Player.Bounds))
+            {
+                insideGeometry++;
+                if (verbose)
+                {
+                    Aabb bounds = sim.Player.Bounds;
+                    for (int b = 0; b < sim.Map.Brushes.Length; b++)
+                    {
+                        if (!sim.Map.Brushes[b].Box.Intersects(bounds)) continue;
+                        Brush hit = sim.Map.Brushes[b];
+                        Console.WriteLine(
+                            $"  [embed] tick {tick} pos {sim.Player.Position} vel {sim.Player.Velocity} " +
+                            $"onGround {sim.Player.OnGround} crouch {sim.Player.CrouchAmount:F2} " +
+                            $"brush {b} kind {hit.Kind} box min {hit.Box.Min} max {hit.Box.Max}");
+                    }
+                }
+            }
 
             if (!IsFinite(sim.Player.Position) || !IsFinite(sim.Player.Velocity))
             {
                 nonFinite++;
                 sim.Player.Position = sim.Map.Spawns[0].Position;
                 sim.Player.Velocity = Vector3.Zero;
+            }
+
+            grapplesFired += CountAttaches(sim, ref prevLeftAttached, ref prevRightAttached);
+            ropeViolations += RopeViolations(sim);
+
+            // Exercise the kill-point economy through the same API the cabinet
+            // menu calls, so the purchase/penalty path stays covered headlessly.
+            if (tick >= nextUpgradeTick && sim.Player.Alive && sim.Player.KillPoints > 0)
+            {
+                UpgradeStat stat = (UpgradeStat)(upgradeCursor++ % 4);
+                if (sim.TryBuyUpgrade(sim.Player, stat)) upgradesBought++;
+                nextUpgradeTick = tick + 900;
             }
 
             float moved = U.FlatLength(sim.Player.Position - previousPosition);
@@ -72,16 +108,19 @@ public static class HeadlessRunner
         Console.WriteLine("=========================================================");
         Console.WriteLine($" simulated ticks      : {tick}  ({tick * dt:0.0}s of {seconds:0.0}s budget)");
         Console.WriteLine($" wall clock           : {sw.Elapsed.TotalMilliseconds:0} ms  ({tick / MathF.Max(0.001f, (float)sw.Elapsed.TotalSeconds):0} ticks/s)");
-        Console.WriteLine($" bots in match        : {botCount}  (skill {skill})");
+        Console.WriteLine($" bots in match        : {botCount}  (skill {skill}, map {sim.Map.Name})");
         Console.WriteLine($" nav nodes            : {sim.Nav.Nodes.Length}");
         Console.WriteLine($" map brushes          : {sim.Map.Brushes.Length}");
+        Console.WriteLine($" upgrade stations     : {sim.Stations.Count}");
         Console.WriteLine($" match over           : {sim.MatchOver}  {sim.MatchResult}");
         Console.WriteLine($" time remaining       : {sim.TimeLeft:0.0}s");
         Console.WriteLine("---------------------------------------------------------");
         Console.WriteLine($" player kills/deaths  : {sim.Player.Kills} / {sim.Player.Deaths}");
         Console.WriteLine($" player shots fired   : {fired}   hits {hits}   headshots {headshots}");
         Console.WriteLine($" player accuracy      : {(fired > 0 ? hits * 100f / fired : 0f):0.0}%");
-        Console.WriteLine($" player health/armor  : {sim.Player.Health:0} / {sim.Player.Armor:0}   alive={sim.Player.Alive}");
+        Console.WriteLine($" player health        : {sim.Player.Health:0}   alive={sim.Player.Alive}");
+        Console.WriteLine($" player kill points   : {sim.Player.KillPoints}   upgrades bought {upgradesBought}");
+        Console.WriteLine($" grapple fires       : {grapplesFired}");
         Console.WriteLine($" distance walked      : {distanceWalked:0} units");
         Console.WriteLine($" peak horizontal speed: {peakSpeed:0} units/s  (run speed {Cfg.RunSpeed})");
         Console.WriteLine($" respawns handled     : {respawns}");
@@ -101,11 +140,14 @@ public static class HeadlessRunner
         Console.WriteLine($" INVARIANTS");
         Console.WriteLine($"   ticks with player embedded in geometry : {insideGeometry}  (expect 0)");
         Console.WriteLine($"   frames with non-finite transforms      : {nonFinite}  (expect 0)");
+        Console.WriteLine($"   frames with over-extended grapple rope : {ropeViolations}  (expect 0)");
         Console.WriteLine($"   deaths across all actors               : {deaths}");
         Console.WriteLine($"   kills recorded == deaths recorded      : {(TotalKills(sim) == deaths ? "yes" : $"no ({TotalKills(sim)} vs {deaths})")}");
         Console.WriteLine($"   spawns are clear of geometry           : {(SpawnsClear(sim) ? "yes" : "NO")}");
+        Console.WriteLine($"   upgrade stations exist                 : {(sim.Stations.Count > 0 ? "yes" : "NO")}");
 
-        bool healthy = insideGeometry == 0 && nonFinite == 0 && sim.Nav.Nodes.Length > 0 && SpawnsClear(sim);
+        bool healthy = insideGeometry == 0 && nonFinite == 0 && ropeViolations == 0
+            && sim.Nav.Nodes.Length > 0 && SpawnsClear(sim) && sim.Stations.Count > 0;
 
         // The whole point of the harness: prove the game actually progresses.
         if (fired == 0 || TotalKills(sim) == 0)
@@ -128,6 +170,27 @@ public static class HeadlessRunner
         }
 
         return healthy ? 0 : 1;
+    }
+
+    private static int CountAttaches(Simulation sim, ref bool prevLeft, ref bool prevRight)
+    {
+        int count = 0;
+        if (sim.Player.HookLeft.Attached && !prevLeft) count++;
+        if (sim.Player.HookRight.Attached && !prevRight) count++;
+        prevLeft = sim.Player.HookLeft.Attached;
+        prevRight = sim.Player.HookRight.Attached;
+        return count;
+    }
+
+    private static int RopeViolations(Simulation sim)
+    {
+        int violations = 0;
+        float limit = Cfg.GrappleRange * 1.05f;
+        if (sim.Player.HookLeft.Attached
+            && (sim.Player.HookLeft.Anchor - sim.Player.EyePosition).Length() > limit) violations++;
+        if (sim.Player.HookRight.Attached
+            && (sim.Player.HookRight.Anchor - sim.Player.EyePosition).Length() > limit) violations++;
+        return violations;
     }
 
     private static string GetMarksman(Simulation sim, Actor actor)
@@ -158,24 +221,18 @@ public static class HeadlessRunner
 }
 
 /// <summary>
-/// A deterministic robot player: it walks toward the nearest visible enemy,
-/// turns to face it, fires when roughly on target and reloads when dry. Reused
-/// by the screenshot mode so the captured frame is a real gameplay frame.
+/// A deterministic robot player: it bunny-hops toward the nearest visible
+/// enemy, swings from hooks, fires when roughly on target and reloads when dry.
+/// Also used by the screenshot mode so the captured frame is a real frame.
 /// </summary>
 public static class ScriptedPlay
 {
-    private static int _lastRespawnTick;
-
     public static InputFrame Build(int tick, Simulation sim, ref Rng rng)
     {
         var input = InputFrame.Neutral;
         Player player = sim.Player;
 
-        if (!player.Alive)
-        {
-            _lastRespawnTick = tick;
-            return input;
-        }
+        if (!player.Alive) return input;
 
         Actor? target = null;
         float bestDistance = float.MaxValue;
@@ -224,16 +281,29 @@ public static class ScriptedPlay
         Weapon weapon = player.Current;
         if (weapon.Mag == 0 && !weapon.Reloading && weapon.Reserve > 0) input.Reload = true;
 
-        // Exercise crouch, quiet-walk, jump and the source-style sprint press
-        // edges. The focused --movement-check verifies exact timing; this
-        // broader match keeps the integrated combat path in coverage too.
-        input.Crouch = tick % 900 is > 600 and < 640;
-        input.Walk = tick % 1200 is > 900 and < 940;
-        input.SprintPressed = input.Move.Y > 0.1f && (tick % 1800 is 100 or 160);
-        input.Jump = tick % 217 == 0;
+        // The reference's core locomotion: hold jump and never stop. Holding
+        // the button chains bunny-hops; the chained air-strafe is what builds
+        // speed, and the robot's random strafe direction supplies the input.
+        input.Jump = true;
+
+        // Periodic hook swings: fire both hooks out of phase, release inside
+        // the same cycle, so every run exercises attach, swing and release.
+        if (tick % 210 == 0) input.GrappleLeftPressed = true;
+        if (tick % 210 == 70) input.GrappleLeftPressed = true;
+        if (tick % 210 == 35) input.GrappleRightPressed = true;
+        if (tick % 210 == 95) input.GrappleRightPressed = true;
+
+        // Quick knife, flashlight, secondary blast and slot cycling all get
+        // sparse coverage so their input-to-simulation paths stay live.
+        input.MeleePressed = tick % 1500 == 700;
+        input.FlashlightTogglePressed = tick % 2600 == 1300;
+        if (weapon.Def.HasSecondary) input.ZoomPressed = tick % 600 == 300;
+        if (tick % 3000 == 200) input.SwitchCycle = 1;
 
         return input;
     }
 
-    public static void Reset() => _lastRespawnTick = 0;
+    public static void Reset()
+    {
+    }
 }

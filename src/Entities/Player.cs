@@ -7,17 +7,6 @@ using HoodGlobalOffensive.World;
 
 namespace HoodGlobalOffensive.Entities;
 
-/// <summary>
-/// The three press-cycled sprint states used by the referenced Godot controller.
-/// Tactical sprint is intentionally a temporary, stamina-limited state.
-/// </summary>
-public enum PlayerSprintState
-{
-    None,
-    Sprinting,
-    TacticalSprinting,
-}
-
 /// <summary>The human-controlled actor. Turns mouse deltas into view angles and intent.</summary>
 public sealed class Player : Actor
 {
@@ -45,18 +34,21 @@ public sealed class Player : Actor
     public ViewModelSpring ViewModelRotationSpring { get; } = new(
         frequencyHz: 10.5f, dampingRatio: 0.88f, maxDisplacement: 16f, maxSpeed: 680f);
 
-    // Weapon-readiness presentation state. These values are only consumed by the
-    // renderer and HUD; combat/hit-scan continue to read the weapon and aim state.
-    public float InspectBlend { get; private set; }
-    public float InspectPhase { get; private set; }
-    public float SprintWeaponBlend { get; private set; }
-    public bool Inspecting => InspectBlend > 0.01f;
-    public float InspectPose => InspectBlend * MathF.Sin(InspectPhase * MathF.PI);
-    private float _inspectStartTime = -10f;
-    private float _inspectEndTime = -10f;
-    // Records the weapon that owned the previous frame's aim state. A scoped
-    // weapon must never inherit a held ADS flag from a weapon it replaced.
-    private Weapon? _lastAimWeapon;
+    // ---------------------------------------------------------------- grapple
+    public GrappleHook HookLeft { get; } = new();
+    public GrappleHook HookRight { get; } = new();
+    public bool AnyHookAttached => HookLeft.Attached || HookRight.Attached;
+
+    // ---------------------------------------------------------------- interactions
+    /// <summary>Set for one frame when E is pressed next to an upgrade cabinet; Game consumes it.</summary>
+    public bool WantsOpenUpgrade;
+    public bool FlashlightOn;
+    /// <summary>Consumed by Simulation: the Double Barrel's right-click blast.</summary>
+    public bool WantsSecondaryFire;
+    /// <summary>Quick knife swing (V): remaining presentation time and which hand swings.</summary>
+    public float MeleeSwing;
+    public bool MeleeSwingLeftHand;
+    private float _meleeNextTime = -10f;
 
     // Render-only transient layers. They are triggered from real gameplay events,
     // but no collision, aim, spread, recoil, bot or weapon code reads them.
@@ -66,74 +58,39 @@ public sealed class Player : Actor
     public float DamageFeedbackYaw { get; private set; }
     /// <summary>
     /// Sustained critical-health feedback, consumed only by HUD/audio presentation.
-    /// It never changes collision, aim, weapon timing, damage, or armour.
     /// </summary>
     public float LowHealthTrauma { get; private set; }
     /// <summary>Short, sharp envelope restarted by each local heartbeat cue.</summary>
     public float TraumaPulse { get; private set; }
     private float _nextLowHealthHeartbeatAt = -10f;
 
-    // Mobility is simulation state. Renderer/HUD only read it, which keeps view
-    // presentation from influencing collision, aim or the weapon simulation.
-    public PlayerSprintState SprintState { get; private set; }
-    /// <summary>Remaining tactical-sprint seconds, replenished outside tactical sprint.</summary>
-    public float TacticalSprintCharge { get; private set; } = Cfg.TacticalSprintDuration;
-    /// <summary>
-    /// Player-only momentum slide. It is resolved by the same swept mover as all
-    /// other locomotion, so this presentation-facing addition cannot bypass world
-    /// collision or alter bot navigation.
-    /// </summary>
-    public bool IsSliding { get; private set; }
-    public float SlideTimeRemaining { get; private set; }
-    public float SlideProgress => Cfg.SlideDuration <= 0f
-        ? 0f
-        : U.Clamp01(1f - SlideTimeRemaining / Cfg.SlideDuration);
-    /// <summary>
-    /// Low-prone is a player-only stance.  It reuses the shared continuous
-    /// collision interpolation so its eye, hit boxes and clearance checks cannot
-    /// drift apart from the authoritative actor state.
-    /// </summary>
-    public bool IsProne { get; private set; }
-    /// <summary>
-    /// Player-only collision-validated traversal of a low static surface. Bots
-    /// never enter this state and retain their existing navigation/mover path.
-    /// </summary>
-    public bool IsMantling { get; private set; }
-    public float MantleTimeRemaining { get; private set; }
-    public float MantleProgress => Cfg.MantleDuration <= 0f
-        ? 0f
-        : U.Clamp01(1f - MantleTimeRemaining / Cfg.MantleDuration);
-    private MantlePlan _mantlePlan;
-    private float _mantleElapsed;
-    public bool CrouchToggled { get; private set; }
-    public bool IsSprinting => SprintState != PlayerSprintState.None;
-    public float TacticalSprintStamina => Cfg.TacticalSprintDuration <= 0f
-        ? 0f
-        : U.Clamp01(TacticalSprintCharge / Cfg.TacticalSprintDuration);
+    // Records the weapon that owned the previous frame's aim state. A scoped
+    // weapon must never inherit a held ADS flag from a weapon it replaced.
+    private Weapon? _lastAimWeapon;
 
     public Player(int id, string name)
     {
         Id = id;
         Name = name;
         IsPlayer = true;
-        GiveWeapon(WeaponRegistry.Knife);
-        GiveWeapon(WeaponRegistry.Glock);
+        GiveWeapon(WeaponRegistry.Knife, 4);
     }
 
     public void Update(InputFrame input, Simulation sim, float dt)
     {
         float now = sim.Time;
         WantsFire = false;
+        WantsSecondaryFire = false;
+        WantsOpenUpgrade = false;
 
         if (!Alive)
         {
             Velocity = Vector3.Zero;
-            CrouchAmount = 0f;
             ZoomHeld = false;
             LandDip = 0f;
             BobAmount = 0f;
+            MeleeSwing = 0f;
             ResetViewModelDynamics();
-            ResetWeaponReadiness();
             ResetPresentationFeedback();
             ResetMovementState();
             return;
@@ -144,15 +101,13 @@ public sealed class Player : Actor
 
         // Select before applying look sensitivity so a newly equipped optic
         // cannot borrow one frame of the previous weapon's zoom state.
-        if (input.SwitchSlot >= 0) SelectSlot(input.SwitchSlot);
+        if (input.SwitchSlot > 0) SelectWeaponNumber(input.SwitchSlot);
+        if (input.SwitchCycle != 0) CycleWeapon(input.SwitchCycle);
 
         Weapon weapon = Current;
         bool weaponChanged = _lastAimWeapon is not null && !ReferenceEquals(_lastAimWeapon, weapon);
         if (weaponChanged)
         {
-            // A switch or buy replacement is an explicit aim boundary. In
-            // particular, do not let a held right mouse button turn the newly
-            // equipped AWP scope on without a fresh press.
             ZoomHeld = false;
             ZoomBlend = 0f;
             CurrentFov = Cfg.FovDefault;
@@ -163,10 +118,8 @@ public sealed class Player : Actor
         // ------------------------------------------------------------ look
         float zoomScale = U.Lerp(1f, 0.45f, ZoomBlend);
         float scale = Cfg.DegPerCountPerSens * Sensitivity * zoomScale;
-        float lookYaw = -input.Look.X * scale;
-        float lookPitch = -input.Look.Y * scale;
-        Yaw = Wrap(Yaw + lookYaw);
-        Pitch = U.Clamp(Pitch + lookPitch, -Cfg.MaxPitch, Cfg.MaxPitch);
+        Yaw = Wrap(Yaw - input.Look.X * scale);
+        Pitch = U.Clamp(Pitch - input.Look.Y * scale, -Cfg.MaxPitch, Cfg.MaxPitch);
 
         // view-model sway lags behind the mouse
         Vector2 swayTarget = new(
@@ -179,14 +132,22 @@ public sealed class Player : Actor
         // ------------------------------------------------------------ weapon handling
         weapon.Tick(now, dt);
 
-        // Magnified optics retain the original click-to-toggle scope control.
-        // Hold-to-aim firearms use the expected COD-style path instead, so
-        // releasing secondary fire returns cleanly to hip fire. A new weapon
-        // waits for a fresh secondary-fire input instead of inheriting it.
-        if (IsMantling) ZoomHeld = false;
+        // Right click: the Double Barrel fires its panic blast; magnified optics
+        // toggle their scope; everything else holds to aim.
+        if (weapon.Def.HasSecondary)
+        {
+            ZoomHeld = false;
+            if (input.ZoomPressed)
+            {
+                WantsSecondaryFire = true;
+                // The blast is a bigger event than any single shot: give it a
+                // heavier presentation kick whenever the trigger will accept it.
+                if (weapon.CanFire(now)) ApplyShotVisuals(sim, weapon, kickScale: 1.8f);
+            }
+        }
         else if (weapon.Def.HasScope && !weaponChanged && input.ZoomPressed) ZoomHeld = !ZoomHeld;
         else if (weapon.Def.HasIronSights) ZoomHeld = weaponChanged ? false : input.ZoomDown;
-        else if (!weapon.Def.HasScope) ZoomHeld = false;
+        else ZoomHeld = false;
         ZoomBlend = U.Approach(ZoomBlend, ZoomHeld ? 1f : 0f, 15f, dt);
 
         float targetFov = weapon.Def.HasZoom
@@ -194,176 +155,56 @@ public sealed class Player : Actor
             : Cfg.FovDefault;
         CurrentFov = U.Approach(CurrentFov, targetFov, 18f, dt);
 
-        if (!IsMantling && input.Reload && weapon.BeginReload(now)) sim.Emit("reload", EyePosition, 0.8f);
-        if (!IsMantling && input.FireDown && weapon.Mag == 0 && !weapon.Reloading && weapon.Reserve > 0
-            && weapon.BeginReload(now))
+        if (input.Reload && weapon.BeginReload(now)) sim.Emit("reload", EyePosition, 0.8f);
+        if (input.FireDown && weapon.Def.UsesAmmo && weapon.Mag == 0 && !weapon.Reloading
+            && weapon.Reserve > 0 && weapon.BeginReload(now))
         {
             sim.Emit("reload", EyePosition, 0.8f);
         }
 
-        if (input.FireModePressed && weapon.CycleFireMode())
+        // ------------------------------------------------------------ flashlight
+        if (input.FlashlightTogglePressed)
         {
-            // Reuse HGO's own UI tick rather than importing source-pack audio.
-            sim.Emit("buy", EyePosition, 0.22f, weapon.IsAutomatic ? 1.15f : 0.92f, SoundEventScope.Local);
+            FlashlightOn = !FlashlightOn;
+            sim.Emit("flashlight", EyePosition, 0.3f, FlashlightOn ? 1.1f : 0.9f, SoundEventScope.Local);
         }
+
+        // ------------------------------------------------------------ quick melee (V)
+        MeleeSwing = MathF.Max(0f, MeleeSwing - dt / 0.35f);
+        if (input.MeleePressed && now >= _meleeNextTime && !weapon.Def.HasScope)
+        {
+            if (sim.PerformQuickMelee(this))
+            {
+                _meleeNextTime = now + Cfg.QuickMeleeCooldown;
+                MeleeSwing = 1f;
+                MeleeSwingLeftHand = !MeleeSwingLeftHand;
+                ViewModelRotationSpring.Impulse(new Vector3(0f, MeleeSwingLeftHand ? -70f : 70f, -50f));
+            }
+        }
+
+        // ------------------------------------------------------------ grapple
+        UpgradeStation? station = sim.NearbyStation(this);
+        bool useNearbyStation = station is not null && input.UsePressed;
+        if (useNearbyStation) WantsOpenUpgrade = true;
+
+        if (input.GrappleLeftPressed) ToggleHook(sim, HookLeft);
+        if (input.GrappleRightPressed && !useNearbyStation) ToggleHook(sim, HookRight);
+        if (HookLeft.Attached) GrappleSystem.Tick(sim.Map, this, HookLeft, dt);
+        if (HookRight.Attached) GrappleSystem.Tick(sim.Map, this, HookRight, dt);
 
         // ------------------------------------------------------------ movement
         Vector3 forward = U.DirFromAngles(Yaw, 0f);
         Vector3 right = U.RightFromYaw(Yaw);
         Vector3 wishDir = U.FlatNormalized(forward * input.Move.Y + right * input.Move.X);
 
-        if (input.ProneTogglePressed && !IsMantling) ToggleProne(sim.Map);
-
-        bool slideInput = input.CrouchPressed || input.CrouchTogglePressed;
-        bool crouchRequested = IsProne || input.Crouch || CrouchToggled;
-
-        // The source uses a Shift press (rather than a held modifier) to step
-        // through None -> Sprint -> Tactical Sprint -> None. It only permits
-        // that cycle while grounded and moving forward. We also cancel when
-        // HGO's existing ADS/reload states own the player's movement intent so
-        // the first-person gun system remains predictable.
-        // A crouch edge may become a slide before it cancels the sprint. Holding
-        // crouch without that edge keeps its ordinary non-sprint behaviour.
-        bool sprintAllowed = input.Move.Y > 0f
-            && (!crouchRequested || slideInput)
-            && !input.Walk
-            && !ZoomHeld
-            && !weapon.Reloading
-            && !IsProne
-            && !IsMantling;
-        if (!IsSliding && (!sprintAllowed || !OnGround)) StopSprinting();
-        if (!IsSliding && input.SprintPressed && sprintAllowed && OnGround) AdvanceSprintState();
-
-        bool canStartSlide = !IsSliding
-            && !IsProne
-            && !IsMantling
-            && slideInput
-            && OnGround
-            && SprintState != PlayerSprintState.None
-            && HorizontalSpeed >= Cfg.SlideMinimumEntrySpeed
-            && !ZoomHeld
-            && !weapon.Reloading
-            && !input.Walk;
-        if (canStartSlide)
-        {
-            StartSlide(wishDir, forward);
-            // A tap starts and completes one slide instead of becoming a sticky
-            // crouch toggle. Holding Ctrl still keeps the player crouched after it.
-            CrouchToggled = false;
-            crouchRequested = true;
-        }
-        else if (input.CrouchTogglePressed && !IsSliding && !IsProne && !IsMantling)
-        {
-            CrouchToggled = !CrouchToggled;
-            crouchRequested = input.Crouch || CrouchToggled;
-        }
-
-        if (IsSliding || IsProne) crouchRequested = true;
-
-        float sprintSpeedMultiplier = SprintState switch
-        {
-            PlayerSprintState.Sprinting => Cfg.SprintSpeedMultiplier,
-            PlayerSprintState.TacticalSprinting => Cfg.TacticalSprintSpeedMultiplier,
-            _ => 1f,
-        };
-        float sprintAccelerationMultiplier = SprintState switch
-        {
-            PlayerSprintState.Sprinting => Cfg.SprintAccelerationMultiplier,
-            PlayerSprintState.TacticalSprinting => Cfg.TacticalSprintAccelerationMultiplier,
-            _ => 1f,
-        };
-
-        if (SprintState != PlayerSprintState.None)
-        {
-            // The source evaluates acceleration as (acceleration multiplier *
-            // speed multiplier). Preserve that relationship first. HGO's
-            // pre-existing friction is calibrated close to its base accel, so
-            // clamp only to the minimum that can actually sustain the faster
-            // speed cap instead of leaving tactical sprint permanently short.
-            float sourceMappedAcceleration = sprintAccelerationMultiplier * sprintSpeedMultiplier;
-            float sustainAcceleration = Cfg.Friction / Cfg.Accelerate + Cfg.SprintAccelerationSustainMargin;
-            sprintAccelerationMultiplier = MathF.Max(sourceMappedAcceleration, sustainAcceleration);
-        }
-
         float wishSpeed = Cfg.RunSpeed * weapon.Def.MoveScale;
-        wishSpeed *= sprintSpeedMultiplier;
         if (ZoomHeld) wishSpeed *= 0.5f;
         if (weapon.Reloading) wishSpeed *= 0.92f;
-
-        float groundAccelerationMultiplier = sprintAccelerationMultiplier;
-        float groundFrictionMultiplier = 1f;
-        if (IsSliding)
-        {
-            // Keep the actual entry velocity; player input may steer it gradually
-            // but cannot accelerate a slide or turn it into a strafe-jump boost.
-            Vector3 carryDirection = U.FlatNormalized(Velocity);
-            if (carryDirection == Vector3.Zero) carryDirection = forward;
-            if (wishDir != Vector3.Zero)
-            {
-                float steer = 1f - MathF.Exp(-Cfg.SlideSteerResponsiveness * dt);
-                carryDirection = U.FlatNormalized(U.Lerp(carryDirection, wishDir, steer));
-            }
-
-            float carriedSpeed = HorizontalSpeed;
-            Velocity = new Vector3(carryDirection.X * carriedSpeed, Velocity.Y, carryDirection.Z * carriedSpeed);
-            wishDir = Vector3.Zero;
-            wishSpeed = 0f;
-            groundAccelerationMultiplier = 0f;
-            groundFrictionMultiplier = Cfg.SlideFrictionMultiplier;
-        }
 
         float fallSpeed = Velocity.Y;
         bool wasOnGround = OnGround;
 
-        // Jumping deliberately exits the slide first, keeping jump timing and
-        // collision semantics identical to the existing mover rather than adding
-        // a second velocity path.  Prone never instant-stands into a jump.
-        bool jumpRequested = input.Jump && !IsProne && !IsMantling;
-        if (IsSliding && jumpRequested) EndSlide();
-
-        // A mantle may only begin from a standing, grounded jump into local
-        // static cover. It is deliberately unavailable while ADS/reloading so
-        // it cannot be used as a sprint, firing, or scope-state bypass.
-        bool wantsMantle = !IsMantling
-            && jumpRequested
-            && OnGround
-            && !IsSliding
-            && CrouchAmount < 0.05f
-            && input.Move.Y > 0.25f
-            && wishDir != Vector3.Zero
-            && !ZoomHeld
-            && !weapon.Reloading;
-        if (wantsMantle && CharacterMover.TryBuildMantlePlan(sim.Map, this, forward, out MantlePlan plan))
-        {
-            BeginMantle(plan);
-        }
-
-        float stanceTarget = IsProne
-            ? Cfg.ProneStanceAmount
-            : crouchRequested ? 1f : 0f;
-        if (IsMantling)
-        {
-            TickMantle(sim.Map, dt);
-        }
-        else
-        {
-            CharacterMover.Move(sim.Map, this, wishDir, wishSpeed, jumpRequested, crouchRequested, input.Walk, dt,
-                groundAccelerationMultiplier, groundFrictionMultiplier, stanceTarget);
-        }
-
-        // The reference clears the mode on take-off while preserving earned
-        // horizontal momentum. Keep that rule outside the mover so collision
-        // remains shared by the player and the unchanged bot controller.
-        if (!OnGround)
-        {
-            StopSprinting();
-            EndSlide();
-        }
-        else if (IsSliding)
-        {
-            TickSlide(dt);
-        }
-        TickTacticalSprintStamina(dt);
+        CharacterMover.Move(sim.Map, this, wishDir, wishSpeed, input.Jump, crouchHeld: false, dt);
 
         if (!wasOnGround && OnGround && fallSpeed < -160f)
         {
@@ -372,27 +213,14 @@ public sealed class Player : Actor
         }
         LandDip = U.Approach(LandDip, 0f, 9f, dt);
 
-        TickWeaponReadiness(input, weapon, now, dt);
-
         // ------------------------------------------------------------ recoil + firing
         RecoverRecoil(now, dt);
 
-        // Mantle is a controlled traversal state, not a free firing pose.  This
-        // keeps its collision route and weapon state separate from gunplay.
-        bool wantShot = !IsMantling && (weapon.IsAutomatic ? input.FireDown : input.FirePressed);
+        bool wantShot = weapon.Def.Automatic ? input.FireDown : input.FirePressed;
         if (wantShot && weapon.CanFire(now))
         {
             WantsFire = true;
-            float kick = weapon.Def.VisualKick;
-            ViewKick = MathF.Min(ViewKick + kick, kick * 2.4f);
-            KickYaw += sim.Rand(-0.5f, 0.5f) * kick * 0.12f;
-            MuzzleFlash = 0.045f;
-
-            // Visual kick has its own spring impulse.  The existing recoil
-            // pattern continues to move the authoritative camera aim after the
-            // shot; this layer only gives the mesh a weighted physical recovery.
-            ViewModelOffsetSpring.Impulse(new Vector3(0f, -kick * 2.4f, kick * 7.5f));
-            ViewModelRotationSpring.Impulse(new Vector3(kick * 15f, KickYaw * 18f, -kick * 2.6f));
+            ApplyShotVisuals(sim, weapon);
         }
 
         // ------------------------------------------------------------ view bob
@@ -401,9 +229,8 @@ public sealed class Player : Actor
         {
             BobPhase += HorizontalSpeed * dt * Cfg.ViewBobPhasePerUnit;
 
-            float crouchScale = U.Lerp(1f, Cfg.ViewBobCrouchScale, CrouchAmount);
             float adsScale = U.Lerp(1f, Cfg.ViewBobAdsScale, ZoomBlend);
-            float targetBob = speedFactor * crouchScale * adsScale;
+            float targetBob = speedFactor * adsScale;
             float rate = targetBob > BobAmount ? Cfg.ViewBobInRate : Cfg.ViewBobOutRate;
             BobAmount = U.Approach(BobAmount, targetBob, rate, dt);
             StepDistance += HorizontalSpeed * dt;
@@ -419,6 +246,41 @@ public sealed class Player : Actor
         MuzzleFlash = MathF.Max(0f, MuzzleFlash - dt);
 
         TickViewModelDynamics(input, sim.Time, right, dt);
+    }
+
+    /// <summary>
+    /// Press-to-fire, press-again-to-release hook control. Firing consumes no
+    /// velocity; releasing keeps every unit of swing momentum.
+    /// </summary>
+    private void ToggleHook(Simulation sim, GrappleHook hook)
+    {
+        if (hook.Attached)
+        {
+            hook.Detach();
+            sim.Emit("grapple_release", EyePosition, 0.35f, 1.05f, SoundEventScope.Local);
+            return;
+        }
+
+        if (GrappleSystem.TryAttach(sim.Map, this, hook))
+        {
+            sim.Emit("grapple_fire", EyePosition, 0.4f, 1.12f, SoundEventScope.Local);
+            sim.Emit("grapple_attach", hook.Anchor, 0.5f);
+        }
+        else
+        {
+            sim.Emit("grapple_fire", EyePosition, 0.30f, 0.9f, SoundEventScope.Local);
+        }
+    }
+
+    private void ApplyShotVisuals(Simulation sim, Weapon weapon, float kickScale = 1f)
+    {
+        float kick = weapon.Def.VisualKick * kickScale;
+        ViewKick = MathF.Min(ViewKick + kick, kick * 2.4f);
+        KickYaw += sim.Rand(-0.5f, 0.5f) * kick * 0.12f;
+        MuzzleFlash = 0.045f;
+
+        ViewModelOffsetSpring.Impulse(new Vector3(0f, -kick * 2.4f, kick * 7.5f));
+        ViewModelRotationSpring.Impulse(new Vector3(kick * 15f, KickYaw * 18f, -kick * 2.6f));
     }
 
     public override void OnShotFired(float now) => LastShotTime = now;
@@ -451,29 +313,13 @@ public sealed class Player : Actor
         _nextLowHealthHeartbeatAt = -10f;
     }
 
-    /// <summary>Clears transient source-style mobility state after death, respawn or a staged capture.</summary>
+    /// <summary>Clears transient movement state after death, respawn or a staged capture.</summary>
     public void ResetMovementState()
     {
-        SprintState = PlayerSprintState.None;
-        TacticalSprintCharge = Cfg.TacticalSprintDuration;
-        CrouchToggled = false;
-        IsSliding = false;
-        SlideTimeRemaining = 0f;
-        IsProne = false;
-        IsMantling = false;
-        MantleTimeRemaining = 0f;
-        _mantleElapsed = 0f;
-        _mantlePlan = default;
-    }
-
-    /// <summary>Clears only the inspect/sprint viewmodel layers, never weapon state.</summary>
-    public void ResetWeaponReadiness()
-    {
-        InspectBlend = 0f;
-        InspectPhase = 0f;
-        SprintWeaponBlend = 0f;
-        _inspectStartTime = -10f;
-        _inspectEndTime = -10f;
+        HookLeft.Detach();
+        HookRight.Detach();
+        MeleeSwing = 0f;
+        WantsSecondaryFire = false;
     }
 
     /// <summary>
@@ -486,144 +332,6 @@ public sealed class Player : Actor
         ViewModelRotationSpring.Reset();
     }
 
-    private void AdvanceSprintState()
-    {
-        SprintState = SprintState switch
-        {
-            PlayerSprintState.None => PlayerSprintState.Sprinting,
-            // Avoid the reference's one-frame tactical boost when its stamina
-            // is depleted; keep the player in the regular sprint instead.
-            PlayerSprintState.Sprinting when TacticalSprintCharge > 1e-4f => PlayerSprintState.TacticalSprinting,
-            PlayerSprintState.Sprinting => PlayerSprintState.Sprinting,
-            _ => PlayerSprintState.None,
-        };
-    }
-
-    private void StopSprinting() => SprintState = PlayerSprintState.None;
-
-    private void StartSlide(Vector3 wishDir, Vector3 forward)
-    {
-        Vector3 entryDirection = U.FlatNormalized(Velocity);
-        if (entryDirection == Vector3.Zero) entryDirection = wishDir;
-        if (entryDirection == Vector3.Zero) entryDirection = forward;
-
-        // SlideMinimumEntrySpeed is only an eligibility check above; keeping the
-        // measured velocity here makes a slide incapable of granting free speed.
-        float entrySpeed = HorizontalSpeed;
-        Velocity = new Vector3(entryDirection.X * entrySpeed, Velocity.Y, entryDirection.Z * entrySpeed);
-        IsSliding = true;
-        SlideTimeRemaining = Cfg.SlideDuration;
-        StopSprinting();
-    }
-
-    private void TickSlide(float dt)
-    {
-        SlideTimeRemaining = MathF.Max(0f, SlideTimeRemaining - dt);
-        if (SlideTimeRemaining <= 0f || HorizontalSpeed <= Cfg.SlideExitSpeed) EndSlide();
-    }
-
-    private void EndSlide()
-    {
-        IsSliding = false;
-        SlideTimeRemaining = 0f;
-    }
-
-    /// <summary>
-    /// Z toggles a grounded low-prone stance. Leaving prone first probes the
-    /// full standing volume; a ceiling simply keeps the player prone instead of
-    /// forcing them through it or invoking the mover rescue path.
-    /// </summary>
-    private void ToggleProne(GameMap map)
-    {
-        if (IsProne)
-        {
-            if (!CharacterMover.CanFitStance(map, this, 0f)) return;
-            IsProne = false;
-            CrouchToggled = false;
-            return;
-        }
-
-        if (!OnGround || IsSliding || IsMantling) return;
-        IsProne = true;
-        CrouchToggled = false;
-        StopSprinting();
-    }
-
-    private void BeginMantle(MantlePlan plan)
-    {
-        _mantlePlan = plan;
-        _mantleElapsed = 0f;
-        MantleTimeRemaining = Cfg.MantleDuration;
-        IsMantling = true;
-        IsProne = false;
-        CrouchToggled = false;
-        StopSprinting();
-        EndSlide();
-        Velocity = Vector3.Zero;
-        // The plan is only built from a fully standing actor. Keeping the
-        // controlled route in that same collision volume makes every preflight
-        // clearance sample valid throughout the 0.6s transit.
-        CrouchAmount = 0f;
-        OnGround = true;
-    }
-
-    private void TickMantle(GameMap map, float dt)
-    {
-        if (!IsMantling) return;
-
-        float duration = MathF.Max(0.001f, Cfg.MantleDuration);
-        float nextElapsed = MathF.Min(duration, _mantleElapsed + MathF.Max(0f, dt));
-        Vector3 target = _mantlePlan.PositionAt(nextElapsed / duration);
-        if (!CharacterMover.TryTraverseMantle(map, this, target))
-        {
-            // Do not resolve a failed route through a wall. Stay at the last
-            // known safe point and let ordinary gravity resume if it is airborne.
-            IsMantling = false;
-            MantleTimeRemaining = 0f;
-            _mantleElapsed = 0f;
-            Velocity = Vector3.Zero;
-            OnGround = false;
-            if (map.FindFloor(Position + Vector3.UnitY * 0.5f, 0.5f, Cfg.GroundSnap, out float floorY)
-                && Position.Y - floorY <= Cfg.GroundSnap)
-            {
-                Position = new Vector3(Position.X, floorY, Position.Z);
-                OnGround = true;
-            }
-            return;
-        }
-
-        _mantleElapsed = nextElapsed;
-        MantleTimeRemaining = MathF.Max(0f, duration - _mantleElapsed);
-        Velocity = Vector3.Zero;
-        OnGround = true;
-
-        if (_mantleElapsed < duration) return;
-
-        IsMantling = false;
-        MantleTimeRemaining = 0f;
-        _mantleElapsed = 0f;
-        // The final point was collision checked above and is a verified top
-        // surface from TryBuildMantlePlan, so it is safe to resume the regular
-        // grounded mover next frame.
-        Position = _mantlePlan.Landing;
-        Velocity = Vector3.Zero;
-        OnGround = true;
-    }
-
-    private void TickTacticalSprintStamina(float dt)
-    {
-        if (SprintState == PlayerSprintState.TacticalSprinting)
-        {
-            TacticalSprintCharge = MathF.Max(0f, TacticalSprintCharge - dt);
-            if (TacticalSprintCharge <= 0f) SprintState = PlayerSprintState.Sprinting;
-        }
-        else
-        {
-            TacticalSprintCharge = MathF.Min(Cfg.TacticalSprintDuration,
-                TacticalSprintCharge + Cfg.TacticalSprintRecoveryRate * dt);
-        }
-    }
-
     /// <summary>
     /// Builds the procedural weapon targets from movement and an idle Lissajous
     /// curve, while mouse drag and firing arrive as impulses.  The values are
@@ -633,10 +341,10 @@ public sealed class Player : Actor
     private void TickViewModelDynamics(InputFrame input, float time, Vector3 right, float dt)
     {
         float adsScale = U.Lerp(1f, Cfg.ViewModelAdsMotionScale, ZoomBlend);
-        float speedScale = U.Clamp01(HorizontalSpeed / (Cfg.RunSpeed * Cfg.TacticalSprintSpeedMultiplier));
+        float speedScale = U.Clamp01(HorizontalSpeed / (Cfg.RunSpeed * 1.5f));
         float lateralVelocity = Vector3.Dot(Velocity, right);
         float lateral = U.Clamp(lateralVelocity / Cfg.RunSpeed, -1f, 1f);
-        float breathing = (1f - speedScale) * (1f - SprintWeaponBlend) * adsScale;
+        float breathing = (1f - speedScale) * adsScale;
 
         // Small out-of-phase waves avoid the metronomic look of a single sine.
         Vector3 positionTarget = new(
@@ -648,6 +356,12 @@ public sealed class Player : Actor
             -LandDip * 2.3f,
             0f,
             -lateral * 3.6f * adsScale);
+
+        // A hanging rope pulls the whole weapon slightly, selling the swing.
+        if (HookLeft.Attached || HookRight.Attached)
+        {
+            positionTarget += new Vector3(0f, -0.3f, -0.5f);
+        }
 
         // Mouse drag is velocity-driven rather than a permanent pose target:
         // large turns create a brief lag/bank that the spring catches up with.
@@ -708,60 +422,8 @@ public sealed class Player : Actor
             Cfg.LowHealthHeartbeatUrgentInterval, target);
         _nextLowHealthHeartbeatAt = now + interval;
 
-        // This is a private perceptual cue; it must not attenuate or pan like a
-        // world emitter.  The generated bank sound is deliberately unbranded.
         sim.Emit("heartbeat", EyePosition,
             U.Lerp(0.10f, 0.18f, target), U.Lerp(0.92f, 1.04f, target), SoundEventScope.Local);
-    }
-
-    /// <summary>
-    /// Independent first-person readiness state. Inspect is cancelled by every
-    /// combat-facing action but never changes the weapon, player physics or aim ray.
-    /// </summary>
-    private void TickWeaponReadiness(InputFrame input, Weapon weapon, float now, float dt)
-    {
-        bool interrupt = input.FireDown
-            || input.FirePressed
-            || input.Reload
-            || input.ZoomPressed
-            || input.SprintPressed
-            || input.SwitchSlot >= 0
-            || weapon.Reloading
-            || ZoomHeld
-            || SprintState != PlayerSprintState.None
-            || IsSliding
-            || IsMantling;
-
-        if (input.InspectPressed && !interrupt)
-        {
-            _inspectStartTime = now;
-            _inspectEndTime = now + Cfg.WeaponInspectDuration;
-        }
-
-        if (interrupt) _inspectEndTime = now;
-
-        bool active = now < _inspectEndTime;
-        if (active)
-        {
-            InspectPhase = U.Clamp01((now - _inspectStartTime) / Cfg.WeaponInspectDuration);
-        }
-        else if (InspectBlend <= 0.01f)
-        {
-            InspectPhase = 0f;
-        }
-
-        InspectBlend = U.Approach(InspectBlend, active ? 1f : 0f,
-            active ? Cfg.WeaponInspectBlendInRate : Cfg.WeaponInspectBlendOutRate, dt);
-        if (!active && InspectBlend < 0.005f)
-        {
-            InspectBlend = 0f;
-            InspectPhase = 0f;
-        }
-        bool loweredMobilityPose = SprintState != PlayerSprintState.None || IsSliding || IsMantling;
-        SprintWeaponBlend = U.Approach(SprintWeaponBlend,
-            loweredMobilityPose ? 1f : 0f,
-            loweredMobilityPose ? Cfg.SprintWeaponBlendInRate : Cfg.SprintWeaponBlendOutRate,
-            dt);
     }
 
     private static float Wrap(float angle)

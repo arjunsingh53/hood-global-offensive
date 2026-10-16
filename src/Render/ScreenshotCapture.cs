@@ -1,8 +1,10 @@
 using System.Numerics;
+using HoodGlobalOffensive.Combat;
 using HoodGlobalOffensive.Core;
 using HoodGlobalOffensive.Entities;
 using HoodGlobalOffensive.Sim;
 using HoodGlobalOffensive.UI;
+using HoodGlobalOffensive.World;
 using Raylib_cs;
 
 namespace HoodGlobalOffensive.Render;
@@ -15,11 +17,12 @@ namespace HoodGlobalOffensive.Render;
 public static class ScreenshotCapture
 {
     public static int Run(string path, float warmupSeconds, int botCount, BotSkill skill, ulong seed,
-        int width = 1280, int height = 720, string weapon = "", string screen = "play", bool zoom = false)
+        int width = 1280, int height = 720, string weapon = "", string screen = "play", bool zoom = false,
+        string mapName = MapRegistry.Default)
     {
         try
         {
-            return Capture(path, warmupSeconds, botCount, skill, seed, width, height, weapon, screen, zoom);
+            return Capture(path, warmupSeconds, botCount, skill, seed, width, height, weapon, screen, zoom, mapName);
         }
         catch (Exception ex)
         {
@@ -29,38 +32,36 @@ public static class ScreenshotCapture
     }
 
     private static int Capture(string path, float warmupSeconds, int botCount, BotSkill skill, ulong seed,
-        int width, int height, string weaponName, string screen, bool zoom)
+        int width, int height, string weaponName, string screen, bool zoom, string mapName)
     {
         Raylib.SetConfigFlags(ConfigFlags.ResizableWindow | ConfigFlags.VSyncHint | ConfigFlags.Msaa4xHint);
         Raylib.InitWindow(width, height, Cfg.Title);
         Raylib.SetTargetFPS(120);
 
-        var sim = new Simulation(botCount, skill, seed);
+        var sim = new Simulation(botCount, skill, seed, mapName: mapName);
         var rng = new Rng(seed ^ 0x5EED_1234UL);
-        ScriptedPlay.Reset();
 
         // "menu" renders the title screen instead of a gameplay frame. Nothing has to
         // be simulated for it, which also makes it the fastest capture.
-        var settings = new MatchSettings { BotCount = botCount, Skill = skill, Seed = seed };
+        var settings = new MatchSettings { BotCount = botCount, Skill = skill, Seed = seed, MapName = sim.Map.Name };
         bool menuScreen = screen.Equals("menu", StringComparison.OrdinalIgnoreCase);
-        bool characterScreen = screen.StartsWith("character", StringComparison.OrdinalIgnoreCase);
         bool crosshairScreen = screen.Equals("crosshair", StringComparison.OrdinalIgnoreCase);
-        bool dossierScreen = screen.Equals("dossier", StringComparison.OrdinalIgnoreCase);
+        bool upgradeScreen = screen.Equals("upgrade", StringComparison.OrdinalIgnoreCase);
         bool traumaScreen = screen.Equals("trauma", StringComparison.OrdinalIgnoreCase);
         bool impactScreen = screen.Equals("impact", StringComparison.OrdinalIgnoreCase);
         bool stagedFeedbackScreen = traumaScreen || impactScreen;
 
         if (!string.IsNullOrWhiteSpace(weaponName) && !weaponName.Equals("default", StringComparison.OrdinalIgnoreCase))
         {
-            Combat.WeaponDef def = Combat.WeaponRegistry.ByName(weaponName);
-            sim.Player.GiveWeapon(def);
-            sim.Player.SelectWeapon(def.Slot);
+            WeaponDef def = WeaponRegistry.ByName(weaponName);
+            sim.Player.GiveWeapon(def, SlotFor(def));
+            sim.Player.SelectWeaponNumber(SlotFor(def));
             Console.WriteLine($"equipped {def.Name}");
         }
 
         const float dt = 1f / 60f;
-        int ticks = menuScreen || characterScreen || stagedFeedbackScreen ? 0 : (int)(warmupSeconds / dt);
-        if (!menuScreen && !characterScreen && !stagedFeedbackScreen)
+        int ticks = menuScreen || stagedFeedbackScreen ? 0 : (int)(warmupSeconds / dt);
+        if (!menuScreen && !stagedFeedbackScreen)
         {
             for (int t = 0; t < ticks; t++)
             {
@@ -75,7 +76,7 @@ public static class ScreenshotCapture
         // their existing toggle state, so the screenshot follows production input.
         int extra = 0;
         const int maxExtra = 12000;
-        while (extra < maxExtra && !menuScreen && !characterScreen && !stagedFeedbackScreen)
+        while (extra < maxExtra && !menuScreen && !stagedFeedbackScreen)
         {
             InputFrame captureInput = ScriptedPlay.Build(ticks + extra, sim, ref rng);
             if (zoom)
@@ -94,14 +95,13 @@ public static class ScreenshotCapture
             extra++;
         }
 
-        if (characterScreen) StageCharacterPreview(sim, screen);
         if (traumaScreen) StageTraumaPreview(sim, dt);
         if (impactScreen) StageImpactPreview(sim, dt);
 
         int w = Raylib.GetScreenWidth();
         int h = Raylib.GetScreenHeight();
-        var buyMenu = new Screens.BuyMenu();
-        if (screen.Equals("buy", StringComparison.OrdinalIgnoreCase)) buyMenu.Refresh();
+        var upgradeMenu = new Screens.UpgradeMenu();
+        if (upgradeScreen) StageUpgradePreview(sim);
 
         // Two frames: the first settles the window and the buffer, the second is captured.
         for (int frame = 0; frame < 2; frame++)
@@ -125,13 +125,8 @@ public static class ScreenshotCapture
                 Raylib.EndMode3D();
                 Renderer.EndWorldPass(w, h);
 
-                // Character-review frames isolate the bot asset. The normal game
-                // path (including Gun Game's first-person model) is untouched.
-                if (!characterScreen)
-                {
-                    Renderer.DrawViewModel(sim, w, h, settings.CameraFeedback.Strength);
-                    Renderer.BlitViewModel(w, h);
-                }
+                Renderer.DrawViewModel(sim, w, h, settings.CameraFeedback.Strength);
+                Renderer.BlitViewModel(w, h);
 
                 Hud.Draw(sim, cam, w, h, settings.Crosshair);
 
@@ -139,17 +134,13 @@ public static class ScreenshotCapture
                 {
                     Screens.DrawScoreboard(sim, w, h);
                 }
-                else if (screen.Equals("buy", StringComparison.OrdinalIgnoreCase))
+                else if (upgradeScreen)
                 {
-                    buyMenu.Draw(sim, w, h);
+                    upgradeMenu.Draw(sim, w, h);
                 }
                 else if (crosshairScreen)
                 {
                     Screens.CrosshairOptions.Draw(settings.Crosshair, w, h);
-                }
-                else if (dossierScreen)
-                {
-                    Screens.WeaponDossier.Draw(sim, w, h);
                 }
             }
 
@@ -164,8 +155,8 @@ public static class ScreenshotCapture
         var file = new FileInfo(path);
         Console.WriteLine($"wrote {file.FullName} ({(file.Exists ? file.Length : 0)} bytes)");
         Console.WriteLine($"captured frame: {w}x{h}, {ticks + extra} simulated ticks "
-            + $"({(ticks + extra) * dt:0.0}s), skill {skill}, {botCount} bots");
-        Console.WriteLine($"player: {sim.Player.Kills} kills, {sim.Player.Deaths} deaths, "
+            + $"({(ticks + extra) * dt:0.0}s), skill {skill}, {botCount} bots, map {sim.Map.Name}");
+        Console.WriteLine($"player: {sim.Player.Kills} kills, {sim.Player.Deaths} deaths, points {sim.Player.KillPoints}, "
             + $"health {sim.Player.Health:0}, weapon {sim.Player.Current.Def.Name}, "
             + $"reloading {sim.Player.Current.Reloading}, zoom {sim.Player.ZoomBlend:0.00}, "
             + $"kick {sim.Player.ViewKick:0.0}, landDip {sim.Player.LandDip:0.00}");
@@ -178,11 +169,18 @@ public static class ScreenshotCapture
             + $"bobPhase {sim.Player.BobPhase:0.00}, sway ({sim.Player.Sway.X:0.00},{sim.Player.Sway.Y:0.00}), "
             + $"feedback step {sim.Player.FootstepFeedback:0.00}, land {sim.Player.LandingFeedback:0.00}, "
             + $"damage {sim.Player.DamageFeedback:0.00}, "
-            + $"sprint {sim.Player.SprintState}, tacCharge {sim.Player.TacticalSprintCharge:0.00}, "
+            + $"hooks left {sim.Player.HookLeft.Attached} right {sim.Player.HookRight.Attached}, "
             + $"yaw {sim.Player.Yaw:0.0}, pitch {sim.Player.Pitch:0.0}, "
             + $"punch ({sim.Player.Punch.X:0.0},{sim.Player.Punch.Y:0.0}), fov {sim.Player.CurrentFov:0.0}");
 
         return file.Exists && file.Length > 0 ? 0 : 1;
+    }
+
+    private static int SlotFor(WeaponDef def)
+    {
+        if (def.Melee) return 4;
+        if (WeaponRegistry.SecondaryPool.Contains(def)) return 3;
+        return 1;
     }
 
     private static bool EnemyInView(Simulation sim)
@@ -208,55 +206,29 @@ public static class ScreenshotCapture
     }
 
     /// <summary>
-    /// A stable art-review frame for the character asset. It changes only the
-    /// screenshot capture's private simulation after normal match setup; it never
-    /// runs in the game loop or affects gameplay rules.
+    /// Capture-only upgrade-cabinet frame: parks the player beside a cabinet
+    /// and stages a few kill points so the menu shows real affordability states.
+    /// It changes only this private capture simulation, never the live game.
     /// </summary>
-    private static void StageCharacterPreview(Simulation sim, string screen)
+    private static void StageUpgradePreview(Simulation sim)
     {
         Player player = sim.Player;
-        player.Position = new Vector3(0f, 0f, -1050f);
+        UpgradeStation station = sim.Stations[0];
+        Vector3 toStation = station.Position - player.Position;
+        float yaw = U.YawFromDirection(toStation);
+        player.Position = station.Position - U.DirFromAngles(yaw, 0f) * (Cfg.StationInteractRadius * 0.6f);
+        player.Position = new Vector3(player.Position.X, 0f, player.Position.Z);
         player.Velocity = Vector3.Zero;
-        player.Yaw = 180f;
+        player.Yaw = yaw;
         player.Pitch = 0f;
         player.Punch = Vector2.Zero;
-        player.CrouchAmount = 0f;
         player.OnGround = true;
         player.Alive = true;
+        player.KillPoints = 2;
+        player.Health = player.MaxHealth;
         player.ResetMovementState();
-        player.BobAmount = 0f;
-        player.LandDip = 0f;
-
-        Actor? bot = sim.Actors.FirstOrDefault(actor => !actor.IsPlayer);
-        if (bot is null) return;
-
-        // This sightline passes through the central opening in the north divider,
-        // placing the Soldier close enough to inspect texture, orientation and pose.
-        // Close enough to inspect the weapon-ready silhouette rather than merely
-        // prove the asset loaded; this capture-only staging never runs in play.
-        bool closeReview = screen.Equals("character-close", StringComparison.OrdinalIgnoreCase)
-            || screen.Equals("character-close-side", StringComparison.OrdinalIgnoreCase);
-        bot.Position = new Vector3(0f, 0f, closeReview ? -990f : -965f);
-        bot.Velocity = PreviewVelocity(screen);
-        // A three-quarter inspection frame makes it possible to confirm that a
-        // hand-skinned world weapon has depth and is not merely a front-facing
-        // silhouette.  It is capture-only and never affects a live match.
-        bot.Yaw = screen.Equals("character-side", StringComparison.OrdinalIgnoreCase)
-            || screen.Equals("character-close-side", StringComparison.OrdinalIgnoreCase) ? 34f : 0f;
-        bot.Pitch = 0f;
-        bot.CrouchAmount = screen.Equals("character-crouch", StringComparison.OrdinalIgnoreCase) ? 1f : 0f;
-        bot.OnGround = true;
-        bot.Alive = true;
-        sim.Time = 0.6f;
+        player.ResetPresentationFeedback();
     }
-
-    private static Vector3 PreviewVelocity(string screen) => screen.ToLowerInvariant() switch
-    {
-        "character-walk" => new Vector3(Cfg.WalkSpeed, 0f, 0f),
-        "character-run" => new Vector3(Cfg.RunSpeed, 0f, 0f),
-        "character-crouch" => new Vector3(Cfg.CrouchSpeed, 0f, 0f),
-        _ => Vector3.Zero,
-    };
 
     /// <summary>
     /// Capture-only critical-condition frame. It exercises the actual Player
@@ -267,7 +239,6 @@ public static class ScreenshotCapture
         PrepareFeedbackPreview(sim);
         Player player = sim.Player;
         player.Health = 8f;
-        player.Armor = 0f;
 
         // Let the real low-health state converge and start a real local pulse.
         for (int i = 0; i < 8; i++) sim.Update(InputFrame.Neutral, dt);
@@ -294,9 +265,6 @@ public static class ScreenshotCapture
             Pitch = 0f,
             OnGround = true,
             Alive = true,
-            Health = Cfg.MaxHealth,
-            Armor = 0f,
-            HasHelmet = false,
         };
         sim.Actors.Add(target);
 
@@ -318,11 +286,9 @@ public static class ScreenshotCapture
         player.Yaw = 0f;
         player.Pitch = 0f;
         player.Punch = Vector2.Zero;
-        player.CrouchAmount = 0f;
         player.OnGround = true;
         player.Alive = true;
-        player.Health = Cfg.MaxHealth;
-        player.Armor = 0f;
+        player.Health = player.MaxHealth;
         player.ResetMovementState();
         player.ResetPresentationFeedback();
 

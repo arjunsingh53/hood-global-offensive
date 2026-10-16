@@ -76,14 +76,6 @@ public static unsafe class CharacterModels
         if (character is null) return false;
 
         ApplyPose(character, actor, simTime);
-        bool prone = actor is Player { IsProne: true };
-        if (prone)
-        {
-            DrawProneModel(character, actor);
-            // The generated HGO operator contains its own braced world rifle.
-            // Do not paint the legacy upright proxy over a prone silhouette.
-            return true;
-        }
 
         // The simulation crouch hitbox is 54 rather than 72 units high.  Keep
         // the capsule body grounded at that same height while its dedicated
@@ -208,7 +200,7 @@ public static unsafe class CharacterModels
             + forward * 8.5f + right * 0.5f;
         Color metal = U.Rgb(35, 39, 43);
         Color receiver = def.Class == "Sniper" ? U.Rgb(51, 58, 61) : U.Rgb(48, 52, 55);
-        Color furniture = def.Name.StartsWith("AK", StringComparison.OrdinalIgnoreCase)
+        Color furniture = def.Name.Equals("Rifle", StringComparison.OrdinalIgnoreCase)
             ? U.Rgb(92, 61, 37)
             : U.Rgb(29, 32, 35);
         Color detail = U.Rgb(104, 111, 110);
@@ -315,7 +307,6 @@ public static unsafe class CharacterModels
 
     private static int ClipFor(LoadedCharacter character, Actor actor)
     {
-        if (actor is Player { IsProne: true }) return character.ProneClip;
         if (!actor.OnGround) return character.IdleClip;
         if (actor.Crouching) return character.CrouchClip;
         if (actor.HorizontalSpeed < Cfg.CharacterIdleSpeed) return character.IdleClip;

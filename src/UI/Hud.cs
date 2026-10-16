@@ -36,13 +36,14 @@ public static class Hud
         DrawKillFeed(sim, w, h, peripheralOpacity);
         DrawDamageNumbers(sim, cam, w, h);
         DrawVitals(sim, w, h, peripheralOpacity);
-        DrawMobility(sim, w, h, peripheralOpacity);
         DrawWeaponReadout(sim, w, h, peripheralOpacity);
 
         if (sim.Player.Alive)
         {
             DrawCrosshair(sim, cam, w, h, crosshair);
             DrawHitmarker(sim, w, h);
+            DrawHookStatus(sim, w, h, peripheralOpacity);
+            DrawStationPrompt(sim, w, h, peripheralOpacity);
             DrawDamageIndicators(sim, w, h);
             DrawScopeOverlay(sim, w, h);
         }
@@ -70,14 +71,6 @@ public static class Hud
 
     private static Color Fade(Color color, float opacity) =>
         U.Rgba(color.R, color.G, color.B, (int)(color.A * U.Clamp01(opacity)));
-
-    private static void DrawFadedShadowText(string text, int x, int y, int size, Color color, float opacity,
-        bool centered = false)
-    {
-        int drawX = centered ? x - Raylib.MeasureText(text, size) / 2 : x;
-        Raylib.DrawText(text, drawX + 2, y + 2, size, Fade(U.Rgba(0, 0, 0, 170), opacity));
-        Raylib.DrawText(text, drawX, y, size, Fade(color, opacity));
-    }
 
     // The combat interface uses deliberately simple, procedural shapes instead
     // of imported UI art.  That keeps the look coherent at every resolution and
@@ -140,8 +133,7 @@ public static class Hud
         Player p = sim.Player;
         if (IsCrosshairSuppressed(p.Current.Def, p.ZoomBlend)) return;
 
-        float spread = p.Current.SpreadFor(p.HorizontalSpeed, p.OnGround, p.Crouching,
-            p.ZoomBlend, p.IsSliding);
+        float spread = p.Current.SpreadFor(p.HorizontalSpeed, p.OnGround, p.Crouching, p.ZoomBlend);
         // The render camera can receive a tiny presentation-only FOV response.
         // Scale the visual gap with that exact projection FOV so the custom
         // reticle remains an honest pixel representation of weapon spread.
@@ -187,7 +179,12 @@ public static class Hud
         Raylib.DrawLineEx(new Vector2(cx - outer, cy + outer), new Vector2(cx - inner, cy + inner), lineWidth, c);
         Raylib.DrawLineEx(new Vector2(cx + inner, cy - outer), new Vector2(cx + outer, cy - inner), lineWidth, c);
 
-        if (sim.LastHitWasHeadshot)
+        if (sim.LastHitWasKill)
+        {
+            int killAlpha = (int)(230 * fade);
+            Ui.TextCenter("ELIMINATED", cx, cy + (int)(26f * scale), 11, U.Rgba(255, 70, 56, killAlpha));
+        }
+        else if (sim.LastHitWasHeadshot)
         {
             int labelAlpha = (int)(190 * fade * U.Clamp01((elapsed - 0.14f) / 0.28f));
             Ui.TextCenter("HEADSHOT", cx, cy + (int)(24f * scale), 10, U.Rgba(255, 104, 82, labelAlpha));
@@ -218,6 +215,38 @@ public static class Hud
             Raylib.DrawTriangle(p0, p1, inner1, c);
             Raylib.DrawTriangle(p0, inner1, inner0, c);
         }
+    }
+
+    /// <summary>
+    /// Quiet dual-hook readout under the reticle: Q and E squares light amber
+    /// while that hook is attached to a surface.
+    /// </summary>
+    private static void DrawHookStatus(Simulation sim, int w, int h, float opacity)
+    {
+        Player p = sim.Player;
+        int cx = w / 2, cy = h / 2;
+        DrawHookSquare(cx - 40, cy + 34, "Q", p.HookLeft.Attached, opacity);
+        DrawHookSquare(cx + 24, cy + 34, "E", p.HookRight.Attached, opacity);
+    }
+
+    private static void DrawHookSquare(int x, int y, string key, bool attached, float opacity)
+    {
+        Color border = attached ? Ui.Accent : U.Rgba(236, 240, 244, 92);
+        Color fill = attached ? U.Rgba(255, 186, 56, 52) : U.Rgba(5, 8, 13, 130);
+        Raylib.DrawRectangle(x, y, 16, 16, Fade(fill, opacity));
+        Raylib.DrawRectangleLines(x, y, 16, 16, Fade(border, opacity));
+        Ui.TextCenter(key, x + 8, y + 3, 10, Fade(attached ? Ui.Accent : Ui.Faint, opacity));
+    }
+
+    private static void DrawStationPrompt(Simulation sim, int w, int h, float opacity)
+    {
+        if (sim.NearbyStation(sim.Player) is null) return;
+
+        const string prompt = "[ E ]  UPGRADE CABINET";
+        int y = (int)(h * 0.66f);
+        Ui.TextCenter(prompt, w / 2, y, 15, Fade(Ui.Ink, opacity));
+        Ui.TextCenter($"{sim.Player.KillPoints} KILL POINTS   •   1 POINT PER LEVEL",
+            w / 2, y + 20, 10, Fade(Ui.Accent, opacity));
     }
 
     private static void DrawScopeOverlay(Simulation sim, int w, int h)
@@ -255,8 +284,9 @@ public static class Hud
 
     private static void DrawVitals(Simulation sim, int w, int h, float opacity)
     {
+        _ = w;
         Player p = sim.Player;
-        float health = U.Clamp01(p.Health / Cfg.MaxHealth);
+        float health = U.Clamp01(p.Health / p.MaxHealth);
         bool low = p.Health < Cfg.LowHealthTraumaThreshold;
         Color healthColor = low
             ? U.Rgb(246, 78, 66)
@@ -282,15 +312,22 @@ public static class Hud
         DrawSegmentedBar(healthBar, health, 10, healthColor, U.Rgba(255, 255, 255, 26), opacity);
         Raylib.DrawRectangleLinesEx(healthBar, 1f, Fade(U.Rgba(255, 255, 255, 54), opacity));
 
-        float armor = U.Clamp01(p.Armor / Cfg.MaxArmor);
-        Ui.Text("ARMOR", margin + 78, cardY + 61, 10, Fade(Ui.Faint, opacity));
-        var armorBar = new Rectangle(margin + 122, cardY + 63, 104, 6);
-        DrawSegmentedBar(armorBar, armor, 5, U.Rgb(110, 194, 244), U.Rgba(255, 255, 255, 24), opacity);
+        // The upgrade build lives here as four compact pips. Each pip is one
+        // purchased level of that stat, so the card doubles as the build readout.
+        Ui.Text("BUILD", margin + 78, cardY + 61, 9, Fade(Ui.Faint, opacity));
+        DrawUpgradePip(margin + 116, cardY + 62, "HP", p.UpgradeHealth, opacity);
+        DrawUpgradePip(margin + 147, cardY + 62, "DMG", p.UpgradeDamage, opacity);
+        DrawUpgradePip(margin + 181, cardY + 62, "SPD", p.UpgradeSpeed, opacity);
+        DrawUpgradePip(margin + 213, cardY + 62, "JMP", p.UpgradeJump, opacity);
+    }
 
-        string helmet = p.HasHelmet ? "HELMET" : "OPEN";
-        Ui.Text(helmet, margin + 78, cardY + 73, 9,
-            Fade(p.HasHelmet ? U.Rgb(150, 206, 242) : Ui.Danger, opacity));
-        Ui.TextRight($"${p.Money}", margin + cardW - 14, cardY + 73, 10, Fade(Ui.Accent, opacity));
+    private static void DrawUpgradePip(int x, int y, string label, int level, float opacity)
+    {
+        Color color = level > 0 ? Ui.Accent : U.Rgba(255, 255, 255, 30);
+        Raylib.DrawRectangle(x, y, 8, 8, Fade(color, opacity));
+        Raylib.DrawRectangleLines(x, y, 8, 8, Fade(U.Rgba(255, 255, 255, 46), opacity));
+        Ui.Text(level > 0 ? level.ToString() : "", x + 2, y + 11, 9, Fade(Ui.Dim, opacity));
+        Ui.Text(label, x - 1, y - 9, 8, Fade(Ui.Faint, opacity));
     }
 
     private static void DrawWeaponReadout(Simulation sim, int w, int h, float opacity)
@@ -303,40 +340,34 @@ public static class Hud
         int cardX = w - margin - cardW;
         int cardY = h - margin - cardH;
         var card = new Rectangle(cardX, cardY, cardW, cardH);
-        Color ammoColor = weapon.Mag == 0 ? Ui.Danger : Ui.Ink;
+        Color ammoColor = weapon.Def.UsesAmmo && weapon.Mag == 0 ? Ui.Danger : Ui.Ink;
         DrawArenaPanel(card, opacity, ammoColor);
 
         Ui.Text(weapon.Def.Name.ToUpperInvariant(), cardX + 15, cardY + 14, 12, Fade(Ui.Accent, opacity));
-        string weaponState = weapon.HasSelectableFireMode
-            ? $"{weapon.FireModeLabel}  •  PRIMARY"
-            : weapon.Def.Slot == WeaponSlot.Knife ? "MELEE" : "PRIMARY";
-        Ui.Text(weaponState, cardX + 15, cardY + 30, 10, Fade(Ui.Dim, opacity));
+        Ui.Text(weaponState(weapon), cardX + 15, cardY + 30, 10, Fade(Ui.Dim, opacity));
 
         // The magazine uses a much larger numeral than reserve ammunition. It
         // stays stable and legible while firing without turning the whole corner
-        // into a menu-like panel.
-        string mag = weapon.Mag.ToString("00");
-        string reserve = weapon.Reserve.ToString("000");
+        // into a menu-like panel. Reserve is unlimited, exactly like the source.
+        string mag = weapon.Def.UsesAmmo ? weapon.Mag.ToString("00") : "--";
         DrawArenaText(mag, cardX + 144, cardY + 33, 38, ammoColor, opacity);
         Ui.Text("/", cardX + 197, cardY + 55, 16, Fade(Ui.Faint, opacity));
-        DrawArenaText(reserve, cardX + 213, cardY + 56, 18, Ui.Ink, opacity);
+        DrawArenaText("∞", cardX + 213, cardY + 46, 26, U.Rgba(238, 242, 244, 210), opacity);
         Ui.Text("MAG", cardX + 147, cardY + 74, 9, Fade(Ui.Faint, opacity));
-        Ui.Text("RES", cardX + 214, cardY + 74, 9, Fade(Ui.Faint, opacity));
+        Ui.Text("RES", cardX + 218, cardY + 74, 9, Fade(Ui.Faint, opacity));
 
         float magFill = weapon.Def.Magazine <= 0 ? 0f : weapon.Mag / (float)weapon.Def.Magazine;
         var magazineBar = new Rectangle(cardX + 15, cardY + 51, 111, 8);
         DrawSegmentedBar(magazineBar, magFill, 8, ammoColor, U.Rgba(255, 255, 255, 24), opacity);
         Raylib.DrawRectangleLinesEx(magazineBar, 1f, Fade(U.Rgba(255, 255, 255, 48), opacity));
 
-        // Weapon slot strip remains a live control hint, but it is treated as a
-        // quiet secondary layer above the ammunition card.
+        // Four loadout slots: primary, secondary, tertiary, then the knife.
         int stripY = cardY - 26;
-        for (int i = 0; i < 3; i++)
+        for (int slot = 1; slot <= 4; slot++)
         {
-            WeaponSlot slot = (WeaponSlot)i;
-            Weapon? owned = p.Weapons.Find(candidate => candidate.Def.Slot == slot);
-            var box = new Rectangle(w - margin - (3 - i) * 70, stripY, 62, 21);
-            bool active = owned is not null && p.Current.Def == owned.Def;
+            Weapon? owned = p.Weapons.Find(candidate => candidate.Slot == slot);
+            var box = new Rectangle(w - margin - (4 - slot) * 70, stripY, 62, 21);
+            bool active = owned is not null && ReferenceEquals(owned, p.Current);
 
             DrawArenaPanel(box, opacity, active ? Ui.Accent : null);
             if (active)
@@ -344,10 +375,10 @@ public static class Hud
 
             string label = owned is null ? "---" : ShortName(owned.Def.Name);
             Ui.TextCenter(label, (int)box.X + 31, (int)box.Y + 6, 10, Fade(active ? Ui.Ink : Ui.Dim, opacity));
-            Ui.Text($"{i + 1}", (int)box.X + 3, (int)box.Y + 2, 10, Fade(Ui.Faint, opacity));
+            Ui.Text($"{slot}", (int)box.X + 3, (int)box.Y + 2, 10, Fade(Ui.Faint, opacity));
         }
 
-        if (weapon.Reloading)
+        if (weapon.Reloading && weapon.Def.UsesAmmo)
         {
             float duration = MathF.Max(0.001f, weapon.Def.ReloadTime);
             float t = U.Clamp01(1f - (weapon.ReloadEndTime - sim.Time) / duration);
@@ -356,50 +387,25 @@ public static class Hud
             Ui.TextRight(weapon.ReloadStartedEmpty ? "EMPTY RELOAD" : "TACTICAL RELOAD",
                 cardX + 126, cardY + 63, 9, Fade(Ui.Accent, opacity));
         }
-        else if (p.Inspecting)
-        {
-            Ui.TextRight("INSPECTING", cardX + 126, cardY + 63, 9, Fade(Ui.Dim, opacity));
-        }
-        else if (weapon.Mag == 0)
+        else if (weapon.Def.UsesAmmo && weapon.Mag == 0)
         {
             Ui.TextRight("PRESS R", cardX + 126, cardY + 63, 9,
                 Fade((int)(sim.Time * 3f) % 2 == 0 ? Ui.Danger : Ui.Dim, opacity));
         }
-    }
 
-    /// <summary>
-    /// Compact feedback for the source-derived press-cycle sprint states. The
-    /// charge meter remains visible while it refills so tactical sprint is never
-    /// a hidden timer; it does not affect any weapon/render state.
-    /// </summary>
-    private static void DrawMobility(Simulation sim, int w, int h, float opacity)
-    {
-        _ = w;
-        Player p = sim.Player;
-        if (!p.Alive) return;
-
-        bool show = p.IsSliding || p.SprintState != PlayerSprintState.None || p.TacticalSprintStamina < 0.995f;
-        if (!show) return;
-
-        const int x = 24;
-        int y = h - 148;
-        bool sliding = p.IsSliding;
-        bool tactical = p.SprintState == PlayerSprintState.TacticalSprinting;
-        string state = sliding ? "SLIDE" : tactical ? "TACTICAL SPRINT"
-            : p.SprintState == PlayerSprintState.Sprinting ? "SPRINT" : "TAC STAMINA";
-        Color stateColor = sliding || tactical ? Ui.Accent : Ui.Good;
-        float meter = sliding ? 1f - p.SlideProgress : p.TacticalSprintStamina;
-
-        var panel = new Rectangle(x, y, 184, 26);
-        DrawArenaPanel(panel, opacity, stateColor);
-        Ui.Text(state, x + 10, y + 8, 10, Fade(stateColor, opacity));
-        var bar = new Rectangle(x + 82, y + 10, 72, 5);
-        DrawSegmentedBar(bar, meter, 6, stateColor, U.Rgba(255, 255, 255, 22), opacity);
-        Ui.Text(sliding ? "MOM" : "TAC", x + 160, y + 8, 9, Fade(Ui.Dim, opacity));
+        static string weaponState(Weapon w) => w.Def switch
+        {
+            { Melee: true } => "MELEE  •  V",
+            { HasSecondary: true } => "ALT  •  DOUBLE BLAST",
+            { HasScope: true } => "SCOPE  •  RIGHT CLICK",
+            { HasIronSights: true } => "IRON SIGHTS  •  HOLD RIGHT CLICK",
+            _ => "PRIMARY",
+        };
     }
 
     private static void DrawTopBar(Simulation sim, int w, int h, float opacity)
     {
+        _ = h;
         int minutes = (int)(sim.TimeLeft / 60f);
         int seconds = (int)(sim.TimeLeft % 60f);
         bool urgent = sim.TimeLeft < 30f;
@@ -602,6 +608,17 @@ public static class Hud
             DrawRadarSegment(d, a, center, radius - 1f, geometry);
         }
 
+        // Cabinets are fixed, high-value map objectives: always shown.
+        foreach (UpgradeStation station in sim.Stations)
+        {
+            Vector2 point = ToRadar(station.Position);
+            if ((point - center).Length() <= radius - 6f)
+            {
+                Raylib.DrawCircleV(point, 3.2f, Fade(U.Rgba(255, 186, 56, 235), opacity));
+                Raylib.DrawCircleLines((int)point.X, (int)point.Y, 6f, Fade(U.Rgba(255, 186, 56, 110), opacity));
+            }
+        }
+
         Vector3 eye = sim.Player.EyePosition;
         foreach (Actor actor in sim.Actors)
         {
@@ -638,7 +655,7 @@ public static class Hud
         }
 
         // The local player always points up because the terrain rotates under
-        // the radar. This is quicker to parse while sprinting or sliding.
+        // the radar. This stays quick to parse while swinging on hooks.
         Raylib.DrawTriangle(
             center + new Vector2(0f, -7.5f),
             center + new Vector2(4.75f, 4.5f),
@@ -825,14 +842,14 @@ public static class Hud
 
         float remaining = MathF.Max(0f, sim.Player.RespawnAt - sim.Time);
         Ui.TextCenter($"RESPAWNING IN {remaining:0.0}", w / 2, (int)(h * 0.34f) + 78, 15, Ui.Accent);
-        Ui.TextCenter("press TAB for scores", w / 2, (int)(h * 0.34f) + 100, 10, Ui.Faint);
+        Ui.TextCenter("death costs one upgrade level", w / 2, (int)(h * 0.34f) + 98, 10, Ui.Faint);
+        Ui.TextCenter("press TAB for scores", w / 2, (int)(h * 0.34f) + 112, 10, Ui.Faint);
     }
 
     private static string ShortName(string name) => name switch
     {
-        "Desert Eagle" => "DEAGLE",
-        "Glock 17" => "GLOCK",
-        "MP5-SD" => "MP5",
+        "Double Barrel" => "DB",
+        "Revolver" => "REV",
         _ => name.ToUpperInvariant(),
     };
 }

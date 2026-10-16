@@ -27,22 +27,98 @@ public struct Brush
 public readonly record struct SpawnPoint(Vector3 Position, float Yaw);
 
 /// <summary>
-/// The supplied Low Poly Industrial Zone. Its authored GLB is rendered directly;
-/// this class exposes the matching deterministic collision contract used by HGO.
+/// One playable arena. "Industrial" is the supplied Low Poly Industrial Zone
+/// GLB with a matching deterministic collision sidecar; the other catalog maps
+/// are box-built arenas where collision brushes are also what the renderer draws.
 /// </summary>
 public sealed class GameMap
 {
-    public string Name => Cfg.MapName;
+    public string Name { get; }
+
+    /// <summary>True when the authored GLB is the visible level (Industrial).</summary>
+    public bool RendersGlb => MapRegistry.RendersGlb(Name);
 
     public Brush[] Brushes { get; }
     public SpawnPoint[] Spawns { get; }
 
-    public GameMap()
+    public GameMap(string name = MapRegistry.Default)
     {
+        Name = MapRegistry.Normalize(name);
+
         var brushes = new List<Brush>();
-        IndustrialZoneLayout.AddCollision(brushes);
+        MapRegistry.AddCollision(Name, brushes);
         Brushes = brushes.ToArray();
-        Spawns = IndustrialZoneLayout.CreateSpawns();
+        Spawns = BuildSpawns();
+    }
+
+    /// <summary>
+    /// Validates the catalog's authored spawn list against the collision it just
+    /// built. A spawn that lands inside solid geometry relocates to the nearest
+    /// clear floor spot; if the list ever thins below a playable count, a
+    /// deterministic grid top-up fills it back in. Every spawn faces the map
+    /// centre so a relocated player never starts nose-first into a wall.
+    /// </summary>
+    private SpawnPoint[] BuildSpawns()
+    {
+        SpawnPoint[] authored = MapRegistry.CreateSpawns(Name);
+        var result = new List<SpawnPoint>(authored.Length);
+        foreach (SpawnPoint spawn in authored)
+        {
+            if (TryClearSpawn(spawn, out SpawnPoint adjusted)) result.Add(adjusted);
+        }
+
+        if (result.Count >= 6) return result.ToArray();
+
+        for (float x = -1080f; x <= 1080f && result.Count < 12; x += 220f)
+        {
+            for (float z = -1080f; z <= 1080f && result.Count < 12; z += 220f)
+            {
+                var candidate = new Vector3(x, 0f, z);
+                bool tooClose = false;
+                foreach (SpawnPoint existing in result)
+                {
+                    if (U.FlatLength(existing.Position - candidate) < 500f)
+                    {
+                        tooClose = true;
+                        break;
+                    }
+                }
+                if (tooClose) continue;
+
+                float yaw = U.YawFromDirection(new Vector3(-x, 0f, -z));
+                if (TryClearSpawn(new SpawnPoint(candidate, yaw), out SpawnPoint found)) result.Add(found);
+            }
+        }
+
+        return result.ToArray();
+    }
+
+    private bool TryClearSpawn(SpawnPoint spawn, out SpawnPoint result)
+    {
+        for (int ring = 0; ring <= 8; ring++)
+        {
+            int steps = ring == 0 ? 1 : 8;
+            for (int i = 0; i < steps; i++)
+            {
+                float angle = i * MathF.Tau / steps;
+                var candidate = new Vector3(
+                    spawn.Position.X + (ring == 0 ? 0f : MathF.Cos(angle) * ring * 90f),
+                    spawn.Position.Y,
+                    spawn.Position.Z + (ring == 0 ? 0f : MathF.Sin(angle) * ring * 90f));
+
+                if (!FindFloor(candidate, 60f, 400f, out float floorY)) continue;
+                if (floorY > spawn.Position.Y + 60f) continue;
+
+                var feet = new Vector3(candidate.X, floorY, candidate.Z);
+                if (BoxBlocked(Aabb.Footprint(feet, Cfg.HalfWidth, Cfg.StandHeight))) continue;
+
+                result = new SpawnPoint(feet, spawn.Yaw);
+                return true;
+            }
+        }
+
+        result = default;
+        return false;
     }
 
     // ---------------------------------------------------------------- queries

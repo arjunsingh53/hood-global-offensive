@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to Hood Global Offensive are documented here.
+All notable changes to HOODMATCH (formerly Hood Global Offensive) are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html). While the version is `0.x`,
@@ -8,11 +8,72 @@ the minor number may contain breaking changes.
 
 ---
 
-## [Unreleased]
+## [0.2.0] — HOODMATCH
 
-The application currently identifies itself as version `0.1.1`. This changelog records the active
-worktree changes only; it does **not** assert that a distributable v0.1.1 executable, GitHub
-Release, or asset-rights review has been completed.
+The Counter-Strike-era identity is retired. The game is now a Redmatch-2-style arena shooter:
+bunny-hopping, dual grappling hooks, flat-damage guns and kill-point cabinet upgrades. There is
+no Counter-Strike mode left — no buy menu, no money, no armour, no spray patterns, no grenades.
+
+### Added
+
+- **Dual grappling hooks** (`src/World/Grapple.cs`): `Q` fires the left hook, `E` the right. Rope
+  pull scales with length, walls can be climbed, both hooks can hold at once, and roofed slingshot
+  routes reach the 45 m/s movement ceiling. `E` beside a cabinet resolves to interaction instead.
+- **Kill-point upgrade cabinets**: kills award points, points buy permanent per-match stat levels
+  (Health +25 / Damage +12% / Speed +6% / Jump +7%, 3 levels each) at wall cabinets, and death drops
+  one level from the highest-upgraded stat. Placement is automatic per map from the nav graph.
+- **Five-map catalog** (`src/World/MapRegistry.cs`): Industrial (the supplied GLB) plus four box
+  arenas — Arena, Streets, Ruins, Playground — rendered directly from their collision brushes.
+  `--maps` lists them; `--map <name>` selects one for the game, headless runs and screenshots.
+- **Spawn sanitization**: every map validates its authored spawn list against its own collision at
+  load time and relocates any spawn that lands inside geometry, deterministically.
+- **Double Barrel secondary fire**: right-click spends a shell as a 270-damage point-blank blast
+  with heavy self-knockback, doubling as a movement tool.
+- **Quick knife (`V`)**, flashlight (`F`, presentation only), hook status squares on the HUD, and a
+  cabinet interaction prompt.
+
+### Changed
+
+- **Movement rebuilt** around the reference's rules: a single fast run speed, hold-`Space`
+  auto-hop where only grounded `WASD` input kills momentum, and grapple physics as the skill
+  ceiling. Crouch remains (`Ctrl`/`C`) as a mechanical trade, not a tactic.
+- **Weapons rebuilt** (`src/Combat/Weapons.cs`): seven guns (Pistol 25, Revolver 50, SMG 16 auto,
+  Rifle 25 auto, Shotgun 15×8, Sniper 100 scoped, Double Barrel 90 with range tiers) plus the
+  knife. Damage is uniform — no headshot multiplier, no armour; only the Double Barrel has range
+  falloff. All reserves are infinite. Recoil kicks after an on-crosshair shot; spread is
+  deterministic from movement/air/bloom terms.
+- **HUD rebuilt** around health, build pips, kill points, weapon slots and hook state; scoreboard
+  tracks points; the buy menu, money and armour readouts are gone.
+- **Rebrand**: window title, menus and console output now say HOODMATCH v0.2.0.
+- **Settings schema v2**: map and loadout selections persist alongside the existing crosshair,
+  camera-feedback, sensitivity and match preferences. v1 documents are upgraded in place.
+- **`BotProfile` tiers, `Actor`, `Simulation` and `Effects`** updated for upgrades, kill points,
+  hooks and cabinets; the soft body push between actors now re-checks level collision, so it can
+  never shove an actor into a wall.
+
+### Removed
+
+- Six source verifier harnesses (`MovementVerifier`, `WeaponReadinessVerifier`, the settings,
+  audio, combat-feedback and gameplay-reach checks) and every flag that ran them; the headless
+  harness now covers movement, grappling, upgrades and settings round-trips directly.
+- The Python/bash screenshot verification tooling (`capture_shots.sh`, `verify_shots.py`,
+  `sweep_weapons.py`, `inspect_png.py`), the standalone gallery page, the committed root
+  executable and the old handoff document.
+
+### Verification
+
+- The headless report now asserts grapple rope limits, spawn clearance on any map, and cabinet
+  existence, runs on a `-warnaserror` build, and executes the scripted robot's hook, quick-knife,
+  flashlight and upgrade purchases. CI runs a 300-second 9-bot Normal match and a 60-second
+  15-bot Hard match, both with fixed seeds.
+
+---
+
+## [0.1.1 worktree] — Hood Global Offensive
+
+The application identified itself as version `0.1.1`. This section records the old worktree's
+changes only; it does **not** assert that a distributable v0.1.1 executable, GitHub Release, or
+asset-rights review was completed. Superseded by 0.2.0.
 
 ### Added
 

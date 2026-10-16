@@ -2,42 +2,17 @@ using HoodGlobalOffensive.Core;
 using HoodGlobalOffensive.Entities;
 using HoodGlobalOffensive.Render;
 using HoodGlobalOffensive.Sim;
-using HoodGlobalOffensive.UI;
-using Raylib_cs;
+using HoodGlobalOffensive.World;
 
 if (HasFlag("--help") || HasFlag("-h")) return PrintHelp();
 
-if (HasFlag("--movement-check"))
+if (HasFlag("--maps"))
 {
-    ulong seed = (ulong)IntArg("--seed", 20260114);
-    return MovementVerifier.Run(seed);
-}
-
-if (HasFlag("--weapon-check"))
-{
-    ulong seed = (ulong)IntArg("--seed", 20260114);
-    return WeaponReadinessVerifier.Run(seed);
-}
-
-if (HasFlag("--gameplay-check"))
-{
-    return GameplayInputAndReachVerifier.Run();
-}
-
-if (HasFlag("--settings-check"))
-{
-    return UserSettingsVerifier.Run();
-}
-
-if (HasFlag("--audio-check"))
-{
-    return AudioMixVerifier.Run();
-}
-
-if (HasFlag("--combat-feedback-check"))
-{
-    ulong seed = (ulong)IntArg("--seed", 20260114);
-    return CombatFeedbackVerifier.Run(seed);
+    foreach (string name in MapRegistry.Names)
+    {
+        Console.WriteLine(name);
+    }
+    return 0;
 }
 
 if (HasFlag("--headless"))
@@ -46,10 +21,11 @@ if (HasFlag("--headless"))
     int bots = IntArg("--bots", Cfg.DefaultBotCount);
     BotSkill skill = SkillArg("--skill", BotSkill.Normal);
     ulong seed = (ulong)IntArg("--seed", 20260114);
+    string map = MapRegistry.Normalize(StringArg("--map", MapRegistry.Default));
     bool verbose = HasFlag("--verbose");
 
-    Console.WriteLine($"{Cfg.GameName} v{Cfg.Version} headless run: {seconds:0}s, {bots} bots, skill {skill}, seed {seed}");
-    return HeadlessRunner.Run(seconds, bots, skill, seed, verbose);
+    Console.WriteLine($"{Cfg.GameName} v{Cfg.Version} headless run: {seconds:0}s, {bots} bots, skill {skill}, map {map}, seed {seed}");
+    return HeadlessRunner.Run(seconds, bots, skill, seed, verbose, map);
 }
 
 if (HasFlag("--screenshot"))
@@ -63,9 +39,10 @@ if (HasFlag("--screenshot"))
     int height = IntArg("--height", 720);
     string weapon = StringArg("--weapon", "");
     string screen = StringArg("--screen", "play");
+    string map = MapRegistry.Normalize(StringArg("--map", MapRegistry.Default));
     bool zoom = HasFlag("--zoom");
 
-    return ScreenshotCapture.Run(path, seconds, bots, skill, seed, width, height, weapon, screen, zoom);
+    return ScreenshotCapture.Run(path, seconds, bots, skill, seed, width, height, weapon, screen, zoom, map);
 }
 
 new Game().Run();
@@ -93,39 +70,35 @@ BotSkill SkillArg(string name, BotSkill fallback)
 
 int PrintHelp()
 {
-    Console.WriteLine("""
-        HOOD GLOBAL OFFENSIVE - an early access Counter-Strike style FPS written in C#.
+    Console.WriteLine($"""
+        {Cfg.GameName} v{Cfg.Version} - an early access fast-movement arena FPS with dual grappling hooks.
 
         Usage:
           dotnet run                              play the game
           dotnet run -- --headless [options]       run a full match with no window and report
-          dotnet run -- --movement-check           run deterministic movement and visual-aim contract checks
-          dotnet run -- --weapon-check             run deterministic weapon-readiness contract checks
-          dotnet run -- --gameplay-check           run input-routing and firearm-reach regression checks
-          dotnet run -- --settings-check           verify isolated player-settings persistence and recovery
-          dotnet run -- --audio-check              verify deterministic audio scope, attenuation and pan routing
-          dotnet run -- --combat-feedback-check    verify low-health and impact-feedback contracts
           dotnet run -- --screenshot <file>        render one gameplay frame to a PNG
+          dotnet run -- --maps                     list the map catalog
 
         Options:
           --seconds <n>    headless: simulated seconds (default 90)
                            screenshot: seconds of gameplay before capture (default 4)
-          --bots <n>       number of bots (default 9)
+          --bots <n>       number of bots (default {Cfg.DefaultBotCount})
           --skill <level>  Easy | Normal | Hard | Expert (default Normal)
           --seed <n>       deterministic match seed
+          --map <name>     {string.Join(" | ", MapRegistry.Names)} (default {MapRegistry.Default})
           --width <n>      screenshot: window width (default 1280)
           --height <n>     screenshot: window height (default 720)
-          --weapon <name>  screenshot: equip a weapon, e.g. "AK-47", "AWP", "Desert Eagle"
-          --screen <name>  screenshot: play | scoreboard | buy | menu | character[-idle|-walk|-run|-crouch] | crosshair | dossier | trauma | impact
-          --zoom           screenshot: hold ADS / scope before capturing
+          --weapon <name>  screenshot: equip a weapon by its catalog name
+          --screen <name>  screenshot: play | scoreboard | upgrade | menu | crosshair | trauma | impact
+          --zoom           screenshot: hold aim / scope before capturing
           --verbose        headless: also dump the kill feed
 
         Controls:
-          WASD move      mouse aim      left click fire      R reload      1/2/3 weapons
-          SHIFT cycle sprint/tac/off    ALT walk             CTRL hold-crouch / C toggle crouch
-          Z toggle prone  SPACE jump / mantle              right click hold iron sights (AWP toggles scope)
-          B buy menu     X inspect weapon    V fire mode     G weapon dossier
-          F2 crosshair options                              TAB scoreboard ESC pause
+          WASD move      mouse aim      left click fire      R reload      1-4 weapons / wheel
+          SPACE jump     hold SPACE with no WASD to bunny hop for speed
+          Q / E grapple: Q fires the left hook, E the right hook (E also opens cabinets you stand beside)
+          right click aim (Double Barrel: point-blank double blast)
+          V quick knife   F flashlight   TAB scoreboard   F2 crosshair   ESC pause
         """);
     return 0;
 }

@@ -1,7 +1,9 @@
 using System.Text;
 using System.Text.Json;
+using HoodGlobalOffensive.Combat;
 using HoodGlobalOffensive.Entities;
 using HoodGlobalOffensive.UI;
+using HoodGlobalOffensive.World;
 
 namespace HoodGlobalOffensive.Core;
 
@@ -12,7 +14,8 @@ namespace HoodGlobalOffensive.Core;
 /// </summary>
 public sealed class UserSettingsStore
 {
-    internal const int CurrentSchemaVersion = 1;
+    internal const int CurrentSchemaVersion = 2;
+    internal const int MinSupportedSchemaVersion = 1;
     internal const int MaxDocumentBytes = 64 * 1024;
 
     private static readonly JsonSerializerOptions JsonOptions = new()
@@ -66,7 +69,7 @@ public sealed class UserSettingsStore
 
             StoredSettings? stored = JsonSerializer.Deserialize<StoredSettings>(text, JsonOptions);
             if (stored is null) throw new InvalidDataException("Settings document was empty.");
-            if (stored.SchemaVersion != CurrentSchemaVersion)
+            if (stored.SchemaVersion is < MinSupportedSchemaVersion or > CurrentSchemaVersion)
                 throw new InvalidDataException($"Unsupported settings schema {stored.SchemaVersion}.");
 
             Apply(stored, settings);
@@ -129,6 +132,10 @@ public sealed class UserSettingsStore
             ? U.Clamp(stored.Sensitivity, 0.3f, 8f)
             : Cfg.Sensitivity;
 
+        settings.MapName = MapRegistry.Normalize(stored.MapName);
+        string[] loadout = SanitizeLoadout(stored.Loadout);
+        for (int i = 0; i < loadout.Length; i++) settings.Loadout[i] = loadout[i];
+
         CrosshairPreset? preset = IsDefined<CrosshairPreset>(stored.CrosshairPreset)
             ? (CrosshairPreset)stored.CrosshairPreset
             : null;
@@ -154,6 +161,22 @@ public sealed class UserSettingsStore
             : CameraFeedbackLevel.Normal);
     }
 
+    private static string[] SanitizeLoadout(string[]? stored)
+    {
+        string[] result = { "Rifle", "Shotgun", "Pistol" };
+        if (stored is null) return result;
+
+        for (int i = 0; i < result.Length; i++)
+        {
+            if (i >= stored.Length) break;
+            WeaponDef? def = Array.Find(WeaponRegistry.LoadoutPool,
+                w => string.Equals(w.Name, stored[i], StringComparison.OrdinalIgnoreCase));
+            if (def is not null) result[i] = def.Name;
+        }
+
+        return result;
+    }
+
     private static StoredSettings Capture(MatchSettings settings)
     {
         CrosshairPreference crosshair = settings.Crosshair.CapturePreference();
@@ -175,6 +198,8 @@ public sealed class UserSettingsStore
             CrosshairArmLength = crosshair.ArmLength,
             CrosshairThickness = crosshair.Thickness,
             CameraFeedbackLevel = (int)settings.CameraFeedback.Level,
+            MapName = MapRegistry.Normalize(settings.MapName),
+            Loadout = (string[])settings.Loadout.Clone(),
         };
     }
 
@@ -245,5 +270,7 @@ public sealed class UserSettingsStore
         public int CrosshairArmLength { get; set; } = 7;
         public int CrosshairThickness { get; set; } = 1;
         public int CameraFeedbackLevel { get; set; } = (int)HoodGlobalOffensive.UI.CameraFeedbackLevel.Normal;
+        public string MapName { get; set; } = MapRegistry.Default;
+        public string[] Loadout { get; set; } = { "Rifle", "Shotgun", "Pistol" };
     }
 }

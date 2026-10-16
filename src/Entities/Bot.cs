@@ -130,8 +130,8 @@ public sealed class Bot : Actor
         Name = name;
         Profile = BotProfile.For(skill);
         Difficulty = (int)skill / 3f;
-        GiveWeapon(WeaponRegistry.Knife);
-        GiveWeapon(WeaponRegistry.Glock);
+        GiveWeapon(WeaponRegistry.Knife, 4);
+        GiveWeapon(WeaponRegistry.Pistol, 1);
     }
 
     public void Update(Simulation sim, float dt)
@@ -318,9 +318,8 @@ public sealed class Bot : Actor
             wish = U.FlatNormalized(wish);
         }
 
-        bool crouch = weapon.Def.Class == "Sniper" && distance > 700f;
         bool jump = MaybeJump(sim, wish, dt);
-        CharacterMover.Move(sim.Map, this, wish, Cfg.RunSpeed * weapon.Def.MoveScale, jump, crouch, walk: false, dt);
+        CharacterMover.Move(sim.Map, this, wish, Cfg.RunSpeed * weapon.Def.MoveScale, jump, false, dt);
     }
 
     // ---------------------------------------------------------------- tactical cover
@@ -557,13 +556,13 @@ public sealed class Bot : Actor
 
         bool jump = MaybeJump(sim, wish, dt);
         CharacterMover.Move(sim.Map, this, wish, Cfg.RunSpeed * Current.Def.MoveScale,
-            jump, crouchHeld: true, walk: false, dt);
+            jump, false, dt);
     }
 
     private void HoldCover(Simulation sim, float dt)
     {
         CharacterMover.Move(sim.Map, this, Vector3.Zero, Cfg.RunSpeed * Current.Def.MoveScale,
-            jump: false, crouchHeld: true, walk: false, dt);
+            jump: false, crouchHeld: false, dt);
     }
 
     private void ClearCoverPlan()
@@ -663,7 +662,7 @@ public sealed class Bot : Actor
         }
 
         bool jump = MaybeJump(sim, wish, dt);
-        CharacterMover.Move(sim.Map, this, wish, Cfg.RunSpeed * Current.Def.MoveScale, jump, crouchHeld: false, walk: false, dt);
+        CharacterMover.Move(sim.Map, this, wish, Cfg.RunSpeed * Current.Def.MoveScale, jump, false, dt);
     }
 
     private void RecomputePath(Simulation sim, Vector3 goal)

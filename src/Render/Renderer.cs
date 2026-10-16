@@ -359,14 +359,93 @@ public static class Renderer
 
     public static void DrawWorld(Simulation sim, Camera3D cam)
     {
-        // The supplied Industrial Zone GLB is the complete visible map. Physics
-        // brushes still exist in GameMap, but they are an invisible traversal
-        // sidecar and must never be drawn as replacement crates, walls or grids.
-        IndustrialZoneModel.TryDraw();
+        // "Industrial" draws the supplied GLB scene: physics brushes still exist
+        // in GameMap but they are an invisible traversal sidecar there. The box
+        // catalog maps invert that: the collision brushes ARE the level visuals.
+        if (sim.Map.RendersGlb)
+        {
+            if (!IndustrialZoneModel.TryDraw()) DrawBoxMap(sim.Map);
+        }
+        else
+        {
+            DrawBoxMap(sim.Map);
+        }
+
+        DrawStations(sim);
+        DrawGrappleRopes(sim);
+        DrawFlashlight(sim);
         DrawDecals(sim);
         DrawActors(sim, cam);
         DrawParticles(sim);
         DrawTracers(sim, cam);
+    }
+
+    /// <summary>Draws collision brushes as lit blocks for the box-built maps.</summary>
+    private static void DrawBoxMap(GameMap map)
+    {
+        foreach (Brush brush in map.Brushes)
+        {
+            Aabb box = brush.Box;
+            Raylib.DrawCubeV(box.Center, box.Size, brush.Color);
+            Raylib.DrawCubeWiresV(box.Center, box.Size, Shade(brush.Color, 0.62f));
+        }
+    }
+
+    /// <summary>Draws the kill-point cabinets and their amber location beacons.</summary>
+    private static void DrawStations(Simulation sim)
+    {
+        foreach (UpgradeStation station in sim.Stations)
+        {
+            Vector3 basePosition = station.Position;
+            var body = new Vector3(46f, 58f, 36f);
+            Raylib.DrawCubeV(basePosition + new Vector3(0f, 29f, 0f), body, U.Rgb(50, 62, 78));
+            Raylib.DrawCubeWiresV(basePosition + new Vector3(0f, 29f, 0f), body, U.Rgb(96, 118, 140));
+            Raylib.DrawCubeV(basePosition + new Vector3(0f, 46f, -19f), new Vector3(30f, 16f, 2f), U.Rgb(255, 196, 72));
+
+            // A tall, faint light column makes the cabinet readable across the arena.
+            Raylib.DrawCubeV(basePosition + new Vector3(0f, 128f, 0f), new Vector3(16f, 200f, 16f),
+                U.Rgba(255, 186, 56, 26));
+        }
+    }
+
+    /// <summary>Draws both grapple ropes from the player's eyes to their anchors.</summary>
+    private static void DrawGrappleRopes(Simulation sim)
+    {
+        Player p = sim.Player;
+        if (!p.Alive) return;
+
+        Vector3 eye = p.EyePosition;
+        DrawRope(eye, p.HookLeft);
+        DrawRope(eye, p.HookRight);
+    }
+
+    private static void DrawRope(Vector3 eye, GrappleHook hook)
+    {
+        if (!hook.Attached) return;
+
+        Color rope = U.Rgb(214, 196, 150);
+        Raylib.DrawLine3D(eye, hook.Anchor, rope);
+
+        // The anchor spike: a small amber cube buried at the attach point.
+        Raylib.DrawCubeV(hook.Anchor + Vector3.Normalize(eye - hook.Anchor) * 4f,
+            new Vector3(7f, 7f, 7f), U.Rgb(255, 186, 56));
+    }
+
+    /// <summary>
+    /// The flashlight is pure presentation: a translucent cone plus a lens
+    /// glow. It lights nothing in the simulation and never changes vision.
+    /// </summary>
+    private static void DrawFlashlight(Simulation sim)
+    {
+        Player p = sim.Player;
+        if (!p.Alive || !p.FlashlightOn) return;
+
+        Vector3 dir = p.AimDirection;
+        Vector3 start = p.EyePosition + dir * 14f;
+        Vector3 end = start + dir * 1500f;
+        Raylib.DrawCylinderEx(start, end, 2f, 150f, 10, U.Rgba(255, 240, 180, 40));
+        Raylib.DrawCylinderEx(start, start + dir * 500f, 2f, 60f, 10, U.Rgba(255, 240, 180, 30));
+        Raylib.DrawSphere(start, 5f, U.Rgba(255, 244, 200, 120));
     }
 
     private static void DrawDecals(Simulation sim)
@@ -655,8 +734,6 @@ public static class Renderer
         float bobX = MathF.Sin(p.BobPhase) * Cfg.ViewModelBobSide * p.BobAmount;
         float bobY = MathF.Cos(p.BobPhase * 2f) * Cfg.ViewModelBobVertical * p.BobAmount;
         FeedbackOffset feedback = GetFeedbackOffset(p, p.Yaw + p.Punch.X, feedbackStrength);
-        float inspectPose = p.InspectPose;
-        float sprintPose = p.SprintWeaponBlend;
         float ironSight = def.HasCalibratedIronSights ? p.ZoomBlend : 0f;
         Vector3 springOffset = p.ViewModelOffsetSpring.Value;
         Vector3 springRotation = p.ViewModelRotationSpring.Value;
@@ -665,12 +742,10 @@ public static class Renderer
 
         // Local offsets: -Z is forward, +X right, +Y up.
         Vector3 offset = AnchorFor(pose) + new Vector3(
-            p.Sway.X * 2.4f + bobX + feedback.Right * Cfg.FeedbackViewModelScale
-                + inspectPose * 5.5f + sprintPose * 7.0f,
+            p.Sway.X * 2.4f + bobX + feedback.Right * Cfg.FeedbackViewModelScale,
             -p.Sway.Y * 2.4f + bobY - p.LandDip * 6f - reloadDip * 3f
                 + feedback.Up * Cfg.FeedbackViewModelScale,
-            kick * 0.22f - feedback.Forward * Cfg.FeedbackViewModelScale
-                + inspectPose * 4.5f + sprintPose * 11.0f);
+            kick * 0.22f - feedback.Forward * Cfg.FeedbackViewModelScale);
 
         offset += springOffset;
 
@@ -708,8 +783,7 @@ public static class Renderer
         Rlgl.SetClipPlanes(Cfg.ViewModelNearClip, Cfg.ViewModelFarClip);
         Raylib.BeginMode3D(viewModelCamera);
 
-        PushViewModelTransform(sim, offset, pose, kick, reloadDip, inspectPose, sprintPose, ironSight,
-            springRotation);
+        PushViewModelTransform(sim, offset, pose, kick, reloadDip, ironSight, springRotation);
         Vector3? muzzle = DrawWeaponShape(def, p, kick, reloadDip);
         // The knife already uses the simulation's melee slot; it must not inherit
         // the firearm-only flash just because it shares the general weapon pipeline.
@@ -993,7 +1067,7 @@ public static class Renderer
     /// inward yaw means the player sees the side of the weapon rather than its muzzle.
     /// </summary>
     private static void PushViewModelTransform(Simulation sim, Vector3 localOffset,
-        in ViewModelPose pose, float kick, float reloadDip, float inspectPose, float sprintPose, float ironSight,
+        in ViewModelPose pose, float kick, float reloadDip, float ironSight,
         Vector3 springRotation)
     {
         Player p = sim.Player;
@@ -1021,13 +1095,6 @@ public static class Renderer
         Rlgl.Rotatef(springRotation.Y, 0f, 1f, 0f);
         Rlgl.Rotatef(springRotation.Z, 0f, 0f, 1f);
 
-        // These are local viewmodel transforms only. Sprint lowers the weapon
-        // into a ready pose, while inspect briefly rolls it into view. Neither
-        // transform reaches BuildCamera, Player.AimDirection or hit-scan.
-        Rlgl.Rotatef(-sprintPose * 24f + inspectPose * 10f, 1f, 0f, 0f);
-        Rlgl.Rotatef(sprintPose * 17f - inspectPose * 31f, 0f, 1f, 0f);
-        Rlgl.Rotatef(-sprintPose * 12f - inspectPose * 17f, 0f, 0f, 1f);
-
         // Hip fire shows a useful side profile. As iron sights come up that
         // presentation yaw resolves to zero, keeping the sights on the centre ray.
         Rlgl.Rotatef(U.Lerp(3f, 0f, ironSight), 0f, 1f, 0f);
@@ -1047,7 +1114,7 @@ public static class Renderer
         // Calibrated against the original rebuilt AK mesh at the fixed 59-degree
         // viewmodel FOV. Its physical rear U-notch and front post meet on the
         // centre ray without lifting the receiver into the protected aim area.
-        "AK-47" => new Vector3(-9.15f, 7.85f, -8.0f),
+        "Rifle" => new Vector3(-9.15f, 7.85f, -8.0f),
         _ when def.Class == "Pistol" => new Vector3(-11.0f, 12.0f, 2.5f),
         _ when def.Class == "SMG" => new Vector3(-11.0f, 12.0f, 3.5f),
         _ when def.Class == "Rifle" => new Vector3(-11.0f, 14.5f, 3.0f),
@@ -1071,14 +1138,13 @@ public static class Renderer
     {
         // The reload dip and tilt are tuned for the box weapons, which are far
         // chunkier than a real pistol: at their full angle this mesh swings almost
-        // entirely below the frame. The sweep measured it at 1.0% of the lower-right
-        // region mid-reload against 9.3% while idle, so the flourish is halved.
-        ["Glock 17"] = new("assets/weapons/glock17.glb", 25f, new Vector3(-1f, -9.5f, -10.5f), 0.45f, 0f),
+        // entirely below the frame. The flourish is halved to keep it in frame.
+        ["Pistol"] = new("assets/weapons/glock17.glb", 25f, new Vector3(-1f, -9.5f, -10.5f), 0.45f, 0f),
         // Original low-poly AK-pattern model.  It carries its own stock, wood
         // furniture, curved magazine, gas tube and sight silhouette; this is a
         // presentation-only replacement for the old generic Rifle boxes.  Its
         // deliberately restrained reload swing keeps the full stock in frame.
-        ["AK-47"] = new("assets/weapons/ak47-viewmodel.glb", 47f, new Vector3(-2.8f, 7.0f, -24.0f), 0.42f, 11f),
+        ["Rifle"] = new("assets/weapons/ak47-viewmodel.glb", 47f, new Vector3(-2.8f, 7.0f, -24.0f), 0.42f, 11f),
         // Side-on presentation keeps the label, top loop, linked chain and split ring
         // readable; the compact cap remains the negative-X striking end of the mesh.
         ["Knife"] = new("assets/weapons/inhaler-keychain.glb", 15f, new Vector3(0.0f, 7.0f, -18.0f), 0.20f, 90f),
@@ -1135,13 +1201,12 @@ public static class Renderer
                 break;
 
             case "Rifle":
-                bool ak = def.Name.StartsWith("AK");
-                Color furniture = ak ? wood : body;
+                Color furniture = wood;
                 Raylib.DrawCubeV(new Vector3(-1f, 1f, -42f), new Vector3(3.4f, 3.4f, 16f), metal);         // barrel
                 Raylib.DrawCubeV(new Vector3(-1f, 1f, -18f), new Vector3(8f, 10f, 42f), body);            // receiver
                 Raylib.DrawCubeV(new Vector3(-1f, 7f, -30f), new Vector3(2.6f, 4f, 10f), metal);          // front sight
                 Raylib.DrawCubeV(new Vector3(-1f, -6f, -6f), new Vector3(8f, 6f, 8f), body);              // handguard
-                Raylib.DrawCubeV(new Vector3(-1f, -4f, -12f), new Vector3(6f, 18f, 9f), ak ? furniture : body);   // magazine
+                Raylib.DrawCubeV(new Vector3(-1f, -4f, -12f), new Vector3(6f, 18f, 9f), furniture);   // magazine
                 Raylib.DrawCubeV(new Vector3(-1f, 1.5f, -2f), new Vector3(9f, 7f, 20f), furniture);       // stock
                 Raylib.DrawCubeV(new Vector3(-7f, -9f, -16f), new Vector3(9f, 10f, 9f), skin);
                 Raylib.DrawCubeV(new Vector3(5f, -8f, -28f), new Vector3(9f, 10f, 9f), skin);
@@ -1176,12 +1241,12 @@ public static class Renderer
     }
 
     /// <summary>
-    /// Keeps the hip-fire AK presentation intact, but brings a compact, usable
+    /// Keeps the hip-fire rifle presentation intact, but brings a compact, usable
     /// sight picture up on ADS instead of magnifying the receiver into the centre
     /// of the screen. This stays entirely inside the visual mesh path.
     /// </summary>
     private static float ArtworkLengthFor(WeaponDef def, in WeaponArtwork art, Player p) =>
-        def.Name == "AK-47" && def.HasCalibratedIronSights
+        def.Name == "Rifle" && def.HasCalibratedIronSights
             ? U.Lerp(art.Length, art.Length * 0.60f, p.ZoomBlend)
             : art.Length;
 

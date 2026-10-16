@@ -30,16 +30,32 @@ public abstract class Actor
     public float Pitch;
 
     public float Health = Cfg.MaxHealth;
-    public float Armor;
-    public bool HasHelmet;
     public bool Alive = true;
     public float RespawnAt;
+    /// <summary>Simulation time of the last damage taken; drives health regeneration.</summary>
+    public float LastDamageTime = -100f;
 
     public int Kills;
     public int Deaths;
-    public int Money = Cfg.StartMoney;
 
-    public float CrouchAmount;   // 0 standing .. 1 fully crouched
+    /// <summary>
+    /// Spent at upgrade cabinets. Points survive death; upgrade levels do not
+    /// fully: dying costs the highest upgrade one level.
+    /// </summary>
+    public int KillPoints;
+
+    // ---------------------------------------------------------------- upgrades
+    public int UpgradeHealth;
+    public int UpgradeDamage;
+    public int UpgradeSpeed;
+    public int UpgradeJump;
+
+    public float MaxHealth => Cfg.MaxHealth + UpgradeHealth * Cfg.UpgradeHealthPerLevel;
+    public float DamageMultiplier => 1f + UpgradeDamage * Cfg.UpgradeDamagePerLevel;
+    public float SpeedMultiplier => 1f + UpgradeSpeed * Cfg.UpgradeSpeedPerLevel;
+    public float JumpMultiplier => 1f + UpgradeJump * Cfg.UpgradeJumpPerLevel;
+
+    public float CrouchAmount;   // 0 standing .. 1 fully crouched (machinery retained for hitboxes)
     public float HeadHeight => U.Lerp(Cfg.StandHeight, Cfg.CrouchHeight, CrouchAmount);
     public float EyeHeight => U.Lerp(Cfg.EyeStand, Cfg.EyeCrouch, CrouchAmount);
     public bool Crouching => CrouchAmount > 0.5f;
@@ -48,7 +64,7 @@ public abstract class Actor
     public int WeaponIndex;
     public Weapon Current => Weapons.Count == 0 ? FallbackWeapon : Weapons[U.ClampInt(WeaponIndex, 0, Weapons.Count - 1)];
 
-    private static readonly Weapon FallbackWeapon = new(WeaponRegistry.Knife);
+    private static readonly Weapon FallbackWeapon = new(WeaponRegistry.Knife, 4);
 
     /// <summary>Accumulated recoil applied to the view, in (yaw, pitch) degrees.</summary>
     public Vector2 Punch;
@@ -82,7 +98,7 @@ public abstract class Actor
     {
         get
         {
-            float baseSpeed = Current.Def.MoveScale * Cfg.RunSpeed;
+            float baseSpeed = Current.Def.MoveScale * Cfg.RunSpeed * SpeedMultiplier;
             if (Crouching) baseSpeed = MathF.Min(baseSpeed, Cfg.CrouchSpeed);
             return baseSpeed;
         }
@@ -90,28 +106,23 @@ public abstract class Actor
 
     // ---------------------------------------------------------------- weapons
 
-    public void GiveWeapon(WeaponDef def)
+    /// <summary>
+    /// Places a weapon in a numbered hotkey slot (1-3 loadout guns, 4 knife)
+    /// and selects it. Replacing an occupied slot swaps the weapon out.
+    /// </summary>
+    public void GiveWeapon(WeaponDef def, int slot)
     {
-        var weapon = new Weapon(def);
-        int existing = Weapons.FindIndex(w => w.Def == def);
-        if (existing >= 0)
-        {
-            Weapons[existing] = weapon;
-        }
-        else
-        {
-            // Replace any weapon already occupying the same slot (knife is always kept).
-            int slotOccupant = Weapons.FindIndex(w => w.Def.Slot == def.Slot);
-            if (def.Slot != WeaponSlot.Knife && slotOccupant >= 0) Weapons[slotOccupant] = weapon;
-            else Weapons.Add(weapon);
-        }
+        var weapon = new Weapon(def, slot);
+        int existing = Weapons.FindIndex(w => w.Slot == slot);
+        if (existing >= 0) Weapons[existing] = weapon;
+        else Weapons.Add(weapon);
 
-        SelectWeapon(def.Slot);
+        SelectWeaponNumber(slot);
     }
 
-    public bool SelectWeapon(WeaponSlot slot)
+    public bool SelectWeaponNumber(int slot)
     {
-        int idx = Weapons.FindIndex(w => w.Def.Slot == slot);
+        int idx = Weapons.FindIndex(w => w.Slot == slot);
         if (idx < 0) return false;
         if (idx == WeaponIndex) return false;
 
@@ -122,43 +133,36 @@ public abstract class Actor
         return true;
     }
 
-    public void SelectSlot(int slotNumber)
+    /// <summary>Turns the mouse wheel: steps to the next or previous owned slot, wrapping.</summary>
+    public bool CycleWeapon(int direction)
     {
-        if (slotNumber == 0) SelectWeapon(WeaponSlot.Knife);
-        else if (slotNumber == 1) SelectWeapon(WeaponSlot.Secondary);
-        else if (slotNumber == 2) SelectWeapon(WeaponSlot.Primary);
+        if (Weapons.Count <= 1) return false;
+
+        var ordered = new List<Weapon>(Weapons);
+        ordered.Sort((a, b) => a.Slot.CompareTo(b.Slot));
+
+        int current = ordered.FindIndex(w => ReferenceEquals(w, Current));
+        if (current < 0) current = 0;
+        int next = (current + direction) % ordered.Count;
+        if (next < 0) next += ordered.Count;
+        return SelectWeaponNumber(ordered[next].Slot);
     }
 
     // ---------------------------------------------------------------- damage
 
-    /// <summary>Damage already resolved for armour. Returns true when the hit was fatal.</summary>
-    public bool ApplyDamage(float amount, HitGroup group, Vector3 point, Actor? attacker)
+    /// <summary>
+    /// Applies already-resolved hitscan damage. Damage is uniform across hit
+    /// groups, matching the reference's gunplay. Returns true when fatal.
+    /// </summary>
+    public bool ApplyDamage(float amount, HitGroup group, Vector3 point, Actor? attacker, float now)
     {
         if (!Alive) return false;
 
-        float damage = amount * (group == HitGroup.Leg ? 0.75f : 1f) * (group == HitGroup.Stomach ? 1.25f : 1f);
-
-        bool head = group == HitGroup.Head;
-        bool helmeted = head && HasHelmet;
-
-        if (Armor > 0f)
-        {
-            float ratio = head && !helmeted ? 1f : 0.5f;
-            float toHealth = damage * ratio;
-            float toArmor = (damage - toHealth) * 0.5f;
-            if (toArmor > Armor)
-            {
-                toArmor = Armor;
-                toHealth = damage - toArmor * 2f;
-                if (toHealth < 0f) toHealth = 0f;
-            }
-            Armor = MathF.Max(0f, Armor - toArmor);
-            Health -= toHealth;
-        }
-        else
-        {
-            Health -= damage;
-        }
+        _ = group;
+        _ = point;
+        Health -= amount;
+        LastDamageTime = now;
+        _ = attacker;
 
         if (Health <= 0f)
         {
@@ -177,7 +181,7 @@ public abstract class Actor
 
     /// <summary>
     /// Eases accumulated recoil back toward the commanded view. The spray index
-    /// resets once the weapon has been idle long enough for the pattern to restart.
+    /// resets once the weapon has been idle long enough.
     /// </summary>
     public void RecoverRecoil(float now, float dt)
     {

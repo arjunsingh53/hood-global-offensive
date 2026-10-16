@@ -13,33 +13,31 @@ public struct InputFrame
     public Vector2 Move;
     /// <summary>Mouse movement in counts since the previous frame.</summary>
     public Vector2 Look;
+    /// <summary>Held jump. Holding it chains bunny-hops on landing.</summary>
     public bool Jump;
     public bool Crouch;
-    /// <summary>One-shot held-crouch edge. It can start a momentum slide without changing held crouch semantics.</summary>
-    public bool CrouchPressed;
-    /// <summary>One-shot source-compatible crouch-toggle intent (C).</summary>
+    /// <summary>One-shot crouch-toggle intent (C).</summary>
     public bool CrouchTogglePressed;
-    /// <summary>
-    /// One-shot prone toggle intent (Z).  It is deliberately separate from
-    /// crouch so a prone player cannot accidentally stand up while initiating a
-    /// slide or using the legacy C crouch toggle.
-    /// </summary>
-    public bool ProneTogglePressed;
-    public bool Walk;
-    /// <summary>One-shot sprint mode cycle intent (Shift).</summary>
-    public bool SprintPressed;
     public bool FireDown;
     public bool FirePressed;
-    /// <summary>One-shot inspect intent for the current first-person weapon.</summary>
-    public bool InspectPressed;
-    /// <summary>One-shot AUTO/SEMI selector intent for compatible player weapons.</summary>
-    public bool FireModePressed;
     public bool Reload;
-    /// <summary>Held secondary-fire state. Iron-sight weapons use hold-to-aim.</summary>
+    /// <summary>Held secondary-fire state. Rifles/pistols use hold-to-aim; the sniper toggles its scope.</summary>
     public bool ZoomDown;
     public bool ZoomPressed;
-    /// <summary>Weapon slot to select this frame, or -1 for none.</summary>
+    /// <summary>One-shot left grapple (Q).</summary>
+    public bool GrappleLeftPressed;
+    /// <summary>One-shot right grapple (E). Near a cabinet, Game resolves E as interact instead.</summary>
+    public bool GrappleRightPressed;
+    /// <summary>One-shot cabinet interact (E). Context-resolved against the right grapple.</summary>
+    public bool UsePressed;
+    /// <summary>One-shot quick knife swing (V), never switches weapons.</summary>
+    public bool MeleePressed;
+    /// <summary>One-shot flashlight toggle (F).</summary>
+    public bool FlashlightTogglePressed;
+    /// <summary>Weapon slot to select this frame (1-4), or -1 for none.</summary>
     public int SwitchSlot;
+    /// <summary>Mouse-wheel weapon cycle: -1 previous, +1 next, 0 none.</summary>
+    public int SwitchCycle;
 
     public static InputFrame Neutral => new() { SwitchSlot = -1 };
 }
@@ -52,7 +50,6 @@ public enum GameplayOverlayAction
 {
     None,
     Pause,
-    Buy,
 }
 
 public static class GameplayOverlayInput
@@ -61,11 +58,10 @@ public static class GameplayOverlayInput
     /// Escape always wins when two keys arrive in the same frame. A completed
     /// match owns its own screen, so it never opens a gameplay overlay.
     /// </summary>
-    public static GameplayOverlayAction Resolve(bool escapePressed, bool buyPressed, bool matchOver)
+    public static GameplayOverlayAction Resolve(bool escapePressed, bool matchOver)
     {
         if (matchOver) return GameplayOverlayAction.None;
-        if (escapePressed) return GameplayOverlayAction.Pause;
-        return buyPressed ? GameplayOverlayAction.Buy : GameplayOverlayAction.None;
+        return escapePressed ? GameplayOverlayAction.Pause : GameplayOverlayAction.None;
     }
 }
 
@@ -86,29 +82,31 @@ public static class RealInput
         f.Look = acceptLook ? Raylib.GetMouseDelta() : Vector2.Zero;
         f.Jump = Raylib.IsKeyDown(KeyboardKey.Space);
         f.Crouch = Raylib.IsKeyDown(KeyboardKey.LeftControl);
-        f.CrouchPressed = Raylib.IsKeyPressed(KeyboardKey.LeftControl);
         f.CrouchTogglePressed = Raylib.IsKeyPressed(KeyboardKey.C);
-        // Z is intentionally unassigned elsewhere in the live input map. It
-        // toggles the safe low-prone stance; Ctrl and C retain their existing
-        // held/toggle crouch semantics.
-        f.ProneTogglePressed = Raylib.IsKeyPressed(KeyboardKey.Z);
-        // The referenced movement controller uses a press edge, not a held key:
-        // Shift cycles regular sprint -> tactical sprint -> off while moving forward.
-        f.SprintPressed = Raylib.IsKeyPressed(KeyboardKey.LeftShift);
-        // Keep HGO's original quiet-walk option without competing with sprint.
-        f.Walk = Raylib.IsKeyDown(KeyboardKey.LeftAlt);
         f.FireDown = Raylib.IsMouseButtonDown(MouseButton.Left);
         f.FirePressed = Raylib.IsMouseButtonPressed(MouseButton.Left);
-        f.InspectPressed = Raylib.IsKeyPressed(KeyboardKey.X);
-        f.FireModePressed = Raylib.IsKeyPressed(KeyboardKey.V);
         f.Reload = Raylib.IsKeyPressed(KeyboardKey.R);
         f.ZoomDown = Raylib.IsMouseButtonDown(MouseButton.Right);
         f.ZoomPressed = Raylib.IsMouseButtonPressed(MouseButton.Right);
 
-        if (Raylib.IsKeyPressed(KeyboardKey.One)) f.SwitchSlot = 0;
-        else if (Raylib.IsKeyPressed(KeyboardKey.Two)) f.SwitchSlot = 1;
-        else if (Raylib.IsKeyPressed(KeyboardKey.Three)) f.SwitchSlot = 2;
-        else if (Raylib.IsKeyPressed(KeyboardKey.Four)) f.SwitchSlot = 3;
+        // Redmatch-style dual hooks: Q fires the left hook, E the right. E is
+        // also the cabinet interact key; the simulation resolves proximity so a
+        // standing player opens the upgrade menu instead of hooking the wall
+        // behind the cabinet.
+        f.GrappleLeftPressed = Raylib.IsKeyPressed(KeyboardKey.Q);
+        f.GrappleRightPressed = Raylib.IsKeyPressed(KeyboardKey.E);
+        f.UsePressed = Raylib.IsKeyPressed(KeyboardKey.E);
+        f.MeleePressed = Raylib.IsKeyPressed(KeyboardKey.V);
+        f.FlashlightTogglePressed = Raylib.IsKeyPressed(KeyboardKey.F);
+
+        if (Raylib.IsKeyPressed(KeyboardKey.One)) f.SwitchSlot = 1;
+        else if (Raylib.IsKeyPressed(KeyboardKey.Two)) f.SwitchSlot = 2;
+        else if (Raylib.IsKeyPressed(KeyboardKey.Three)) f.SwitchSlot = 3;
+        else if (Raylib.IsKeyPressed(KeyboardKey.Four)) f.SwitchSlot = 4;
+
+        float wheel = Raylib.GetMouseWheelMove();
+        if (wheel > 0.1f) f.SwitchCycle = 1;
+        else if (wheel < -0.1f) f.SwitchCycle = -1;
 
         return f;
     }

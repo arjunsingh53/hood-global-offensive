@@ -1,7 +1,7 @@
 # ---------------------------------------------------------------- build output
 bin/
 obj/
-# Temporary publish staging; the verified distributable is the root EXE.
+# Temporary publish staging for self-contained packages.
 release/
 *.user
 *.suo

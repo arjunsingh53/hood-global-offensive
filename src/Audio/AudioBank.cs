@@ -55,6 +55,8 @@ public sealed class AudioBank : IDisposable
             55, 0.46f, 78f, 1.0f, 0.85f, 0.75f);
         AddWeaponFamily("awp", "assets/audio/gun-sniper.wav", "assets/audio/gun.wav", string.Empty,
             66, 0.62f, 68f, 1.0f, 1.0f, 0.85f);
+        AddWeaponFamily("double_barrel", "assets/audio/gun-doublebarrel.wav", "assets/audio/gun-shotgun.wav",
+            "assets/audio/gun.wav", 71, 0.5f, 58f, 0.98f, 1.0f, 0.9f);
         Add("knife", WavGen.Swoosh(77));
 
         Add("hit_flesh", WavGen.Hit(88, 0.22f, 190f, 0.6f));
@@ -69,6 +71,21 @@ public sealed class AudioBank : IDisposable
         Add("spawn", WavGen.Blip(300f, 620f, 0.22f, 0.3f));
         Add("kill", WavGen.Blip(700f, 1180f, 0.2f, 0.4f));
         Add("match_end", WavGen.Fanfare());
+
+        // Movement-tool and cabinet cues. The grapple trio is the constant
+        // companion of every swing, so each stays short and pitchy.
+        AddReferenceOrGenerated("grapple_fire", "assets/audio/grapple-fire.wav",
+            WavGen.Blip(1500f, 420f, 0.10f, 0.25f));
+        AddReferenceOrGenerated("grapple_attach", "assets/audio/grapple-attach.wav",
+            WavGen.Hit(189, 0.12f, 260f, 0.5f));
+        AddReferenceOrGenerated("grapple_release", "assets/audio/grapple-release.wav",
+            WavGen.Blip(420f, 300f, 0.07f, 0.16f));
+        AddReferenceOrGenerated("flashlight", "assets/audio/flashlight.wav",
+            WavGen.Blip(900f, 700f, 0.04f, 0.18f));
+        AddReferenceOrGenerated("upgrade", "assets/audio/upgrade.wav",
+            WavGen.Blip(600f, 1250f, 0.28f, 0.32f));
+        AddReferenceOrGenerated("upgrade_deny", "assets/audio/upgrade-deny.wav",
+            WavGen.Blip(320f, 150f, 0.22f, 0.3f));
 
         Ready = _sounds.Count > 0;
     }

@@ -1,11 +1,10 @@
 # Architecture
 
-Hood Global Offensive is a single C# project with no engine underneath it. It exists as roughly
-6,000 lines across 24 source files, and the organising principle is a hard split between
-**a deterministic simulation** and **a presentation layer**.
+HOODMATCH is a single C# project with no engine underneath it. The organising principle is a hard
+split between **a deterministic simulation** and **a presentation layer**.
 
 That split is not architectural purity for its own sake: it is what makes the game testable without
-a window and without a GPU, which in turn is how the bugs documented in the README were found.
+a window and without a GPU, which is how the bugs documented in the changelog were found.
 
 ---
 
@@ -13,19 +12,18 @@ a window and without a GPU, which in turn is how the bugs documented in the READ
 
 > **The simulation never reads input and never draws. The presentation never changes game state.**
 
-- Everything that decides what happens — physics, shooting, damage, scoring, bot decisions — lives
-  under `src/Sim`, `src/World`, `src/Combat` and `src/Entities`, and takes the form
-  `Advance(input, dt)`.
+- Everything that decides what happens — physics, grappling, shooting, damage, upgrades, bot
+  decisions — lives under `src/Sim`, `src/World`, `src/Combat` and `src/Entities`, and takes the
+  form `Advance(input, dt)`.
 - Everything that turns that state into pixels or sound lives under `src/Render`, `src/UI` and
   `src/Audio`, and only reads.
 
-The reason this matters in practice: the same `Simulation.Update(input, dt)` call that drives the
-real game is also driven by a **scripted input source** in the headless harness, so a full match can
-be played with no window at all.
+The same `Simulation.Update(input, dt)` call that drives the real game is also driven by a
+**scripted input source** in the headless harness, so a full match can be played with no window.
 
 ```
                 ┌───────────────────────────────────────────┐
-                │            Simulation                      │
+                │              Simulation                    │
                 │  (pure state + logic, no drawing)          │
                 └───────────────┬───────────────┬────────────┘
                                 │               │
@@ -36,7 +34,7 @@ be played with no window at all.
 │ Input sources  │                                           │   Presentation    │
 │                │                                           │                   │
 │ RealInput      │  ← keyboard + mouse                       │ Renderer (3D)     │
-│ ScriptedInput  │  ← HeadlessRunner's robot player          │ Hud / Screens (2D)│
+│ ScriptedPlay   │  ← HeadlessRunner's robot player          │ Hud / Screens (2D)│
 │                │                                           │ AudioBank         │
 └────────────────┘                                           └───────────────────┘
 ```
@@ -49,52 +47,54 @@ be played with no window at all.
 
 | File | Responsibility |
 | --- | --- |
-| `Cfg.cs` | **Every gameplay constant in one table.** Sizes, speeds, gravity, step height, damage rules, match rules, view settings, bot counts. If you want to change how the game feels, start here and nowhere else. |
-| `Util.cs` | Vector/math helpers, colour helpers, and `Rng` — a deterministic xorshift generator so that a given seed always produces the same match. Determinism is what lets a failing headless run be reproduced. |
-| `Input.cs` | `InputFrame` (the abstract set of things a player can want to do this tick), `RealInput` (reads raylib), `ScriptedInput` (the robot player). |
-| `Game.cs` | Window creation, the state machine (menu → playing → paused → buy → match over), and the frame loop. Also owns the view-model render target. |
-| `UserSettingsStore.cs` | Versioned, bounded local player-preference persistence. It stores only menu choices and never serializes match state, player state, inventory, money or seeds. |
+| `Cfg.cs` | **Every gameplay constant in one table.** Speeds, gravity, hook physics, step height, damage rules, upgrade magnitudes, match rules. If you want to change how the game feels, start here and nowhere else. |
+| `Util.cs` | `U` — vector/math helpers — and `Rng`, a deterministic xorshift generator so a given seed always produces the same match. Determinism is what lets a failing headless run be reproduced. |
+| `Input.cs` | `InputFrame` (the abstract set of things a player can want this tick) and `RealInput` (reads raylib). |
+| `Game.cs` | Window creation, the state machine (menu → playing → paused → upgrade → match over), and the frame loop. Also owns the view-model render target. |
+| `UserSettingsStore.cs` | Versioned, bounded local preference persistence (schema v2: menu choices, crosshair, camera feedback, map, loadout). Recovers from corrupt files and says so on stderr. |
 
-### `src/World` — space and movement
+### `src/World` — space, movement and grappling
 
 | File | Responsibility |
 | --- | --- |
-| `Geometry.cs` | `Aabb`, the only primitive in the game, with ray/box intersection. The entire world is axis-aligned boxes, which is why the collision code is short enough to reason about. |
-| `GameMap.cs` | The Industrial Zone traversal contract: owns the world queries the rest of the game uses — ray hits, line of sight, box overlap, floor finding, and spawn selection. Its invisible brushes come from the measured `IndustrialZoneLayout` sidecar rather than the rendered model. |
-| `CharacterMover.cs` | The Quake-derived character controller: accelerating, air-accelerating with a per-tick cap, friction, gravity, and swept collision with step-up. |
-| `NavGraph.cs` | Samples the Industrial Zone collision geometry onto a grid to build a waypoint graph, then runs A* over it for the bots. It rebuilds itself from the static sidecar brushes at startup, so collision edits automatically update bot pathing. |
+| `Geometry.cs` | `Aabb`, the only collision primitive in the game, with ray/box intersection. |
+| `MapRegistry.cs` | The map catalog: names, the four box-arena layouts, the Industrial GLB delegation, spawn lists and colour palettes. |
+| `GameMap.cs` | One arena: collision brushes, validated spawns, and every world query the game uses — ray hits, line of sight, box overlap, floor finding, spawn selection. Also relocates any authored spawn that lands inside geometry. |
+| `CharacterMover.cs` | The Quake-derived character controller: ground/air acceleration with the bhop friction rule, gravity, swept collision with step-up, ground snap, and an unstick rescue. |
+| `Grapple.cs` | The two-hook rope model: attach raycast, per-tick pull, climb assist, auto-release, rope length limits. |
+| `NavGraph.cs` | Samples collision geometry onto a grid to build a waypoint graph and runs A* over it for the bots. Rebuilds itself from brushes at startup, so new maps get pathing for free. |
 
 ### `src/Combat` — the damage pipeline
 
 | File | Responsibility |
 | --- | --- |
-| `Weapons.cs` | `WeaponDef` — the immutable description of a gun (damage, falloff, magazine, spread parameters, penetration, and the 30-entry spray `Pattern`) — plus `Weapon`, the runtime state (magazine, bloom, shot index, reload timing) and the rule that turns a shot index into a recoil offset. |
-| `Hitscan.cs` | One function that turns a ray into a `ShotResult`: world hit, actor hit, hit group, penetration, and final damage. Shared by the player *and* the bots, so there is exactly one definition of "what a bullet does". |
+| `Weapons.cs` | `WeaponDef` — the immutable gun description (flat damage, optional range tiers, spread terms, bloom, recoil, ADS, secondary fire, knockback) — plus `Weapon`, the runtime state, its deterministic `SpreadFor(...)` and per-shot kick. |
+| `Hitscan.cs` | One function that turns a ray into a `ShotResult`: world hit, actor hit, penetration, and final damage. Shared by the player *and* the bots, so there is exactly one definition of "what a bullet does". |
 
 ### `src/Entities` — things that exist
 
 | File | Responsibility |
 | --- | --- |
-| `Actor.cs` | Everything the player and the bots have in common: position, velocity, the three hitboxes, health, armour, helmet, money, inventory, and `ApplyDamage` — the single place where the leg/stomach multipliers and the armour split happen. |
-| `Player.cs` | View angles, view kick and punch, zoom state, weapon selection and switch timing, and all the view-model animation state (bob, sway, recoil kick, reload dip, landing dip). |
-| `Bot.cs` | Perception (view cone, hearing, line of sight), the state machine (patrol → hunt → engage → dead), A* navigation, duelling behaviour (strafe, hold range, take cover), burst discipline, its own recoil compensation, and `BotProfile` — the four difficulty tiers. |
+| `Actor.cs` | Everything the player and bots share: position, velocity, hitboxes, health, kill points, upgrade levels (`UpgradeHealth/Damage/Speed/Jump`), and `ApplyDamage` — the single place where damage lands. |
+| `Player.cs` | View angles, view kick, zoom/ADS state, weapon selection including the quick knife, hook ownership, cabinet interaction intent, and view-model animation state. |
+| `Bot.cs` | Perception, the state machine (patrol → hunt → engage → dead), A* navigation, duelling behaviour, burst discipline, recoil compensation, and `BotProfile` — the four difficulty tiers. |
 
 ### `src/Sim` — the authoritative world
 
 | File | Responsibility |
 | --- | --- |
-| `Simulation.cs` | The whole game as one object: the actor list, the tick loop, weapon firing, hit resolution and damage application, scoring and kill attribution, respawning and spawn selection, and match-over detection. |
-| `Effects.cs` | Purely cosmetic-but-simulated state: tracers, impact particles, decals, floating damage numbers, the kill feed, damage direction arcs, and pending sound events. |
-| `HeadlessRunner.cs` | Runs a `Simulation` with `ScriptedInput` for N simulated seconds and prints a report, including the invariant checks. |
+| `Simulation.cs` | The whole game as one object: actor list, tick loop, firing, hit resolution and damage, kill points and the death level-penalty, upgrade purchases, rope updates, respawning, spawn selection, and match-over detection. |
+| `Effects.cs` | Simulated-but-cosmetic state: tracers, impact particles, decals, damage numbers, the kill feed, damage arcs, pending sound events. |
+| `HeadlessRunner.cs` | Runs a `Simulation` with the `ScriptedPlay` robot for N simulated seconds and prints a report, including the invariant checks. |
 
 ### `src/Render`, `src/UI`, `src/Audio` — presentation
 
 | File | Responsibility |
 | --- | --- |
-| `Renderer.cs` | Sky, world brushes, characters, effects, and the transformed first-person view model. |
-| `ScreenshotCapture.cs` | Runs a match for a few seconds, waits for a frame worth capturing, and renders exactly one frame to a PNG. |
-| `Ui.cs` / `Hud.cs` / `Screens.cs` | Immediate-mode drawing primitives; the gameplay HUD; and the main menu, pause menu, buy menu, scoreboard and match-over screen. |
-| `WavGen.cs` / `AudioBank.cs` | Procedural WAV synthesis (gunshots, hits, footsteps, the buy blip, stingers) and a bank that plays them with distance attenuation. |
+| `Renderer.cs` | Sky, the map (GLB scene for Industrial; kind-coloured brushes for the box arenas), cabinets with their beacon columns, grapple ropes, the flashlight cone, characters, effects, and the transformed first-person view model. |
+| `ScreenshotCapture.cs` | Runs a match for a few seconds and renders one frame to a PNG (seven staged screens). |
+| `Ui.cs` / `Hud.cs` / `Screens.cs` | Immediate-mode primitives; the HUD (health, build pips, kill points, hook indicators, radar, cabinet prompt); main menu, pause, upgrade cabinet, crosshair options, scoreboard and match-over. |
+| `WavGen.cs` / `AudioBank.cs` | Procedural WAV synthesis (gunshots, hits, footsteps, hooks, upgrades, blips) and a bank that plays them with distance attenuation. |
 
 ---
 
@@ -103,81 +103,53 @@ be played with no window at all.
 ### Why the whole world is axis-aligned boxes
 
 Every brush is an AABB. That makes ray/box and box/box intersection trivial, makes swept collision
-cheap, and — most importantly — lets the navigation graph be *derived* from the geometry rather than
-authored by hand. Adding a crate is one line, and bot pathing updates itself.
+cheap, and — most importantly — lets the navigation graph be *derived* from the geometry rather
+than authored by hand. Adding a crate is one line, and bot pathing updates itself.
 
-The trade is that diagonal geometry is impossible. The arena is built from steps, ledges and
-pillars to compensate, which is part of why it reads as a Counter-Strike map rather than a modern
-one.
+The four box arenas are **rendered from the same brushes they collide with** — there is no
+duplicate visual geometry to drift out of sync. The supplied Industrial GLB is the one exception:
+its visible meshes come from the asset and its collision comes from a measured sidecar in
+`IndustrialZoneLayout.cs`. `GameMap.RendersGlb` switches the renderer between the two.
 
-### Why the recoil is applied after the shot
+### Why the shot lands on the crosshair and the kick comes after
 
-`Weapon.NextRecoil()` returns an offset for the *next* shot, and firing applies damage using the
-pre-kick aim. This reproduces Counter-Strike's most important gunplay property: the first bullet is
-always exactly where you aimed, and everything after it is a pattern you have to fight.
+Firing resolves damage using the pre-kick aim and applies the view punch afterwards. The first
+bullet is always exactly where you aimed, and the pattern after it is a rhythm you fight — while
+keeping the damage model flat (no headshot multiplier, no armour) as the reference does.
 
 ### Why the view model cannot be occluded
 
 The first-person weapon is drawn **in its own render pass into a separate render target**, with the
-camera pinned to the origin and oriented the same way as the main camera. The render target is then
-blitted over the world. Because the weapon never shares a depth buffer with the level, a wall can
-never clip it — the failure you get from naively drawing a weapon at world scale.
-
-This was not the first approach. `Rlgl.DisableDepthTest()` was tried first and does **not** work
-through raylib's batched renderer, which is why the render-target approach exists. It is also why
-`Game.cs` owns the target's lifetime and why `Renderer.Shutdown()` resets it.
+camera pinned to the origin and oriented the same way as the main camera, then blitted over the
+world. Because the weapon never shares a depth buffer with the level, a wall can never clip it.
 
 ### Why audio is synthesised
 
 Every sound is generated to a WAV buffer at startup by `WavGen`, which keeps the repository almost
 entirely text, makes the sounds tunable in code, and removes any licensing question about shipped
-samples. The one binary file in the repository is a weapon mesh (below), and it is generated by a
-checked-in script rather than committed from an artist's export.
+samples. The binary assets are the Industrial GLB (supplied, with attribution), and the generated
+character/weapon meshes with checked-in build scripts.
 
-### Why one weapon is a mesh, and how it is placed
+### Why `ScriptedPlay` exists
 
-The view model is the only art the player looks at for a whole match, so the Glock 17 is drawn from
-a real mesh (`assets/weapons/glock17.glb`) while the other seven weapons stay as boxes. Two things
-make that affordable and maintainable:
-
-- **The asset is generated, not committed raw.** The source model was 145 MB; `tools/build_weapon_asset.py`
-simplifies it with gltfpack and re-encodes its textures down to 2.7 MB. The script exists because two
-of raylib's limitations are load-bearing: embedded textures must be **PNG** (this raylib has no JPEG
-decoder at all — a JPEG-textured GLB loads with a 1×1 white texture in every slot) and gltfpack's
-vertex quantization cannot be used because it relies on `KHR_texture_transform`, which raylib's
-loader ignores. Both were measured with a throwaway model probe, not assumed.
-- **The placement is measured from the mesh.** `WeaponModels` reads the loaded vertex data: the
-bounding box supplies the centre and the length that the caller's target length is scaled against,
-and the centroid of the front 2% of the mesh supplies the bore line, which is where the muzzle flash
-is hung. Nothing about the pose is a magic number copied off an artist's screenshot, so re-exporting
-the model at a different size or offset does not silently break the framing.
-
-The mesh is rotated a quarter turn about Y into view-model space, where -Z is forward and +Y is up,
-and it is drawn inside the same matrix as the box weapons — which means it inherits recoil, sway,
-bob, the reload dip and the kick animation for free. A weapon whose mesh fails to load logs the
-failure and silently falls back to its box shape, so a missing asset degrades the look rather than
-removing the player's weapon.
-
-### Why the far clip plane is set explicitly
-
-raylib's default far clip plane is 1000 units, which is far too small for a 2400-unit arena. The
-renderer calls `Rlgl.SetClipPlanes(1.0, 9000.0)` before each `BeginMode3D`. If you add distant
-geometry and it disappears, this is why.
-
-### Why `ScriptedInput` exists
-
-Because "does the game still work" is otherwise unanswerable without playing it. `ScriptedInput`
-drives a robot player that moves around the map, acquires targets and shoots, and `HeadlessRunner`
-then asserts invariants on the result:
+Because "does the game still work" is otherwise unanswerable without playing it. The robot moves,
+hops, fires hooks, buys upgrades and shoots; `HeadlessRunner` asserts invariants on the result:
 
 - the player never ends up embedded in geometry
 - no transform ever becomes non-finite
-- recorded kills and recorded deaths agree
-- every chosen spawn is clear of geometry
-- the match actually produces shots and kills
+- grapple ropes never exceed their own range
+- every spawn is clear of geometry and every map has cabinets
+- recorded kills and deaths agree, and the match actually produces combat
 
-That last check is what turns a "the game ran without crashing" run into a "the game did something"
-run.
+That last pair is what turns a "ran without crashing" run into a "did something" run. CI runs the
+harness twice with fixed seeds plus a `-warnaserror` build.
+
+### Why spawns are sanitized
+
+New maps are authored as lists of `Add(...)` brushes and `S(x, z, yaw)` spawns. Because a hand-typed
+spawn can land inside a brush, `GameMap` validates every spawn against the collision it just built
+and relocates offenders to the nearest clear floor spot — deterministically, nearest-ring-first.
+Authors cannot ship a spawn that traps the player, and the harness asserts it.
 
 ---
 
@@ -185,13 +157,12 @@ run.
 
 The pattern that keeps the design intact:
 
-1. **A tunable number?** Put it in `Cfg.cs`, or in the relevant definition table (`WeaponDef`,
-   `BotProfile`). Never inline it.
-2. **A new game rule?** It belongs in `Simulation.cs` (or `Actor.cs` if it is per-entity state), and
-   it must be reachable from `Advance(input, dt)` so the headless harness exercises it
-   automatically.
-3. **A new visual or sound?** Read the state in `Renderer`/`Hud`/`Effects`. Do not write to the
+1. **A tunable number?** Put it in `Cfg.cs`, or the relevant table (`WeaponDef`, `BotProfile`).
+   Never inline it.
+2. **A new game rule?** It belongs in `Simulation.cs` (or `Actor.cs` if per-entity), reachable from
+   `Advance(input, dt)` so the headless harness exercises it automatically.
+3. **A new visual or sound?** Read the state in `Renderer`/`Hud`/`Effects`. Never write to the
    simulation from there.
-4. **A new map element?** One `Add(...)` call in `GameMap.cs`. If it is a floor, the nav graph picks
-   it up on its own.
+4. **A new map?** Add a name to `MapRegistry.Names`, a branch in `AddCollision`/`CreateSpawns`, and
+   your `Add(...)`/`S(...)` calls. Bot pathing, bot count, cabinets and spawn validation come free.
 5. **Then run `dotnet run -- --headless --seconds 300`** before you believe it works.
