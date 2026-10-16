@@ -142,6 +142,10 @@ the punch resets.
 
 All reserve ammo is infinite — you only manage magazine, reload timing and trigger discipline.
 
+Pulling out a freshly switched gun takes **0.4 s** on the SMG, Revolver and Double Barrel (the
+reference's only published pull-out values); the view model rides low and settles as it becomes
+fire-ready. Every other gun is ready the instant it is drawn.
+
 ### The Double Barrel's alt-fire
 
 Right-click does not aim: it spends a shell as a **270-damage point-blank blast** with 8 pellets

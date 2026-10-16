@@ -121,7 +121,8 @@ Stand beside a cabinet and press `E` to open the upgrade menu.
 ## The weapons
 
 Seven guns and a knife. Reserve ammo is infinite; reloads are instant-ish (0.4–2.2 s) and
-interruptible by the usual rules.
+interruptible by the usual rules. The SMG, Revolver and Double Barrel take 0.4 s to pull out
+after a switch — the other guns raise instantly.
 
 | Weapon | Damage | Fire | Mag | Notes |
 | --- | --- | --- | --- | --- |

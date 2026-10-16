@@ -9,7 +9,7 @@ namespace HoodGlobalOffensive.Core;
 /// </summary>
 public static class Cfg
 {
-    public const string Title = "HOODMATCH  -  early access v0.2.0";
+    public const string Title = "HOODMATCH  -  early access v0.2.1";
 
     /// <summary>Shown on the main menu and in the window title.</summary>
     public const string GameName = "HOODMATCH";
@@ -17,7 +17,7 @@ public static class Cfg
     /// <summary>The supplied low-poly industrial zone is the game's playable arena.</summary>
     public const string MapName = "Industrial Zone";
 
-    public const string Version = "0.2.0";
+    public const string Version = "0.2.1";
 
     // ---------------------------------------------------------------- player size
     public const float HalfWidth = 16f;

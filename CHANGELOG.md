@@ -8,7 +8,7 @@ the minor number may contain breaking changes.
 
 ---
 
-## [Unreleased]
+## [0.2.1] — 2026-10-16
 
 Reference-parity pass against Redmatch 2's published base stats and patch notes.
 
@@ -16,14 +16,17 @@ Reference-parity pass against Redmatch 2's published base stats and patch notes.
 
 - **Rifle damage 25 → 30**, matching the reference's 1.41.4 default (nerfed there from 34).
 - **SMG damage 16 → 20**, matching the reference's 1.41.3 buff.
-- **Revolver**: 75 damage, a shot every 0.4 s, 2.0 s reload, and no spread of any kind — the
-  reference gives it 100% accuracy at all times.
+- **Revolver**: 75 damage, a shot every 0.4 s, 0.4 s pull-out, 2.0 s reload, and no spread of any
+  kind — the reference gives it 100% accuracy at all times.
 - **Shotgun**: 9 pellets × 17 damage (153 on a direct hit) and a linear falloff band from 20 m to
   70 m ending at 0.1x, matching the falloff the reference added alongside the Double Barrel.
 - **Double Barrel falloff** is now continuous — 1x until 15 m, declining to 0.2x at 30 m — instead
   of three discrete tiers, and the alt-fire blast launches victims at 380 u/s (its 9.5 m/s stat).
 - **Grounded WASD movement no longer adds bullet spread**; only airborne movement carries spread
   penalties, mirroring the reference's 1.41.3 movement-spread removal.
+- **Pull-out times**: the SMG, Revolver and Double Barrel take 0.4 s to raise after a switch, with a
+  matching view-model raise; their published values are the only ones the reference documents, so
+  every other gun still raises instantly.
 
 ---
 

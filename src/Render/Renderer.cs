@@ -730,6 +730,16 @@ public static class Renderer
         // they swing out of frame at the full angle; each art weapon scales it.
         if (Artwork.TryGetValue(def.Name, out WeaponArtwork art)) reloadDip *= art.ReloadSwing;
 
+        // Pull-out raise: while the freshly drawn gun is still deploying, it
+        // rides low in frame and settles up as the fire-ready moment arrives.
+        float deployDip = 0f;
+        float readyIn = weapon.ReadyTime - sim.Time;
+        if (readyIn > 0f && def.DeployTime > 0.0001f)
+        {
+            float t = U.Clamp01(readyIn / def.DeployTime);
+            deployDip = t * t * (3f - 2f * t);
+        }
+
         float kick = p.ViewKick;
         float bobX = MathF.Sin(p.BobPhase) * Cfg.ViewModelBobSide * p.BobAmount;
         float bobY = MathF.Cos(p.BobPhase * 2f) * Cfg.ViewModelBobVertical * p.BobAmount;
@@ -743,7 +753,7 @@ public static class Renderer
         // Local offsets: -Z is forward, +X right, +Y up.
         Vector3 offset = AnchorFor(pose) + new Vector3(
             p.Sway.X * 2.4f + bobX + feedback.Right * Cfg.FeedbackViewModelScale,
-            -p.Sway.Y * 2.4f + bobY - p.LandDip * 6f - reloadDip * 3f
+            -p.Sway.Y * 2.4f + bobY - p.LandDip * 6f - reloadDip * 3f - deployDip * 5.5f
                 + feedback.Up * Cfg.FeedbackViewModelScale,
             kick * 0.22f - feedback.Forward * Cfg.FeedbackViewModelScale);
 

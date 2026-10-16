@@ -28,6 +28,8 @@ public sealed class WeaponDef
     public float Range = 3000f;
 
     public float CycleTime = 0.1f;
+    /// <summary>Seconds a freshly pulled-out copy of this gun takes before it can fire.</summary>
+    public float DeployTime;
     public bool Automatic;
     public int Magazine = 30;
     public int Reserve = 999_999;
@@ -118,6 +120,8 @@ public sealed class Weapon
     public int Mag;
     public int Reserve;
     public float NextShotTime;
+    /// <summary>Sim time before which the gun cannot fire because it is still being drawn.</summary>
+    public float ReadyTime;
     public bool Reloading;
     public float ReloadEndTime;
     public float ReloadStartTime;
@@ -137,7 +141,7 @@ public sealed class Weapon
     public bool IsEmpty => Def.UsesAmmo && Mag <= 0 && Reserve <= 0;
 
     public bool CanFire(float now)
-        => !Reloading && now >= NextShotTime && (!Def.UsesAmmo || Mag > 0);
+        => !Reloading && now >= NextShotTime && now >= ReadyTime && (!Def.UsesAmmo || Mag > 0);
 
     public bool IsAutomatic => Def.Automatic;
 
@@ -231,11 +235,11 @@ public static class WeaponRegistry
 
     public static readonly WeaponDef Revolver = new()
     {
-        // Reference defaults: 75 damage, a shot every 0.4s, 6-round cylinder,
-        // 2.0s reload, and 100% accuracy at all times (no spread of any kind).
+        // Reference defaults: 75 damage, a shot every 0.4s, 0.4s pull-out,
+        // 6-round cylinder, 2.0s reload, and 100% accuracy at all times.
         Name = "Revolver", Class = "Pistol",
         Damage = 75f, Range = 6000f,
-        CycleTime = 0.4f, Automatic = false, Magazine = 6, ReloadTime = 2.0f,
+        CycleTime = 0.4f, DeployTime = 0.4f, Automatic = false, Magazine = 6, ReloadTime = 2.0f,
         MoveScale = 1.02f, SpreadIdle = 0f, SpreadMove = 0f, SpreadAir = 0f,
         SpreadBloom = 0f, SpreadBloomMax = 0f, SpreadDecay = 6.5f,
         RecoilKick = 4.6f, RecoilYawKick = 0.5f, RecoilRecoveryRate = 18f, RecoilRecoveryDelay = 0.28f,
@@ -247,11 +251,11 @@ public static class WeaponRegistry
     public static readonly WeaponDef Smg = new()
     {
         // Spec numbers from the reference's own patch notes: 18.16 shots/s,
-        // 40-round magazine, 1.0s reload, 20 damage after the 1.41.3 buff,
-        // spread blooms while held.
+        // 40-round magazine, 1.0s reload, 0.4s pull-out, 20 damage after the
+        // 1.41.3 buff, spread blooms while held.
         Name = "SMG", Class = "SMG",
         Damage = 20f, Range = 5000f,
-        CycleTime = 1f / 18.16f, Automatic = true, Magazine = 40, ReloadTime = 1.0f,
+        CycleTime = 1f / 18.16f, DeployTime = 0.4f, Automatic = true, Magazine = 40, ReloadTime = 1.0f,
         MoveScale = 0.97f, SpreadIdle = 0.4f, SpreadMove = 3.2f, SpreadAir = 11f,
         SpreadBloom = 0.34f, SpreadBloomMax = 6f, SpreadDecay = 5.5f,
         RecoilKick = 0.7f, RecoilYawKick = 0.28f, RecoilRecoveryRate = 14f, RecoilRecoveryDelay = 0.22f,
@@ -313,7 +317,7 @@ public static class WeaponRegistry
         Name = "Double Barrel", Class = "Shotgun",
         Damage = 90f, Range = 3000f,
         FalloffStart = 600f, FalloffEnd = 1200f, FalloffMinMultiplier = 0.2f,
-        CycleTime = 0.03f, Automatic = false, Magazine = 2, ReloadTime = 1.33f,
+        CycleTime = 0.03f, DeployTime = 0.4f, Automatic = false, Magazine = 2, ReloadTime = 1.33f,
         MoveScale = 0.96f, SpreadIdle = 0.5f, SpreadMove = 4.5f, SpreadAir = 13f,
         SpreadBloom = 0.8f, SpreadBloomMax = 5f, SpreadDecay = 7f,
         RecoilKick = 4.8f, RecoilYawKick = 0.5f, RecoilRecoveryRate = 15f, RecoilRecoveryDelay = 0.3f,

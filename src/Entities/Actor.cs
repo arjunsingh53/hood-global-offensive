@@ -120,7 +120,12 @@ public abstract class Actor
         SelectWeaponNumber(slot);
     }
 
-    public bool SelectWeaponNumber(int slot)
+    /// <summary>
+    /// Switches to a numbered hotkey slot. When <paramref name="now"/> is
+    /// supplied the freshly drawn gun must finish its pull-out time before it
+    /// can fire; spawn-time equips pass no time and are ready immediately.
+    /// </summary>
+    public bool SelectWeaponNumber(int slot, float now = -1f)
     {
         int idx = Weapons.FindIndex(w => w.Slot == slot);
         if (idx < 0) return false;
@@ -129,12 +134,14 @@ public abstract class Actor
         WeaponIndex = idx;
         Weapons[idx].Reloading = false;
         Weapons[idx].ResetRecoil();
+        if (now >= 0f)
+            Weapons[idx].ReadyTime = MathF.Max(Weapons[idx].ReadyTime, now + Weapons[idx].Def.DeployTime);
         Punch = Vector2.Zero;
         return true;
     }
 
     /// <summary>Turns the mouse wheel: steps to the next or previous owned slot, wrapping.</summary>
-    public bool CycleWeapon(int direction)
+    public bool CycleWeapon(int direction, float now = -1f)
     {
         if (Weapons.Count <= 1) return false;
 
@@ -145,7 +152,7 @@ public abstract class Actor
         if (current < 0) current = 0;
         int next = (current + direction) % ordered.Count;
         if (next < 0) next += ordered.Count;
-        return SelectWeaponNumber(ordered[next].Slot);
+        return SelectWeaponNumber(ordered[next].Slot, now);
     }
 
     // ---------------------------------------------------------------- damage

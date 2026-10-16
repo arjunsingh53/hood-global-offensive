@@ -101,8 +101,8 @@ public sealed class Player : Actor
 
         // Select before applying look sensitivity so a newly equipped optic
         // cannot borrow one frame of the previous weapon's zoom state.
-        if (input.SwitchSlot > 0) SelectWeaponNumber(input.SwitchSlot);
-        if (input.SwitchCycle != 0) CycleWeapon(input.SwitchCycle);
+        if (input.SwitchSlot > 0) SelectWeaponNumber(input.SwitchSlot, now);
+        if (input.SwitchCycle != 0) CycleWeapon(input.SwitchCycle, now);
 
         Weapon weapon = Current;
         bool weaponChanged = _lastAimWeapon is not null && !ReferenceEquals(_lastAimWeapon, weapon);
