@@ -24,11 +24,11 @@
 - **Verified state:** `-warnaserror` build clean; both headless CI gates print `RESULT: PASS`;
   the parity harness prints `PARITY: PASS` (including byte-exact replays of both gates through the
   ported runner); the single-file exe was re-verified from a clean directory.
-- **Push policy:** `origin/main` is synced with `main` — the migration sync push (2026-10-16, at
+- **Push policy:** `origin/main` is synced with `main`. The migration sync push (2026-10-16, at
   team request, so the other machine could pull the sim port and the edit-mode tests) brought
-  GitHub fully up to date; `git log origin/main..main` is empty. Pre-push gate for future work:
-  `-warnaserror` build clean, both CI gates `RESULT: PASS`, `tools/parity` `PARITY: PASS`. After
-  a push, update this bullet with the new sync point.
+  GitHub up through `affecef` (the shared parity suite); see `git log --oneline -6`. Pre-push
+  gate for future work: `-warnaserror` build clean, both CI gates `RESULT: PASS`, `tools/parity`
+  `PARITY: PASS`. After a push, update this bullet with the new sync point.
 - **Unity migration (in progress — phase 1 committed `8e670b9`):** the deterministic simulation
   is ported into `unity/` and byte-verified against this repo by `tools/parity`. See "Migration
   state" below. The raylib build (`main`) remains the reference implementation and stays healthy.
