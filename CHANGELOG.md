@@ -28,6 +28,11 @@ project and byte-verified against this reference implementation by a parity harn
   hitscan results and nav-graph paths — then runs both headless CI gates through the ported
   runner and byte-compares the reports (wall-clock excepted). Golden reports are checked in
   under `tools/parity/goldens/`.
+- **Shared parity suite with Unity edit-mode tests** (`unity/Assets/Tests/EditMode/`): the checks
+  now live once, in an engine- and framework-free `ParityChecks.cs`; the console harness is a
+  thin wrapper over it, and the new `HGO.Sim.Tests` edit-mode assembly runs the same suite from
+  Unity's Test Runner against the same checked-in goldens — so the port can be gated from inside
+  the editor as soon as the project is first opened there.
 
 ---
 

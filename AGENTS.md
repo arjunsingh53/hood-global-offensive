@@ -11,9 +11,9 @@ Quick reference:
 - **After finishing every task, update [HANDOFF.md](HANDOFF.md)** — "Where the project stands",
   the code map, and the open items — so the next session (or a friend on another machine) can
   continue from a fresh `git pull` alone, and commit the update with the task.
-- **Push only when the work is production-ready.** Until then keep commits local and let
-  HANDOFF.md carry the state; `origin/main` lags `main` on purpose (see the push policy in
-  HANDOFF.md).
+- **Pre-push gate:** `-warnaserror` build clean, both CI gates `RESULT: PASS`, and `tools/parity`
+  `PARITY: PASS`. Push when the team asks or the work is production-ready, and update the
+  push-policy bullet in HANDOFF.md with the new `origin/main` sync point.
 - Build must stay clean: `dotnet build --nologo -warnaserror`
 - Both CI gates must print `RESULT: PASS`:
   - `dotnet run -- --headless --seconds 300 --bots 9 --skill Normal --seed 20260114`

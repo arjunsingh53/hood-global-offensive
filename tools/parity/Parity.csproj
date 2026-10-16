@@ -15,6 +15,7 @@
   <ItemGroup>
     <Compile Include="Program.cs" />
     <Compile Include="..\..\unity\Assets\Scripts\Sim\**\*.cs" />
+    <Compile Include="..\..\unity\Assets\Tests\EditMode\ParityChecks.cs" />
   </ItemGroup>
 
   <ItemGroup>

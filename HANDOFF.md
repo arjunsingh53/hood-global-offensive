@@ -16,16 +16,19 @@
   self-contained Windows x64 `HoodGlobalOffensive.exe` (assets embedded, no .NET install needed).
 - **`main` = the v0.2.2 work plus follow-up commits:** the README screenshot gallery and main menu
   layout fix with `HANDOFF.md`/`AGENTS.md` (`9e782f9`), the recorded Unity migration plan
-  (`6a6fbdd`), and the Unity sim port with the golden-value parity harness (`8e670b9`). The
-  GitHub release asset for `v0.2.2` was rebuilt in place (`gh release upload --clobber`) so the
-  downloadable exe includes the menu fix. Run `git log --oneline -5` for exact hashes.
+  (`6a6fbdd`), the Unity sim port with the golden-value parity harness (`8e670b9`), the
+  handoff-per-task rule (`3ebec29`), the push policy (`a5ebde6`) and the shared parity suite with
+  Unity edit-mode tests. The GitHub release asset for `v0.2.2` was rebuilt in place
+  (`gh release upload --clobber`) so the downloadable exe includes the menu fix. Run
+  `git log --oneline -5` for exact hashes.
 - **Verified state:** `-warnaserror` build clean; both headless CI gates print `RESULT: PASS`;
   the parity harness prints `PARITY: PASS` (including byte-exact replays of both gates through the
   ported runner); the single-file exe was re-verified from a clean directory.
-- **Push policy:** `origin/main` is at `6a6fbdd` (the recorded Unity plan). Every commit after it —
-  starting with the sim port `8e670b9` — is **local-only until the work is production-ready**;
-  do not push mid-migration. A fresh clone of GitHub therefore lags this handoff: whenever
-  "Where the project stands" describes local-only commits, treat the working machine as ahead.
+- **Push policy:** `origin/main` is synced with `main` — the migration sync push (2026-10-16, at
+  team request, so the other machine could pull the sim port and the edit-mode tests) brought
+  GitHub fully up to date; `git log origin/main..main` is empty. Pre-push gate for future work:
+  `-warnaserror` build clean, both CI gates `RESULT: PASS`, `tools/parity` `PARITY: PASS`. After
+  a push, update this bullet with the new sync point.
 - **Unity migration (in progress — phase 1 committed `8e670b9`):** the deterministic simulation
   is ported into `unity/` and byte-verified against this repo by `tools/parity`. See "Migration
   state" below. The raylib build (`main`) remains the reference implementation and stays healthy.
@@ -101,12 +104,27 @@ behaviour questions.
   Golden reports live in `tools/parity/goldens/`. Refresh them only when the reference's headless
   output changes deliberately: run the two CI-gate commands, keep everything from the first
   `====` separator, and strip the ` wall clock` line.
+- **Shared suite + Unity edit-mode gate:** the checks live once, in
+  `unity/Assets/Tests/EditMode/ParityChecks.cs` — engine- and framework-free, collecting result
+  lines into a `ParityReport`. `tools/parity/Program.cs` is a thin console wrapper over it, and
+  the edit-mode assembly `HGO.Sim.Tests` (`ParityTests.cs` + `HGO.Sim.Tests.asmdef`) runs the
+  same suite from Unity's Test Runner against the same `tools/parity/goldens/` files. Headless
+  invocation once the editor exists:
+
+  ```powershell
+  Unity -batchmode -projectPath unity -runTests -testPlatform EditMode -testResults results.xml
+  ```
+
+  Both test files were compile-checked and dry-run outside the editor (stub NUnit + UnityEngine,
+  C# 9, `-warnaserror`) and the console harness passes, but no real Unity editor has compiled
+  them yet — the first editor open is still the next milestone. Commit the `.meta` files Unity
+  generates for `unity/Assets/Tests/EditMode/`.
 - **Not yet ported:** all presentation — rendering, HUD/menus, input plumbing beyond `InputFrame`,
   settings, audio playback, screenshot tooling. The Unity project itself is a skeleton: editor
   version `6000.3.26f1` (`unity/ProjectSettings/ProjectVersion.txt`), a minimal package manifest
   (test framework + uGUI) and the `HGO.Sim` asmdef. **No Unity editor pass has been run yet** —
-  opening the project in Unity 6.3 and running the parity checks as an edit-mode test is the
-  next milestone.
+  opening the project in Unity 6.3 and running the edit-mode parity tests (already authored, see
+  above) is the next milestone.
 
 ## How to work on this repository
 
@@ -184,10 +202,11 @@ Quick sanity check — peaks should sit roughly 0.2–0.8, never 0 (silence) or 
 
 ### Push policy
 
-`main` accumulates local commits; **push only when the work is production-ready** (a release, or a
-verified milestone that does not belong to the migration mid-flight). Until then the local commit
-history plus this handoff are the continuity record — GitHub lags on purpose. When you do push,
-update the "Push policy" bullet under "Where the project stands" with the new `origin/main` hash.
+Push when the team asks or when a release / verified milestone is ready — **the pre-push gate is
+the verified state above:** `-warnaserror` build clean, both CI gates `RESULT: PASS`,
+`tools/parity` `PARITY: PASS`. When you push, update the "Push policy" bullet under "Where the
+project stands" with the new `origin/main` sync point so the next session knows whether GitHub
+is current.
 
 ### Release ritual
 
@@ -220,7 +239,8 @@ update the "Push policy" bullet under "Where the project stands" with the new `o
 | Menus (see the row-pitch note above) | `src/UI/Screens.cs` |
 | Rig converter | `tools/build_animated_viewmodels.py` |
 | Unity sim port (mirrors `src/`, engine-free) | `unity/Assets/Scripts/Sim/` |
-| Parity harness + golden reports | `tools/parity/` (`Parity.csproj`, `Program.cs`, `goldens/`) |
+| Parity suite (shared) + Unity edit-mode tests | `unity/Assets/Tests/EditMode/` (`ParityChecks.cs`, `ParityTests.cs`, `HGO.Sim.Tests.asmdef`) |
+| Parity console harness + golden reports | `tools/parity/` (`Parity.csproj`, thin `Program.cs`, `goldens/`) |
 | Unity project skeleton | `unity/` (`ProjectVersion.txt`, `Packages/manifest.json`, `HGO.Sim.asmdef`) |
 | Existing docs | `docs/GUIDE.md`, `docs/BUILDING.md`, `docs/ARCHITECTURE.md`, `docs/ROADMAP.md` |
 
@@ -241,6 +261,10 @@ update the "Push policy" bullet under "Where the project stands" with the new `o
   syntax are out; the parity project pins `LangVersion 9.0` so the compiler catches drift.
 - **Never hand-edit `tools/parity/goldens/`** — they are captures of the reference; regenerate
   them from the CI-gate runs as described in the migration-state section.
+- **`ParityChecks.cs` is compiled by two projects** — the console harness (C# 9, no engine) and
+  Unity's `HGO.Sim.Tests`. Keep it free of engine, NUnit and C# 10+ syntax; after changing it run
+  `tools/parity` and, once the editor exists, the edit-mode tests. Unity generates `.meta` files
+  for `unity/Assets/Tests/EditMode/` on first open — commit them with the next editor change.
 - A menu row added to the main menu will re-break the footer overlap unless the pitch math above
   is re-checked.
 
@@ -249,8 +273,10 @@ update the "Push policy" bullet under "Where the project stands" with the new `o
 - **Unity migration, next milestones** (in order):
   1. Open `unity/` in Unity `6000.3.26f1`, let it generate `.meta` files / `Library/` (both are
      gitignored), and confirm `HGO.Sim` compiles in the editor with no engine references.
-  2. Bring the parity checks into Unity as edit-mode tests reusing `tools/parity/goldens/`
-     (the plain .NET harness stays the CI gate until the editor is part of CI).
+  2. Run the authored edit-mode parity tests (`unity/Assets/Tests/EditMode/`, assembly
+     `HGO.Sim.Tests`) in the editor's Test Runner — they already reuse `tools/parity/goldens/`;
+     until the editor is part of CI the console harness remains the automated gate. Commit the
+     `.meta` files Unity generates.
   3. Port input plumbing and settings, then rebuild presentation (rendering, HUD, menus, audio)
      against the reference — gameplay behaviour is already pinned by the parity goldens, so the
      view layer is free to diverge where it is purely cosmetic.
