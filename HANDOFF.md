@@ -9,9 +9,10 @@
 - **Release:** `0.2.2`, tagged `v0.2.2`, published on the
   [releases page](https://github.com/arjunsingh53/hood-global-offensive/releases) with a
   self-contained Windows x64 `HoodGlobalOffensive.exe` (assets embedded, no .NET install needed).
-- **`main` = the v0.2.2 work plus two documentation commits.** The first added the README
-  screenshot gallery and these handoff docs; the second rebuilt the release exe so the menu fix
-  below is in the downloadable binary. Run `git log --oneline -5` for the exact hashes.
+- **`main` = the v0.2.2 work plus one follow-up commit** (`9e782f9`): the README screenshot
+  gallery, the main menu layout fix, this handoff and `AGENTS.md`. The GitHub release asset for
+  `v0.2.2` was then rebuilt in place (`gh release upload --clobber`) so the downloadable exe
+  includes the menu fix. Run `git log --oneline -5` for exact hashes.
 - **Verified state:** `-warnaserror` build clean; both headless CI gates print `RESULT: PASS`;
   the single-file exe was re-verified from a clean directory.
 - **Licensing:** MIT, **except** `assets/weapons/viewmodel-*.glb` (owner-supplied, not covered by
