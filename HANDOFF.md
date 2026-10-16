@@ -22,6 +22,10 @@
 - **Verified state:** `-warnaserror` build clean; both headless CI gates print `RESULT: PASS`;
   the parity harness prints `PARITY: PASS` (including byte-exact replays of both gates through the
   ported runner); the single-file exe was re-verified from a clean directory.
+- **Push policy:** `origin/main` is at `6a6fbdd` (the recorded Unity plan). Every commit after it —
+  starting with the sim port `8e670b9` — is **local-only until the work is production-ready**;
+  do not push mid-migration. A fresh clone of GitHub therefore lags this handoff: whenever
+  "Where the project stands" describes local-only commits, treat the working machine as ahead.
 - **Unity migration (in progress — phase 1 committed `8e670b9`):** the deterministic simulation
   is ported into `unity/` and byte-verified against this repo by `tools/parity`. See "Migration
   state" below. The raylib build (`main`) remains the reference implementation and stays healthy.
@@ -177,6 +181,13 @@ Quick sanity check — peaks should sit roughly 0.2–0.8, never 0 (silence) or 
   trigger-anchored: `pivot = blended target − Turn(scale · TriggerModel)`. Full details in
   `assets/weapons/viewmodel-rig-README.md` (the old `ak47-viewmodel-README.md` is the fallback
   doc).
+
+### Push policy
+
+`main` accumulates local commits; **push only when the work is production-ready** (a release, or a
+verified milestone that does not belong to the migration mid-flight). Until then the local commit
+history plus this handoff are the continuity record — GitHub lags on purpose. When you do push,
+update the "Push policy" bullet under "Where the project stands" with the new `origin/main` hash.
 
 ### Release ritual
 
