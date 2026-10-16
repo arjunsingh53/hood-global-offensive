@@ -156,9 +156,13 @@ public static class Screens
 
             const int panelW = 460;
             const int x = 64;
-            int y = 174;
-            const int rowH = 40;
-            const int gap = 7;
+
+            // Twelve rows must clear the three footer hint lines at the bottom
+            // of the 720-unit design canvas: a 39-unit pitch from 156 puts the
+            // last row's border at 619, above the first hint line at 624.
+            int y = 156;
+            const int rowH = 34;
+            const int gap = 5;
 
             Begin();
             Add("play", "START DEATHMATCH", "", x, y, panelW, rowH);

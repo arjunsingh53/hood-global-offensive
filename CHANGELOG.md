@@ -50,6 +50,10 @@ anchored to the camera.
 
 - **Heartbeat cue was never audible**: its envelope early-out ran at sample zero, so the whole
   buffer was silent; the early-out now tests the decay term only.
+- **Main menu overflowed its footer hints**: once the 0.2.0 rows (kill limit, sensitivity,
+  crosshair, camera feedback) were added, the twelve rows ran into the controls hint block and
+  clipped the QUIT row. The row pitch and start were tightened so the list clears the hints on
+  every resolution.
 
 ---
 

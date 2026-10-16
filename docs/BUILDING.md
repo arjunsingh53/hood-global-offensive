@@ -154,7 +154,7 @@ src/Sim/                     authoritative simulation + headless harness
 src/Render/ src/UI/ src/Audio/   presentation
 tools/                       asset build scripts
 assets/                      maps, characters, weapons, audio/README, sky
-shots/                       legacy captures from pre-0.2.0
+shots/                       curated 1920×1080 captures used by the README
 docs/                        this documentation
 ```
 

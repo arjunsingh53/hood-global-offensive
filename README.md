@@ -5,18 +5,24 @@
 Free-for-all deathmatch against bots across five arenas. You spawn with full health and a
 three-gun loadout plus a knife. Kills pay nothing but **kill points**, which you spend at wall
 cabinets to permanently upgrade your health, damage, speed and jump for the match. No game engine:
-every sound is synthesised at startup, and the one supplied map is loaded directly from a local GLB.
+every sound is synthesised at startup, the weapon viewmodels are animated rigs, and the supplied
+map loads directly from a local GLB.
 
-![status](https://img.shields.io/badge/status-early%20access%200.2.0-ffba38)
+![status](https://img.shields.io/badge/status-early%20access%200.2.2-ffba38)
 ![language](https://img.shields.io/badge/C%23-.NET%2010-512bd4)
 ![framework](https://img.shields.io/badge/raylib--cs-8.1.0-2f6f4e)
 ![platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey)
 ![license](https://img.shields.io/badge/license-MIT-blue)
 
 > ### Early access
-> `0.2.0` is a playable single-player-vs-bots worktree: one game mode, five maps, no networking.
+> `0.2.2` is a playable single-player-vs-bots worktree: one game mode, five maps, no networking.
 > The simulation is deterministic given a seed, and every build is verified by a headless harness
-> before it ships. See [docs/ROADMAP.md](docs/ROADMAP.md) for what is planned next.
+> before it ships. The latest pass added animated viewmodel rigs, rebuilt firearm audio and a
+> camera-anchored sky. See [docs/ROADMAP.md](docs/ROADMAP.md) for what is planned next.
+
+> ### Picking up development?
+> Read **[HANDOFF.md](HANDOFF.md)** first — current state, the exact build/verify/release
+> workflows, and the open tasks, written to bring a new session up to speed fast.
 
 ---
 
@@ -52,7 +58,23 @@ dotnet run                                    # play
 dotnet run -- --maps                          # list the map catalog
 dotnet run -- --headless --seconds 300        # full match, no window, prints an invariant report
 dotnet run -- --screenshot shot.png --map Arena --screen upgrade
+dotnet run -- --sfx-dump sfx                   # write every generated sound cue to WAV
 ```
+
+---
+
+## Screenshots
+
+All captured from the current build at 1920×1080.
+
+![Rifle gameplay on Industrial Zone](shots/31-industrial.png)
+
+| | |
+| --- | --- |
+| ![Iron sights ADS](shots/32-iron-sights.png) <br> *Calibrated iron sights* | ![SMG reload](shots/33-reload.png) <br> *Animated rig reload* |
+| ![Arena](shots/34-arena.png) <br> *Arena — crates, towers, dais* | ![Playground](shots/35-playground.png) <br> *Playground — everything is climbable* |
+| ![Upgrade cabinet](shots/36-upgrade.png) <br> *Kill-point upgrade cabinet* | ![Scoreboard](shots/37-scoreboard.png) <br> *Scoreboard — 15 bots* |
+| ![Main menu](shots/30-menu.png) <br> *The front end* | |
 
 ---
 
@@ -96,6 +118,19 @@ compound your advantage without feeding it back.
 
 Stand beside a cabinet and press `E` to open the upgrade menu.
 
+### The presentation keeps pace
+
+- **Animated viewmodel rigs.** The rifle, sniper, SMG and pistol are rigged models with their own
+  draw, idle, inspect, reload and shoot clips, blended through smooth aim-down-sights transitions.
+  Ads alignment was calibrated per weapon from captured frames, so the iron sights land exactly on
+  the reticle.
+- **Audio synthesised at startup.** Every cue — guns, hitmarker, footsteps, UI — is generated from
+  filter-shaped noise; no sample files ship with the game. Gunshots carry three distance profiles
+  (near, distant, wall-occluded) that swap with listener routing. `dotnet run -- --sfx-dump sfx`
+  writes all of them to WAV if you want to hear them out of context.
+- **Camera-anchored sky.** The dusk gradient, sun and drifting cloud banks track the camera with
+  true horizon parallax instead of being painted onto the screen.
+
 ---
 
 ## Controls
@@ -126,10 +161,10 @@ after a switch — the other guns raise instantly.
 
 | Weapon | Damage | Fire | Mag | Notes |
 | --- | --- | --- | --- | --- |
-| Pistol | 25 | semi | 12 | Default sidearm, fast ADS |
+| Pistol | 25 | semi | 12 | Animated rig, calibrated sights, fast ADS |
 | Revolver | 75 | semi, 2.5/s | 6 | Two-tap, heavy kick, perfect accuracy, shoves victims (60 u/s) |
-| SMG | 20 | auto, 18.16/s | 40 | 1.0 s reload, blooms while held |
-| Rifle | 30 | auto, 10/s | 30 | Calibrated iron sights |
+| SMG | 20 | auto, 18.16/s | 40 | Animated rig reload, blooms while held |
+| Rifle | 30 | auto, 10/s | 30 | Animated rig, calibrated iron sights |
 | Shotgun | 17 × 9 | semi | 6 | Falls to 10% (20–70 m); 140 u/s knockback on hit |
 | Sniper | 100 | bolt, 0.83/s | 5 | 18° scope, one shot one kill |
 | Double Barrel | 90 | semi, as fast as you click | 2 | Falls to 20% (15–30 m). **Alt-fire: 270-damage blast that launches you** |
@@ -210,7 +245,7 @@ src/Sim/                     the authoritative simulation and the headless harne
 src/Render/ src/UI/ src/Audio/   presentation only
 assets/maps/                 the supplied Industrial Zone GLB (CC-BY 4.0, see attribution)
 assets/weapons/              animated viewmodel rig pack (owner-supplied sources, see viewmodel-rig-SOURCE.md)
-shots/                       legacy captures from the pre-0.2.0 build
+shots/                       curated 1920×1080 captures used in this README (current build)
 ```
 
 ## Credits and licence
