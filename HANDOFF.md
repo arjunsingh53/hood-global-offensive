@@ -42,6 +42,23 @@
 5. **README gallery** — eight 1920×1080 captures in `shots/` (numbered, force-added; see the
    gotcha about `.gitignore` below).
 
+## Planned direction: complete migration to Unity
+
+The team has decided to shift development of the game to **Unity completely**. Treat this
+raylib codebase as the **reference implementation** the port works from — keep it healthy
+(`main` builds clean, gates PASS) until the Unity version reaches parity, and use it to settle
+behaviour questions.
+
+- **Ports with intent (reference material):** gameplay rules and tuning tables (`Cfg`,
+  `WeaponRegistry`, bot profiles), the deterministic-simulation design, the rig assets with
+  their per-weapon calibration data and clip sets, and the procedural-audio recipes
+  (`WavGen`'s biquad layers and three distance profiles).
+- **Gets rebuilt in Unity:** rendering (raylib primitives → scene/prefabs/materials), input and
+  settings plumbing, audio playback/output, HUD and menus, and the screenshot/capture tooling.
+- **Rules that carry over unchanged:** the asset/licence split (rig pack and Industrial Zone map
+  are owner-supplied/third-party, outside the MIT licence), and the verified-state discipline —
+  port gameplay first, headless-test or playtest it, then presentation.
+
 ## How to work on this repository
 
 ### Build, run, verify
