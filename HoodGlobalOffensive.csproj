@@ -26,4 +26,13 @@
     <None Update="assets/**/*" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- The Unity project and its parity harness live in this repo but are built by
+         the Unity editor and the parity project in tools/parity respectively. -->
+    <Compile Remove="unity/**" />
+    <None Remove="unity/**" />
+    <Compile Remove="tools/**" />
+    <None Remove="tools/**" />
+  </ItemGroup>
+
 </Project>

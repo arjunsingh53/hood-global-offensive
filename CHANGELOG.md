@@ -8,6 +8,29 @@ the minor number may contain breaking changes.
 
 ---
 
+## [Unreleased]
+
+Start of the complete migration to Unity: the deterministic simulation is ported into the Unity
+project and byte-verified against this reference implementation by a parity harness.
+
+### Added
+
+- **Unity sim port** (`unity/Assets/Scripts/Sim/`, assembly `HGO.Sim` with
+  `noEngineReferences: true`): the whole engine-free simulation — `Cfg`, `U`/`Rng`, `InputFrame`,
+  weapons and hitscan, `Actor`/`Player`/`Bot`, maps, character movement, grapple, nav graph,
+  effect records, the `Simulation` match orchestrator and the headless runner with its scripted
+  robot. The port mirrors the reference namespaces and members, is C# 9-compatible for Unity's
+  compiler profile, turns raylib colours into packed ARGB `uint`s (`U.Argb`) and replaces the
+  BCL `PriorityQueue` with a heap that reproduces its dequeue ordering.
+- **Parity harness** (`tools/parity/`): compiles the Unity sim sources with a plain .NET SDK and
+  checks hundreds of golden values captured from the reference — RNG streams, aim math, weapon
+  spread/recoil/reload, falloff curves, map brushes and spawns, movement and grapple traces,
+  hitscan results and nav-graph paths — then runs both headless CI gates through the ported
+  runner and byte-compares the reports (wall-clock excepted). Golden reports are checked in
+  under `tools/parity/goldens/`.
+
+---
+
 ## [0.2.2] — 2026-10-16
 
 Weapon-presentation and audio pass: the four primary weapons now use supplied animated rigs, the

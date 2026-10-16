@@ -67,7 +67,23 @@ Both are presentation-layer work on top of the deterministic sim.
 
 - **A level editor.** The map is code. That is a deliberate choice, and keeping it that way keeps
   the navigation graph derivable and the collision model trivial.
-- **A different renderer or a move to a game engine.** The point of this project is that it is
-  written from scratch on a thin binding, and it builds clean with zero warnings and no engine.
 - **Unreviewed or unlicensed asset packs.** The project only integrates supplied assets with a
   source/provenance record. The optional sky panorama slot is intentionally empty by default.
+
+---
+
+## In progress: the Unity migration
+
+Development is completing a move to **Unity** (decided 2026-10; see
+[HANDOFF.md](../HANDOFF.md) for the exact state and workflows). The raylib codebase is the
+**reference implementation**: it stays healthy — `main` builds clean and both CI gates PASS —
+until the Unity version reaches parity, and it settles behaviour questions during the port.
+
+- The deterministic simulation is already ported (`unity/Assets/Scripts/Sim/`) and byte-verified
+  against the reference by the parity harness in `tools/parity` (both CI-gate matches reproduce
+  the reference reports exactly, minus wall-clock).
+- Rendering, HUD/menus, settings plumbing, audio playback and capture tooling are rebuilt in
+  Unity rather than ported. The asset/licence split (rig pack, Industrial Zone map) carries over
+  unchanged.
+- The items above this section describe the raylib reference; they stop driving new work unless
+  they are needed for parity or to keep the reference honest.

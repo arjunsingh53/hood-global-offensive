@@ -1,0 +1,51 @@
+=========================================================
+ HEADLESS SIMULATION REPORT
+=========================================================
+ simulated ticks      : 3599  (60.0s of 60.0s budget)
+ bots in match        : 15  (skill Hard, map Industrial)
+ nav nodes            : 785
+ map brushes          : 55
+ upgrade stations     : 3
+ match over           : False  
+ time remaining       : 540.0s
+---------------------------------------------------------
+ player kills/deaths  : 1 / 14
+ player shots fired   : 109   hits 7   headshots 4
+ player accuracy      : 6.4%
+ player health        : 0   alive=False
+ player kill points   : 0   upgrades bought 1
+ grapple fires       : 19
+ distance walked      : 6523 units
+ peak horizontal speed: 1799 units/s  (run speed 400)
+ respawns handled     : 154
+ kill feed entries    : 6
+ tracers alive        : 0   decals 112
+---------------------------------------------------------
+ LEADERBOARD
+   BOT  Hana       kills  16  deaths   8  acc  79.8%  mk=51
+   BOT  Selim      kills  14  deaths   7  acc  79.0%  mk=44
+   BOT  Anya       kills  14  deaths  10  acc  87.2%  mk=46
+   BOT  Dmitri     kills  13  deaths   8  acc  70.1%  mk=31
+   BOT  Kovac      kills  11  deaths   9  acc  82.1%  mk=35
+   BOT  Jonas      kills  10  deaths   6  acc  84.1%  mk=20
+   BOT  Tariq      kills  10  deaths   9  acc  75.0%  mk=28
+   BOT  Ruiz       kills   9  deaths   7  acc  66.0%  mk=19
+   BOT  Vitaliy    kills   9  deaths  10  acc  72.2%  mk=22
+   BOT  Brook      kills   8  deaths   8  acc  48.1%  mk=17
+   BOT  Nadia      kills   8  deaths   9  acc  76.5%  mk=16
+   BOT  Marco      kills   8  deaths  10  acc  57.7%  mk=19
+   BOT  Ines       kills   8  deaths  10  acc  88.4%  mk=20
+   BOT  Priya      kills   5  deaths  12  acc  95.8%  mk=10
+   BOT  Yuki       kills   4  deaths  11  acc 100.0%  mk=12
+   YOU  You        kills   1  deaths  14  acc   6.4%  mk=4
+---------------------------------------------------------
+ INVARIANTS
+   ticks with player embedded in geometry : 0  (expect 0)
+   frames with non-finite transforms      : 0  (expect 0)
+   frames with over-extended grapple rope : 0  (expect 0)
+   deaths across all actors               : 148
+   kills recorded == deaths recorded      : yes
+   spawns are clear of geometry           : yes
+   upgrade stations exist                 : yes
+ RESULT: PASS
+=========================================================

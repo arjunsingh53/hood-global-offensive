@@ -1,0 +1,45 @@
+=========================================================
+ HEADLESS SIMULATION REPORT
+=========================================================
+ simulated ticks      : 10578  (176.3s of 300.0s budget)
+ bots in match        : 9  (skill Normal, map Industrial)
+ nav nodes            : 785
+ map brushes          : 55
+ upgrade stations     : 3
+ match over           : True  JONAS REACHED 30 KILLS
+ time remaining       : 423.7s
+---------------------------------------------------------
+ player kills/deaths  : 8 / 22
+ player shots fired   : 343   hits 25   headshots 9
+ player accuracy      : 7.3%
+ player health        : 0   alive=False
+ player kill points   : 0   upgrades bought 8
+ grapple fires       : 85
+ distance walked      : 35684 units
+ peak horizontal speed: 1800 units/s  (run speed 400)
+ respawns handled     : 209
+ kill feed entries    : 6
+ tracers alive        : 2   decals 112
+---------------------------------------------------------
+ LEADERBOARD
+   BOT  Jonas      kills  30  deaths  18  acc  63.7%  mk=70
+   BOT  Selim      kills  25  deaths  21  acc  60.1%  mk=55
+   BOT  Kovac      kills  24  deaths  20  acc  66.7%  mk=54
+   BOT  Ruiz       kills  24  deaths  20  acc  65.0%  mk=54
+   BOT  Priya      kills  22  deaths  20  acc  69.5%  mk=45
+   BOT  Hana       kills  22  deaths  24  acc  69.2%  mk=43
+   BOT  Vitaliy    kills  21  deaths  25  acc  62.2%  mk=56
+   BOT  Nadia      kills  17  deaths  15  acc  47.4%  mk=26
+   BOT  Dmitri     kills  12  deaths  20  acc  48.8%  mk=22
+   YOU  You        kills   8  deaths  22  acc   7.3%  mk=9
+---------------------------------------------------------
+ INVARIANTS
+   ticks with player embedded in geometry : 0  (expect 0)
+   frames with non-finite transforms      : 0  (expect 0)
+   frames with over-extended grapple rope : 0  (expect 0)
+   deaths across all actors               : 205
+   kills recorded == deaths recorded      : yes
+   spawns are clear of geometry           : yes
+   upgrade stations exist                 : yes
+ RESULT: PASS
+=========================================================
