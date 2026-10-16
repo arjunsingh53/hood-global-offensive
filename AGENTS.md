@@ -8,6 +8,9 @@ build/verify/release workflows, and the open tasks. Project conventions are docu
 
 Quick reference:
 
+- **After finishing every task, update [HANDOFF.md](HANDOFF.md)** — "Where the project stands",
+  the code map, and the open items — so the next session (or a friend on another machine) can
+  continue from a fresh `git pull` alone, and commit the update with the task.
 - Build must stay clean: `dotnet build --nologo -warnaserror`
 - Both CI gates must print `RESULT: PASS`:
   - `dotnet run -- --headless --seconds 300 --bots 9 --skill Normal --seed 20260114`

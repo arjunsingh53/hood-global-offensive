@@ -2,21 +2,27 @@
 
 > **Read this first if you are picking the project up (human or AI session).** It describes the
 > exact state of the repository, the workflows that are easy to get wrong, and what is still open.
-> Everything here is reproducible from a clean clone of `main`; the Unity migration work is
-> currently an uncommitted worktree (see "Migration state").
+> Everything here is reproducible from a clean clone of `main` — the Unity migration phase 1 (the
+> sim port) is committed in `8e670b9`; see "Migration state".
+>
+> **Keep this file current.** After every task, update "Where the project stands", the code map,
+> and the open items here so the next session (or a friend on another machine) can continue from
+> a fresh `git pull` alone. Commit the update with the task.
 
 ## Where the project stands
 
 - **Release:** `0.2.2`, tagged `v0.2.2`, published on the
   [releases page](https://github.com/arjunsingh53/hood-global-offensive/releases) with a
   self-contained Windows x64 `HoodGlobalOffensive.exe` (assets embedded, no .NET install needed).
-- **`main` = the v0.2.2 work plus one follow-up commit** (`9e782f9`): the README screenshot
-  gallery, the main menu layout fix, this handoff and `AGENTS.md`. The GitHub release asset for
-  `v0.2.2` was then rebuilt in place (`gh release upload --clobber`) so the downloadable exe
-  includes the menu fix. Run `git log --oneline -5` for exact hashes.
+- **`main` = the v0.2.2 work plus follow-up commits:** the README screenshot gallery and main menu
+  layout fix with `HANDOFF.md`/`AGENTS.md` (`9e782f9`), the recorded Unity migration plan
+  (`6a6fbdd`), and the Unity sim port with the golden-value parity harness (`8e670b9`). The
+  GitHub release asset for `v0.2.2` was rebuilt in place (`gh release upload --clobber`) so the
+  downloadable exe includes the menu fix. Run `git log --oneline -5` for exact hashes.
 - **Verified state:** `-warnaserror` build clean; both headless CI gates print `RESULT: PASS`;
-  the single-file exe was re-verified from a clean directory.
-- **Unity migration (in progress, uncommitted worktree):** phase 1 — the deterministic simulation —
+  the parity harness prints `PARITY: PASS` (including byte-exact replays of both gates through the
+  ported runner); the single-file exe was re-verified from a clean directory.
+- **Unity migration (in progress — phase 1 committed `8e670b9`):** the deterministic simulation
   is ported into `unity/` and byte-verified against this repo by `tools/parity`. See "Migration
   state" below. The raylib build (`main`) remains the reference implementation and stays healthy.
 - **Licensing:** MIT, **except** `assets/weapons/viewmodel-*.glb` (owner-supplied, not covered by
