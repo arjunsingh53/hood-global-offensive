@@ -1,4 +1,4 @@
-using System.Numerics;
+﻿using System.Numerics;
 using HoodGlobalOffensive.Combat;
 using HoodGlobalOffensive.Core;
 using HoodGlobalOffensive.Entities;
@@ -151,7 +151,7 @@ public static class Screens
             Raylib.DrawRectangle(0, 0, w, 6, Ui.Accent);
             Raylib.DrawRectangle(64, 145, 460, 1, U.Rgba(255, 255, 255, 34));
             Ui.Text(Cfg.GameName, 60, 54, 52, Ui.Ink);
-            Ui.Text($"EARLY ACCESS v{Cfg.Version}   •   OFFLINE BOT DEATHMATCH   •   GRAPPLE ARENA",
+            Ui.Text($"EARLY ACCESS v{Cfg.Version}   -   OFFLINE BOT DEATHMATCH   -   GRAPPLE ARENA",
                 64, 118, 13, Ui.Dim);
 
             const int panelW = 460;
@@ -453,9 +453,9 @@ public static class Screens
                 Ui.TextCenter(_message.ToUpperInvariant(), w / 2, y + panelH - 78, 13, c);
             }
 
-            Ui.Text("W / S  SELECT     SPACE / E  BUY     ESC  CLOSE",
+            Ui.Text("W/S SELECT   SPACE/E BUY   ESC CLOSE",
                 x + 26, y + panelH - 40, 11, Ui.Faint);
-            Ui.TextRight("MAX 3 LEVELS PER STAT   •   DEATH COSTS ONE LEVEL", x + panelW - 26, y + panelH - 40, 11, Ui.Dim);
+            Ui.TextRight("MAX 3/STAT - DEATH COSTS 1", x + panelW - 26, y + panelH - 40, 11, Ui.Dim);
 
             if (Raylib.IsKeyPressed(KeyboardKey.Escape)) stillOpen = false;
             return stillOpen;

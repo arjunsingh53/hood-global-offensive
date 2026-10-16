@@ -1,4 +1,4 @@
-using System.Numerics;
+﻿using System.Numerics;
 using HoodGlobalOffensive.Combat;
 using HoodGlobalOffensive.Core;
 using HoodGlobalOffensive.Entities;
@@ -245,7 +245,7 @@ public static class Hud
         const string prompt = "[ E ]  UPGRADE CABINET";
         int y = (int)(h * 0.66f);
         Ui.TextCenter(prompt, w / 2, y, 15, Fade(Ui.Ink, opacity));
-        Ui.TextCenter($"{sim.Player.KillPoints} KILL POINTS   •   1 POINT PER LEVEL",
+        Ui.TextCenter($"{sim.Player.KillPoints} KILL POINTS   -   1 POINT PER LEVEL",
             w / 2, y + 20, 10, Fade(Ui.Accent, opacity));
     }
 
@@ -352,7 +352,7 @@ public static class Hud
         string mag = weapon.Def.UsesAmmo ? weapon.Mag.ToString("00") : "--";
         DrawArenaText(mag, cardX + 144, cardY + 33, 38, ammoColor, opacity);
         Ui.Text("/", cardX + 197, cardY + 55, 16, Fade(Ui.Faint, opacity));
-        DrawArenaText("∞", cardX + 213, cardY + 46, 26, U.Rgba(238, 242, 244, 210), opacity);
+        DrawArenaText("INF", cardX + 213, cardY + 50, 20, U.Rgba(238, 242, 244, 210), opacity);
         Ui.Text("MAG", cardX + 147, cardY + 74, 9, Fade(Ui.Faint, opacity));
         Ui.Text("RES", cardX + 218, cardY + 74, 9, Fade(Ui.Faint, opacity));
 
@@ -395,10 +395,10 @@ public static class Hud
 
         static string weaponState(Weapon w) => w.Def switch
         {
-            { Melee: true } => "MELEE  •  V",
-            { HasSecondary: true } => "ALT  •  DOUBLE BLAST",
-            { HasScope: true } => "SCOPE  •  RIGHT CLICK",
-            { HasIronSights: true } => "IRON SIGHTS  •  HOLD RIGHT CLICK",
+            { Melee: true } => "MELEE - V",
+            { HasSecondary: true } => "ALT - DOUBLE BLAST",
+            { HasScope: true } => "SCOPE - RMB",
+            { HasIronSights: true } => "IRON SIGHTS - RMB",
             _ => "PRIMARY",
         };
     }
@@ -418,7 +418,7 @@ public static class Hud
 
         Actor? leader = sim.Leaderboard().FirstOrDefault();
         int leadKills = leader?.Kills ?? 0;
-        string score = $"YOU {sim.Player.Kills:00}   •   LEAD {leadKills:00}   •   FT {sim.KillsToWin}";
+        string score = $"YOU {sim.Player.Kills:00}   -   LEAD {leadKills:00}   -   FT {sim.KillsToWin}";
         Ui.TextCenter(score, w / 2, 57, 9, Fade(Ui.Dim, opacity));
     }
 
