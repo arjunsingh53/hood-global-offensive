@@ -4,14 +4,6 @@ using Raylib_cs;
 
 namespace HoodGlobalOffensive.Combat;
 
-/// <summary>
-/// An authored damage band for a hitscan weapon. Distances use the existing
-/// world-unit contract. Only weapons that actually have falloff author these;
-/// the reference introduces falloff gun by gun, so most definitions leave the
-/// array empty and deal flat damage at any range.
-/// </summary>
-public readonly record struct DamageRangeTier(float MaxDistance, float Damage);
-
 /// <summary>Immutable description of a weapon. Runtime state lives in <see cref="Weapon"/>.</summary>
 public sealed class WeaponDef
 {
@@ -24,10 +16,14 @@ public sealed class WeaponDef
     public float Damage = 30f;
     /// <summary>Uniform damage in the reference: heads take the same damage as the body.</summary>
     public float HeadshotMultiplier = 1f;
-    /// <summary>Fraction of damage lost for each 1,000 world units travelled (when no tiers are authored).</summary>
+    /// <summary>Legacy exponential falloff per 1,000 world units; unused when a linear band is authored.</summary>
     public float Falloff;
-    /// <summary>Optional authored body-damage bands, ordered nearest to farthest.</summary>
-    public DamageRangeTier[] DamageTiers = Array.Empty<DamageRangeTier>();
+    /// <summary>Start of the linear damage-falloff band, in world units; zero disables it.</summary>
+    public float FalloffStart;
+    /// <summary>End of the linear damage-falloff band, in world units.</summary>
+    public float FalloffEnd;
+    /// <summary>Damage multiplier reached at <see cref="FalloffEnd"/> and beyond.</summary>
+    public float FalloffMinMultiplier = 1f;
     /// <summary>Hard cap for the hit-scan ray.</summary>
     public float Range = 3000f;
 
@@ -151,8 +147,7 @@ public sealed class Weapon
             ? U.Lerp(1f, Def.AimSpreadMultiplier, U.Clamp01(aimBlend))
             : 1f;
         float spread = (Def.SpreadIdle + Bloom) * aimScale;
-        spread += Def.SpreadMove * U.Clamp01(horizontalSpeed / Cfg.RunSpeed);
-        if (!onGround) spread += Def.SpreadAir;
+        if (!onGround) spread += Def.SpreadAir + Def.SpreadMove * U.Clamp01(horizontalSpeed / Cfg.RunSpeed);
         if (crouching && onGround) spread *= Def.SpreadCrouchScale;
         return spread;
     }
@@ -236,11 +231,13 @@ public static class WeaponRegistry
 
     public static readonly WeaponDef Revolver = new()
     {
+        // Reference defaults: 75 damage, a shot every 0.4s, 6-round cylinder,
+        // 2.0s reload, and 100% accuracy at all times (no spread of any kind).
         Name = "Revolver", Class = "Pistol",
-        Damage = 50f, Range = 6000f,
-        CycleTime = 0.5f, Automatic = false, Magazine = 6, ReloadTime = 1.8f,
-        MoveScale = 1.02f, SpreadIdle = 0.3f, SpreadMove = 6.5f, SpreadAir = 18f,
-        SpreadBloom = 2.0f, SpreadBloomMax = 6f, SpreadDecay = 6.5f,
+        Damage = 75f, Range = 6000f,
+        CycleTime = 0.4f, Automatic = false, Magazine = 6, ReloadTime = 2.0f,
+        MoveScale = 1.02f, SpreadIdle = 0f, SpreadMove = 0f, SpreadAir = 0f,
+        SpreadBloom = 0f, SpreadBloomMax = 0f, SpreadDecay = 6.5f,
         RecoilKick = 4.6f, RecoilYawKick = 0.5f, RecoilRecoveryRate = 18f, RecoilRecoveryDelay = 0.28f,
         VisualKick = 16f, AdsFov = 65f, AimSpreadMultiplier = 0.42f,
         PenetrationPower = 1, PenetrationDamageScale = 0.75f, KnockbackOnHit = 60f,
@@ -250,9 +247,10 @@ public static class WeaponRegistry
     public static readonly WeaponDef Smg = new()
     {
         // Spec numbers from the reference's own patch notes: 18.16 shots/s,
-        // 40-round magazine, 1.0s reload, 16 damage, spread blooms while held.
+        // 40-round magazine, 1.0s reload, 20 damage after the 1.41.3 buff,
+        // spread blooms while held.
         Name = "SMG", Class = "SMG",
-        Damage = 16f, Range = 5000f,
+        Damage = 20f, Range = 5000f,
         CycleTime = 1f / 18.16f, Automatic = true, Magazine = 40, ReloadTime = 1.0f,
         MoveScale = 0.97f, SpreadIdle = 0.4f, SpreadMove = 3.2f, SpreadAir = 11f,
         SpreadBloom = 0.34f, SpreadBloomMax = 6f, SpreadDecay = 5.5f,
@@ -264,7 +262,7 @@ public static class WeaponRegistry
     public static readonly WeaponDef Rifle = new()
     {
         Name = "Rifle", Class = "Rifle",
-        Damage = 25f, Range = 7000f,
+        Damage = 30f, Range = 7000f,
         CycleTime = 0.1f, Automatic = true, Magazine = 30, ReloadTime = 1.5f,
         MoveScale = 0.93f, SpreadIdle = 0.28f, SpreadMove = 5.5f, SpreadAir = 15f,
         SpreadBloom = 0.24f, SpreadBloomMax = 6f, SpreadDecay = 4.6f,
@@ -277,13 +275,16 @@ public static class WeaponRegistry
 
     public static readonly WeaponDef Shotgun = new()
     {
+        // Reference patch notes: 9 pellets at 17 damage each (153 on a full
+        // connect), with 1x damage until 20m falling to 0.1x at 70m.
         Name = "Shotgun", Class = "Shotgun",
-        Damage = 15f, Range = 3000f,
+        Damage = 17f, Range = 3000f,
+        FalloffStart = 800f, FalloffEnd = 2800f, FalloffMinMultiplier = 0.1f,
         CycleTime = 0.8f, Automatic = false, Magazine = 6, ReloadTime = 2.0f,
         MoveScale = 0.92f, SpreadIdle = 4.6f, SpreadMove = 3f, SpreadAir = 8f,
         SpreadBloom = 1.1f, SpreadBloomMax = 4f, SpreadDecay = 6f,
         RecoilKick = 5.5f, RecoilYawKick = 0.6f, RecoilRecoveryRate = 14f, RecoilRecoveryDelay = 0.32f,
-        VisualKick = 18f, Pellets = 8, AdsFov = 66f, AimSpreadMultiplier = 0.72f,
+        VisualKick = 18f, Pellets = 9, AdsFov = 66f, AimSpreadMultiplier = 0.72f,
         KnockbackOnHit = 140f,
         Tracer = U.Rgb(255, 220, 150), FireSound = "shotgun",
     };
@@ -307,22 +308,18 @@ public static class WeaponRegistry
         // as fast as you can click, 0.4s pull-out, 1.33s reload. Left click is
         // an accurate 90-damage shot with light knockback; right click is a
         // 270-damage blast that launches the shooter. Falloff is 1x to 15m,
-        // decreasing to 0.2x at 30m (600 to 1,200 world units at 40 units/m).
+        // decreasing linearly to 0.2x at 30m (600 to 1,200 world units at
+        // 40 units/m).
         Name = "Double Barrel", Class = "Shotgun",
         Damage = 90f, Range = 3000f,
-        DamageTiers = new[]
-        {
-            new DamageRangeTier(600f, 90f),
-            new DamageRangeTier(900f, 54f),
-            new DamageRangeTier(float.PositiveInfinity, 18f),
-        },
+        FalloffStart = 600f, FalloffEnd = 1200f, FalloffMinMultiplier = 0.2f,
         CycleTime = 0.03f, Automatic = false, Magazine = 2, ReloadTime = 1.33f,
         MoveScale = 0.96f, SpreadIdle = 0.5f, SpreadMove = 4.5f, SpreadAir = 13f,
         SpreadBloom = 0.8f, SpreadBloomMax = 5f, SpreadDecay = 7f,
         RecoilKick = 4.8f, RecoilYawKick = 0.5f, RecoilRecoveryRate = 15f, RecoilRecoveryDelay = 0.3f,
         VisualKick = 20f,
         HasSecondary = true, SecondaryDamage = 270f, SecondaryPellets = 8, SecondarySpreadBonus = 8f,
-        SecondarySelfKnockback = 380f, SecondarySelfUp = 130f, SecondaryVictimKnockback = 250f,
+        SecondarySelfKnockback = 380f, SecondarySelfUp = 130f, SecondaryVictimKnockback = 380f,
         KnockbackOnHit = 100f,
         Tracer = U.Rgb(255, 214, 140), FireSound = "double_barrel",
     };

@@ -132,12 +132,12 @@ the punch resets.
 | Weapon | Dmg | Fire | Mag | Reload | Notes |
 | --- | --- | --- | --- | --- | --- |
 | Pistol | 25 | semi, 8.3/s | 12 | 1.2 s | Fast ADS, 50% ADS spread |
-| Revolver | 50 | semi, 2/s | 6 | 1.8 s | 60 u/s knockback; it is a hand cannon |
-| SMG | 16 | **auto**, 18.16/s | 40 | 1.0 s | Melts up close, blooms fast |
-| Rifle | 25 | **auto**, 10/s | 30 | 1.5 s | Calibrated iron sights; the all-rounder |
-| Shotgun | 15 × 8 | semi | 6 | 2.0 s | 140 u/s knockback per hit; a movement tool too |
+| Revolver | 75 | semi, 2.5/s | 6 | 2.0 s | 100% accuracy at all times, 60 u/s knockback; it is a hand cannon |
+| SMG | 20 | **auto**, 18.16/s | 40 | 1.0 s | Melts up close, blooms fast |
+| Rifle | 30 | **auto**, 10/s | 30 | 1.5 s | Calibrated iron sights; the all-rounder |
+| Shotgun | 17 × 9 | semi | 6 | 2.0 s | Falls from 100% to 10% between 20 m and 70 m |
 | Sniper | 100 | bolt, 0.83/s | 5 | 2.2 s | 18° scope, 0.25× ADS spread, one shot = one kill |
-| Double Barrel | 90 | semi, click-fast | 2 | 1.33 s | Range tiers 90 / 54 / 18 past 15 m / 22.5 m |
+| Double Barrel | 90 | semi, click-fast | 2 | 1.33 s | Falls to 20% past 15 m, reaching the floor at 30 m |
 | Knife | 55 | 2.5/s | — | — | 2.5 m reach, always on slot 4, `V` quick-swings |
 
 All reserve ammo is infinite — you only manage magazine, reload timing and trigger discipline.
@@ -145,8 +145,9 @@ All reserve ammo is infinite — you only manage magazine, reload timing and tri
 ### The Double Barrel's alt-fire
 
 Right-click does not aim: it spends a shell as a **270-damage point-blank blast** with 8 pellets
-of extra spread, 250 u/s of knockback on victims — and **380 u/s of knockback on you**, upward
-too. Aiming it at the floor is a jump. It is the only gun whose damage changes with distance.
+of extra spread, 380 u/s of knockback on victims (the gun's 9.5 m/s secondary stat) — and **380 u/s
+of knockback on you**, upward too. Aiming it at the floor is a jump. The Shotgun and Double Barrel
+are the only guns whose damage changes with distance.
 This is also why your right-click is not "aim" on this weapon and nothing you read in other guides
 applies.
 

@@ -22,7 +22,16 @@ every sound is synthesised at startup, and the one supplied map is loaded direct
 
 ## Quick start
 
-**Requirements:** the [.NET SDK](https://dotnet.microsoft.com/download) 8.0 or newer (this builds
+**Download (Windows x64):** grab the self-contained `HoodGlobalOffensive.exe` from the
+[latest release](https://github.com/arjunsingh53/hood-global-offensive/releases/latest) — no .NET
+install needed, and the map/character/weapon assets are embedded in the single file. Optionally
+verify the binary before playing:
+
+```bash
+HoodGlobalOffensive.exe --headless --seconds 300 --seed 20260114   # must end in RESULT: PASS
+```
+
+**From source:** the [.NET SDK](https://dotnet.microsoft.com/download) 8.0 or newer (this builds
 against `net10.0`), and a GPU/display to play. The only package dependency is
 [`Raylib-cs`](https://github.com/ChrisDill/Raylib-cs), which ships native raylib binaries for
 Windows, Linux and macOS, so there is nothing else to install.
@@ -117,12 +126,12 @@ interruptible by the usual rules.
 | Weapon | Damage | Fire | Mag | Notes |
 | --- | --- | --- | --- | --- |
 | Pistol | 25 | semi | 12 | Default sidearm, fast ADS |
-| Revolver | 50 | semi, 2/s | 6 | Two-tap, heavy kick, shoves victims (60 u/s) |
-| SMG | 16 | auto, 18.16/s | 40 | 1.0 s reload, blooms while held |
-| Rifle | 25 | auto, 10/s | 30 | Calibrated iron sights |
-| Shotgun | 15 × 8 | semi | 6 | 140 u/s knockback on hit |
+| Revolver | 75 | semi, 2.5/s | 6 | Two-tap, heavy kick, perfect accuracy, shoves victims (60 u/s) |
+| SMG | 20 | auto, 18.16/s | 40 | 1.0 s reload, blooms while held |
+| Rifle | 30 | auto, 10/s | 30 | Calibrated iron sights |
+| Shotgun | 17 × 9 | semi | 6 | Falls to 10% (20–70 m); 140 u/s knockback on hit |
 | Sniper | 100 | bolt, 0.83/s | 5 | 18° scope, one shot one kill |
-| Double Barrel | 90 | semi, as fast as you click | 2 | Falls to 54 (15–22.5 m) and 18 (past 22.5 m). **Alt-fire: 270-damage blast that launches you** |
+| Double Barrel | 90 | semi, as fast as you click | 2 | Falls to 20% (15–30 m). **Alt-fire: 270-damage blast that launches you** |
 | Knife | 55 | 2.5/s | — | 2.5 m, always on slot 4 |
 
 ---

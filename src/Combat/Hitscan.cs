@@ -155,9 +155,10 @@ public static class Hitscan
     }
 
     /// <summary>
-    /// Returns post-range damage before the target applies armour.  New weapon
-    /// profiles resolve explicit discrete range bands; older definitions retain
-    /// their original exponential falloff until they are deliberately migrated.
+    /// Returns post-range damage before the target applies armour. Weapons
+    /// that author a linear band (the reference's Double Barrel and Shotgun)
+    /// fall off between FalloffStart and FalloffEnd; every other definition
+    /// keeps its original flat or exponential behaviour.
     /// Kept public so deterministic balance checks exercise the live shot rule.
     /// </summary>
     public static float DamageAtRange(WeaponDef def, float distance, HitGroup group)
@@ -172,22 +173,14 @@ public static class Hitscan
     public static float BaseDamageAtRange(WeaponDef def, float distance)
     {
         float clampedDistance = MathF.Max(0f, distance);
-        if (def.DamageTiers.Length > 0)
-        {
-            for (int i = 0; i < def.DamageTiers.Length; i++)
-            {
-                DamageRangeTier tier = def.DamageTiers[i];
-                if (clampedDistance <= tier.MaxDistance) return tier.Damage;
-            }
-
-            // A malformed profile without an infinite final band must still
-            // remain safe at the edge of a map. Use its farthest authored value
-            // rather than returning an arbitrary zero or crashing a live shot.
-            return def.DamageTiers[^1].Damage;
-        }
 
         float damage = def.Damage;
-        if (def.Falloff > 0f && clampedDistance > 0f)
+        if (def.FalloffEnd > def.FalloffStart && clampedDistance > def.FalloffStart)
+        {
+            float t = U.Clamp01((clampedDistance - def.FalloffStart) / (def.FalloffEnd - def.FalloffStart));
+            damage *= U.Lerp(1f, def.FalloffMinMultiplier, t);
+        }
+        else if (def.Falloff > 0f && clampedDistance > 0f)
         {
             damage *= MathF.Pow(1f - def.Falloff, clampedDistance / FalloffUnit);
         }

@@ -68,7 +68,7 @@ The same `Simulation.Update(input, dt)` call that drives the real game is also d
 
 | File | Responsibility |
 | --- | --- |
-| `Weapons.cs` | `WeaponDef` — the immutable gun description (flat damage, optional range tiers, spread terms, bloom, recoil, ADS, secondary fire, knockback) — plus `Weapon`, the runtime state, its deterministic `SpreadFor(...)` and per-shot kick. |
+| `Weapons.cs` | `WeaponDef` — the immutable gun description (flat damage, optional linear falloff band, spread terms, bloom, recoil, ADS, secondary fire, knockback) — plus `Weapon`, the runtime state, its deterministic `SpreadFor(...)` and per-shot kick. |
 | `Hitscan.cs` | One function that turns a ray into a `ShotResult`: world hit, actor hit, penetration, and final damage. Shared by the player *and* the bots, so there is exactly one definition of "what a bullet does". |
 
 ### `src/Entities` — things that exist

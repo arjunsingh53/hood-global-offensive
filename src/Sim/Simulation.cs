@@ -429,8 +429,8 @@ public sealed class Simulation
             {
                 Actor victim = result.Victim;
 
-                // The blast inherits the gun's authored falloff bands: divide
-                // the tier value by the point-blank damage to get the scale.
+                // The blast inherits the gun's authored falloff: divide the
+                // ranged damage by the point-blank damage to get the scale.
                 float distance = (result.Point - origin).Length();
                 float scale = def.Damage > 0.0001f
                     ? Hitscan.BaseDamageAtRange(def, distance) / def.Damage
