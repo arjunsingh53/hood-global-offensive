@@ -84,7 +84,9 @@ namespace UnityEngine
         public Quaternion localRotation { get; set; }
         public Vector3 localScale { get; set; }
         public Transform parent => null!;
+        public int childCount => 0;
 
+        public Transform GetChild(int index) => null!;
         public void SetParent(Transform newParent) { }
     }
 
@@ -278,6 +280,8 @@ namespace UnityEngine
         public static void SetFloat(string key, float value) { }
         public static int GetInt(string key, int defaultValue) => defaultValue;
         public static void SetInt(string key, int value) { }
+        public static string GetString(string key, string defaultValue) => defaultValue;
+        public static void SetString(string key, string value) { }
         public static bool HasKey(string key) => false;
         public static void Save() { }
     }

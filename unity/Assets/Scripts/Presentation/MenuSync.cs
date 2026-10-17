@@ -1,4 +1,8 @@
 using System;
+using HoodGlobalOffensive.Combat;
+using HoodGlobalOffensive.Core;
+using HoodGlobalOffensive.Entities;
+using HoodGlobalOffensive.World;
 using UnityEngine;
 using UnityEngine.UI;
 
@@ -10,9 +14,11 @@ namespace HoodGlobalOffensive.Presentation
     /// simulation's rules — leaving <see cref="Screen.Playing"/> simply disables the
     /// <see cref="MatchDriver"/> (the fixed tick stops), releases the cursor and freezes
     /// time; entering it re-enables the driver, locks the cursor and restores time.
-    /// Player settings (look sensitivity, Y inversion, camera-feedback level, and the
-    /// crosshair profile) persist through <c>PlayerPrefs</c> and are pushed onto the
-    /// driver / HUD.
+    /// The main screen doubles as match setup (loadout slots, map, bot count, bot
+    /// skill, kill limit) and pushes that onto the driver, which applies it on the
+    /// next <see cref="MatchDriver.Restart"/>. Player settings (look sensitivity,
+    /// Y inversion, camera-feedback level, and the crosshair profile) persist through
+    /// <c>PlayerPrefs</c> and are pushed onto the driver / HUD.
     ///
     /// Keyboard-driven on purpose so it needs no EventSystem/Button wiring: Up/Down move
     /// the selection, Enter activates, Esc pauses / backs out, Left/Right adjust the
@@ -35,6 +41,11 @@ namespace HoodGlobalOffensive.Presentation
         const string CrosshairGapKey = "HGO.Crosshair.BaseGap";
         const string CrosshairLengthKey = "HGO.Crosshair.ArmLength";
         const string CrosshairThicknessKey = "HGO.Crosshair.Thickness";
+        const string BotsKey = "HGO.Match.BotCount";
+        const string SkillKey = "HGO.Match.BotSkill";
+        const string KillLimitKey = "HGO.Match.KillsToWin";
+        const string MapKey = "HGO.Match.Map";
+        const string LoadoutKeyPrefix = "HGO.Match.Loadout";
         const float MinSensitivity = 0.2f;
         const float MaxSensitivity = 3.0f;
         const float SensitivityStep = 0.1f;
@@ -45,9 +56,10 @@ namespace HoodGlobalOffensive.Presentation
         static readonly Color Gold = new Color(0.94f, 0.78f, 0.35f);
         static readonly Color PreviewBackdrop = new Color(0.02f, 0.03f, 0.045f, 0.92f);
 
-        readonly string[] _rows = new string[9];
+        readonly string[] _rows = new string[12];
         readonly CrosshairSettings _crosshair = new();
         readonly CameraFeedbackSettings _cameraFeedback = new();
+        readonly string[] _loadout = (string[])WeaponRegistry.DefaultLoadout.Clone();
 
         MatchDriver? _driver;
         HudSync? _hud;
@@ -67,6 +79,10 @@ namespace HoodGlobalOffensive.Presentation
 
         float _sensitivity = 1f;
         bool _invertY;
+        int _botCount = Cfg.DefaultBotCount;
+        BotSkill _skill = BotSkill.Normal;
+        int _killsToWin = Cfg.KillsToWin;
+        string _mapName = MapRegistry.Default;
 
         void Awake()
         {
@@ -83,7 +99,9 @@ namespace HoodGlobalOffensive.Presentation
             _cameraFeedback.Restore(
                 (CameraFeedbackLevel)PlayerPrefs.GetInt(FeedbackKey, (int)CameraFeedbackLevel.Normal));
             LoadCrosshair();
+            LoadMatchSetup();
             ApplySettings();
+            ApplyMatchSetup();
         }
 
         void Start()
@@ -151,6 +169,11 @@ namespace HoodGlobalOffensive.Presentation
                     _previewCrosshair.Update(_crosshair, _crosshair.DynamicGap ? 5f : 0f, 1.75f);
                 }
             }
+            else if (_screen == Screen.Main && _selected >= 1 && _selected <= 7)
+            {
+                // Match setup rows: SLOT 1-3 / MAP / BOTS / BOT SKILL / KILL LIMIT.
+                AdjustSetup(_selected, left ? -1 : right ? 1 : 0);
+            }
             else if (_selected == FeedbackRow())
             {
                 // Main/pause carry the camera-feedback level inline, like the reference.
@@ -168,7 +191,7 @@ namespace HoodGlobalOffensive.Presentation
         {
             switch (_screen)
             {
-                case Screen.Main: return 5;
+                case Screen.Main: return 12;
                 case Screen.Paused: return 6;
                 case Screen.MatchOver: return 2;
                 case Screen.Settings: return 3;
@@ -178,7 +201,7 @@ namespace HoodGlobalOffensive.Presentation
         }
 
         /// <summary>Row index of the inline camera-feedback setting, or -1.</summary>
-        int FeedbackRow() => _screen == Screen.Main || _screen == Screen.Paused ? 2 : -1;
+        int FeedbackRow() => _screen == Screen.Main ? 9 : _screen == Screen.Paused ? 2 : -1;
 
         void Activate()
         {
@@ -186,10 +209,10 @@ namespace HoodGlobalOffensive.Presentation
             {
                 case Screen.Main:
                     if (_selected == 0) BeginPlay();
-                    else if (_selected == 1) OpenCrosshair(Screen.Main);
-                    else if (_selected == 3) OpenSettings(Screen.Main);
-                    else if (_selected == 4) Quit();
-                    // Row 2 (camera feedback) is adjusted with Left/Right.
+                    else if (_selected == 8) OpenCrosshair(Screen.Main);
+                    else if (_selected == 10) OpenSettings(Screen.Main);
+                    else if (_selected == 11) Quit();
+                    // Rows 1-7 (match setup) and 9 (camera feedback) adjust with Left/Right.
                     break;
                 case Screen.Paused:
                     if (_selected == 0) SetScreen(Screen.Playing);
@@ -294,6 +317,92 @@ namespace HoodGlobalOffensive.Presentation
             ApplySettings();
         }
 
+        // --------------------------------------------------------------- match setup
+
+        /// <summary>
+        /// Restores the match-setup fields from PlayerPrefs with the reference's bounded
+        /// rules (<c>UserSettingsStore</c>): bot count and kill limit clamp, an unknown
+        /// skill falls back to Normal, the map normalises through the registry, and each
+        /// gun slot sanitises against the loadout pool.
+        /// </summary>
+        void LoadMatchSetup()
+        {
+            _botCount = U.ClampInt(PlayerPrefs.GetInt(BotsKey, Cfg.DefaultBotCount), 1, Cfg.MaxBots);
+            int skillValue = PlayerPrefs.GetInt(SkillKey, (int)BotSkill.Normal);
+            _skill = Enum.IsDefined(typeof(BotSkill), skillValue) ? (BotSkill)skillValue : BotSkill.Normal;
+            _killsToWin = U.ClampInt(PlayerPrefs.GetInt(KillLimitKey, Cfg.KillsToWin), 5, 100);
+            _mapName = MapRegistry.Normalize(PlayerPrefs.GetString(MapKey, MapRegistry.Default));
+            for (int i = 0; i < _loadout.Length; i++)
+            {
+                string fallback = WeaponRegistry.DefaultLoadout[i];
+                string stored = PlayerPrefs.GetString(LoadoutKeyPrefix + i, fallback);
+                WeaponDef? def = Array.Find(WeaponRegistry.LoadoutPool,
+                    w => string.Equals(w.Name, stored, StringComparison.OrdinalIgnoreCase));
+                _loadout[i] = def != null ? def.Name : fallback;
+            }
+        }
+
+        void SaveMatchSetup()
+        {
+            PlayerPrefs.SetInt(BotsKey, _botCount);
+            PlayerPrefs.SetInt(SkillKey, (int)_skill);
+            PlayerPrefs.SetInt(KillLimitKey, _killsToWin);
+            PlayerPrefs.SetString(MapKey, _mapName);
+            for (int i = 0; i < _loadout.Length; i++) PlayerPrefs.SetString(LoadoutKeyPrefix + i, _loadout[i]);
+            PlayerPrefs.Save();
+        }
+
+        /// <summary>
+        /// The setup only reaches the sim through <see cref="MatchDriver.Restart"/>, but
+        /// pushing it right away keeps the inspector in step, so PLAY / RESTART always
+        /// starts the match the menu shows.
+        /// </summary>
+        void ApplyMatchSetup()
+        {
+            if (_driver == null) return;
+            _driver.BotCount = _botCount;
+            _driver.Skill = _skill;
+            _driver.KillsToWin = _killsToWin;
+            _driver.MapName = _mapName;
+            if (_driver.Loadout == null || _driver.Loadout.Length < _loadout.Length)
+                _driver.Loadout = (string[])_loadout.Clone();
+            else
+                for (int i = 0; i < _loadout.Length; i++) _driver.Loadout[i] = _loadout[i];
+        }
+
+        void AdjustSetup(int row, int axis)
+        {
+            if (axis == 0) return;
+            switch (row)
+            {
+                case 1: CycleLoadoutSlot(0, axis); break;
+                case 2: CycleLoadoutSlot(1, axis); break;
+                case 3: CycleLoadoutSlot(2, axis); break;
+                case 4: CycleMap(axis); break;
+                case 5: _botCount = U.ClampInt(_botCount + axis, 1, Cfg.MaxBots); break;
+                case 6: _skill = (BotSkill)U.ClampInt((int)_skill + axis, 0, 3); break;
+                case 7: _killsToWin = U.ClampInt(_killsToWin + axis * 5, 5, 100); break;
+                default: return;
+            }
+            SaveMatchSetup();
+            ApplyMatchSetup();
+        }
+
+        void CycleLoadoutSlot(int slot, int axis)
+        {
+            WeaponDef current = WeaponRegistry.ByName(_loadout[slot]);
+            _loadout[slot] = WeaponRegistry.CycleLoadout(current, axis).Name;
+        }
+
+        void CycleMap(int axis)
+        {
+            int index = Array.IndexOf(MapRegistry.Names, _mapName);
+            if (index < 0) index = 0;
+            int next = ((index + axis) % MapRegistry.Names.Length + MapRegistry.Names.Length)
+                % MapRegistry.Names.Length;
+            _mapName = MapRegistry.Names[next];
+        }
+
         // ----------------------------------------------------------------- crosshair
 
         /// <summary>
@@ -369,10 +478,17 @@ namespace HoodGlobalOffensive.Presentation
                     _title.text = "HOODMATCH";
                     _subtitle.text = "FIRST-PERSON BLOCKOUT";
                     _rows[0] = "PLAY";
-                    _rows[1] = $"CROSSHAIR OPTIONS   {_crosshair.PresetLabel}";
-                    _rows[2] = $"CAMERA FEEDBACK   {_cameraFeedback.Label}";
-                    _rows[3] = "SETTINGS";
-                    _rows[4] = "QUIT";
+                    _rows[1] = $"SLOT 1   {_loadout[0]}";
+                    _rows[2] = $"SLOT 2   {_loadout[1]}";
+                    _rows[3] = $"SLOT 3   {_loadout[2]}";
+                    _rows[4] = $"MAP   {_mapName.ToUpperInvariant()}";
+                    _rows[5] = $"BOTS   {_botCount}";
+                    _rows[6] = $"BOT SKILL   {_skill.ToString().ToUpperInvariant()}";
+                    _rows[7] = $"KILL LIMIT   {_killsToWin}";
+                    _rows[8] = $"CROSSHAIR OPTIONS   {_crosshair.PresetLabel}";
+                    _rows[9] = $"CAMERA FEEDBACK   {_cameraFeedback.Label}";
+                    _rows[10] = "SETTINGS";
+                    _rows[11] = "QUIT";
                     break;
                 case Screen.Paused:
                     _title.text = "PAUSED";
@@ -416,17 +532,17 @@ namespace HoodGlobalOffensive.Presentation
 
             if (_rowTexts == null) return;
 
-            // The crosshair screen runs nine tighter rows under the live preview,
-            // so it lifts the title and uses a reduced pitch and font; every other
-            // screen keeps the roomy original layout.
-            bool crosshairScreen = _screen == Screen.Crosshair;
-            _title.rectTransform.anchoredPosition = new Vector2(0f, crosshairScreen ? 300f : 150f);
-            _subtitle.rectTransform.anchoredPosition = new Vector2(0f, crosshairScreen ? 240f : 70f);
+            // Main is a twelve-row setup list and the crosshair screen runs nine
+            // tighter rows under the live preview, so both lift the title and use a
+            // reduced pitch and font; the shorter screens keep the roomy original.
+            bool listScreen = _screen == Screen.Main || _screen == Screen.Crosshair;
+            _title.rectTransform.anchoredPosition = new Vector2(0f, listScreen ? 300f : 150f);
+            _subtitle.rectTransform.anchoredPosition = new Vector2(0f, listScreen ? 240f : 70f);
 
-            float top = crosshairScreen ? 55f : -10f;
-            float pitch = crosshairScreen ? 42f : 52f;
-            int fontSize = crosshairScreen ? 26 : 34;
-            Vector2 rowSize = new Vector2(900f, crosshairScreen ? 38f : 48f);
+            float top = _screen == Screen.Main ? 195f : _screen == Screen.Crosshair ? 55f : -10f;
+            float pitch = listScreen ? 42f : 52f;
+            int fontSize = listScreen ? 26 : 34;
+            Vector2 rowSize = new Vector2(900f, listScreen ? 38f : 48f);
 
             int count = RowCount();
             for (int i = 0; i < _rowTexts.Length; i++)
@@ -467,7 +583,7 @@ namespace HoodGlobalOffensive.Presentation
             _previewCrosshair = CrosshairGraphic.Create(_previewPanel.transform, "Preview Crosshair");
             _previewPanel.SetActive(false);
 
-            _rowTexts = new Text[9];
+            _rowTexts = new Text[12];
             for (int i = 0; i < _rowTexts.Length; i++)
             {
                 _rowTexts[i] = MakeText(root, $"Row {i}",

@@ -13,6 +13,10 @@ namespace HoodGlobalOffensive.Presentation
         public BotSkill Skill = BotSkill.Normal;
         public ulong Seed = 20260114UL;
         public string MapName = MapRegistry.Default;
+        [Tooltip("Kills needed to end the match.")]
+        public int KillsToWin = Cfg.KillsToWin;
+        [Tooltip("Slot-by-slot gun names (1-3); the knife always lives on 4.")]
+        public string[] Loadout = { "Rifle", "Shotgun", "Pistol" };
 
         [Header("Scene wiring")]
         public Transform PlayerBody;
@@ -50,21 +54,21 @@ namespace HoodGlobalOffensive.Presentation
 
         void Awake()
         {
-            Sim = new Simulation(BotCount, Skill, Seed, mapName: MapName);
+            Sim = new Simulation(BotCount, Skill, Seed, KillsToWin, Loadout, mapName: MapName);
             if (Audio == null) Audio = gameObject.AddComponent<SimAudioPlayer>();
             Cursor.lockState = CursorLockMode.Locked;
             SyncView();
         }
 
         /// <summary>
-        /// Rebuilds the Simulation from the current inspector setup (same map, skill,
-        /// bot count and seed). Used by <see cref="MenuSync"/> to start a fresh match
-        /// from PLAY / RESTART; the blockout and actor views read the new instance on
-        /// their next frame, so nothing else needs rebuilding here.
+        /// Rebuilds the Simulation from the current match-setup fields (bot count,
+        /// skill, seed, kill limit, loadout, map). Used by <see cref="MenuSync"/> to
+        /// start a fresh match from PLAY / RESTART; the blockout and actor views read
+        /// the new instance on their next frame, so nothing else needs rebuilding here.
         /// </summary>
         public void Restart()
         {
-            Sim = new Simulation(BotCount, Skill, Seed, mapName: MapName);
+            Sim = new Simulation(BotCount, Skill, Seed, KillsToWin, Loadout, mapName: MapName);
             _accumulator = 0f;
             SyncView();
         }

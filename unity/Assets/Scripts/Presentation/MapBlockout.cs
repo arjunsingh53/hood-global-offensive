@@ -10,7 +10,8 @@ namespace HoodGlobalOffensive.Presentation
     /// Builds a primitive blockout of the current sim map (one scaled cube per
     /// brush, tinted with the brush's packed ARGB colour) so the Unity project is
     /// walkable before the real mesh pass. Runs in Start, after MatchDriver.Awake
-    /// has created the Simulation, and is idempotent per Simulation instance.
+    /// has created the Simulation, and is idempotent per GameMap; a restarted match
+    /// that swaps maps clears the old cubes and rebuilds.
     /// </summary>
     public sealed class MapBlockout : MonoBehaviour
     {
@@ -22,17 +23,27 @@ namespace HoodGlobalOffensive.Presentation
         public Color FallbackBrushColor = new Color(0.28f, 0.30f, 0.34f);
 
         private GameMap? _builtMap;
+        private MatchDriver? _driver;
 
         void Start()
         {
-            MatchDriver? driver = GetComponent<MatchDriver>();
-            if (driver == null || driver.Sim == null)
+            _driver = GetComponent<MatchDriver>();
+            if (_driver == null || _driver.Sim == null)
             {
                 UnityEngine.Debug.LogWarning("MapBlockout: no MatchDriver with a Simulation on this GameObject.");
                 enabled = false;
                 return;
             }
-            Build(driver.Sim);
+            Build(_driver.Sim);
+        }
+
+        /// <summary>
+        /// A restarted match can load a different map (new Simulation / GameMap instance),
+        /// so the blockout re-checks every frame; Build early-outs while the map is unchanged.
+        /// </summary>
+        void LateUpdate()
+        {
+            if (_driver != null && _driver.Sim != null) Build(_driver.Sim);
         }
 
         public void Build(Simulation sim)
@@ -43,6 +54,14 @@ namespace HoodGlobalOffensive.Presentation
             if (BrushRoot == null)
             {
                 BrushRoot = new GameObject("MapBlockout BrushRoot").transform;
+            }
+            else
+            {
+                // The previous match's map is being replaced: drop its cubes.
+                for (int i = BrushRoot.childCount - 1; i >= 0; i--)
+                {
+                    Destroy(BrushRoot.GetChild(i).gameObject);
+                }
             }
 
             foreach (Brush brush in sim.Map.Brushes)

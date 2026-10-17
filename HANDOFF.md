@@ -24,8 +24,9 @@
   (`unity/Assets/Scripts/Presentation/SimAudioPlayer.cs`), the first presentation-blockout pass
   (`MapBlockout` etc.), the code-built front end (`MenuSync`), the Unity YAML `.gitattributes`
   prep, the combat-effects blockout (`EffectsSync`), the HUD floating damage numbers, the
-  crosshair options port (settings profile, live HUD reticle, menu screen), and the
-  camera-feedback levels (driver FOV kick + view-model offsets). The GitHub release asset for `v0.2.2` was
+  crosshair options port (settings profile, live HUD reticle, menu screen), the
+  camera-feedback levels (driver FOV kick + view-model offsets), and the main-menu match-setup
+  rows (loadout slots, map, bots, skill, kill limit). The GitHub release asset for `v0.2.2` was
   rebuilt in place (`gh release upload --clobber`) so the downloadable exe includes the menu fix.
   Run `git log --oneline -5` for exact hashes.
 - **Verified state:** `-warnaserror` build clean; both headless CI gates print `RESULT: PASS`;
@@ -41,8 +42,8 @@
   compile gate, edit-mode gate, audio synthesis port, `AudioMix` routing port, audio playback
   bridge, first presentation-blockout pass, the code-built front end, the Unity YAML
   `.gitattributes` prep, combat-effects blockout, the HUD floating damage numbers, the crosshair
-  options port, the camera-feedback levels) are
-  **local only — 13 commits ahead of `origin/main`** — keep them local until the team asks
+  options port, the camera-feedback levels, the main-menu match-setup rows) are
+  **local only — 14 commits ahead of `origin/main`** — keep them local until the team asks
   for another push.
   Pre-push gate for future work: `-warnaserror` build clean, both CI gates `RESULT: PASS`, `tools/parity`
   `PARITY: PASS`, `tools/presentation-check` build clean, and `tools/editmode-check` build clean.
@@ -189,7 +190,8 @@ behaviour questions.
   **First presentation pass ported (blockout quality):** five more `MonoBehaviour`s live next to
   the bridge, all compile-verified editor-free by the same gate:
   - `MapBlockout.cs` — in `Start` builds one scaled, brush-tinted cube per `Sim.Map.Brushes`
-    entry under an auto-created root (walkable world without a mesh pass).
+    entry under an auto-created root (walkable world without a mesh pass); re-checks in
+    `LateUpdate`, so a restart that swaps maps clears the old cubes and rebuilds.
   - `ActorViews.cs` — in `LateUpdate` keeps one yaw-facing capsule per non-player actor
     (red/cyan by team, removed on death); the local player is skipped.
   - `ViewModelSync.cs` — ports the camera-local offset/rotation composition of the reference
@@ -223,7 +225,8 @@ behaviour questions.
     disables the
     `MatchDriver` (stopping the fixed tick), unlocks the cursor and zeroes `Time.timeScale`;
     entering it re-enables the driver, locks the cursor and restores time. `PLAY`/`RESTART`/
-    `PLAY AGAIN` call `MatchDriver.Restart()` (fresh `Simulation`, same setup). Also owns the
+    `PLAY AGAIN` call `MatchDriver.Restart()` (fresh `Simulation` built from the menu's match
+    setup). Also owns the
     cursor — the driver still locks it in its `Awake`, but `MenuSync` applies menu state in
     `Start` (after every `Awake`), so the main menu wins. Keyboard-driven (Up/Down to move,
     Enter to select, Esc to pause/back, Left/Right to adjust) so it needs no
@@ -243,6 +246,14 @@ behaviour questions.
     shake, so the centre ray is identical at every strength; the HUD crosshair spread gap
     reads the same field of view) and the viewmodel-local footstep/landing/damage offsets in
     `ViewModelSync` (reference `GetFeedbackOffset`, ADS-damped by `FeedbackAdsScale`).
+    **Match setup ported:** the main screen doubles as the reference match-setup list — SLOT 1-3
+    (independent pool cycling via `WeaponRegistry.ByName`/`CycleLoadout`), MAP (through
+    `MapRegistry.Names`), BOTS (1..`Cfg.MaxBots`), BOT SKILL (Easy..Expert), KILL LIMIT (5..100
+    in fives) — twelve tighter rows with the same Left/Right semantics. Values persist as
+    `HGO.Match.*` PlayerPrefs and are pushed onto `MatchDriver` (`BotCount`/`Skill`/`KillsToWin`/
+    `MapName` + the three loadout slots) for the next `Restart`; restore rules mirror the
+    reference `UserSettingsStore` (clamps, unknown skill → Normal, map `Normalize`, gun slots
+    sanitised against the loadout pool).
   `MatchDriver.SyncView` also now pins `PlayerCamera.fieldOfView` to `Sim.Player.CurrentFov`.
   **Combat-effects blockout ported:** `EffectsSync.cs` pools primitive stand-ins for the sim's
   effect lists, synced in `LateUpdate` (the sim owns every lifetime — it ages and prunes the
@@ -262,11 +273,10 @@ behaviour questions.
   placeholder mesh) to `ViewModelSync`; everything else auto-builds. `MenuSync` is optional —
   without it the driver runs unpaused from frame one with the cursor locked, as before.
   **Not yet ported:** real map meshes and bot meshes (primitive blockouts exist), VFX polish
-  (transparent/additive materials, muzzle flame lobes),
-  the main-menu match setup rows (loadout slots, map, bot count/skill, kill limit), screenshot
-  tooling, per-art view-model calibration. The menu stack is a
+  (transparent/additive materials, muzzle flame lobes), a match-launch map preview,
+  screenshot tooling, per-art view-model calibration. The menu stack is a
   first pass (`MenuSync`): main/pause/settings/crosshair-options/match-over are covered; an
-  audio/keybind options pass, a match-setup picker and a styled reference-matched skin are
+  audio/keybind options pass and a styled reference-matched skin are
   still blockout quality. The
   Unity project itself is a skeleton: editor version
   `6000.3.26f1` (`unity/ProjectSettings/ProjectVersion.txt`), a minimal package manifest (test
@@ -428,7 +438,7 @@ the next session knows whether GitHub is current.
 | Unity audio synthesis + mix routing port, cue manifest (engine-free) | `unity/Assets/Scripts/Sim/Audio/` (`WavGen.cs`, `AudioCatalog.cs`, `AudioMix.cs`) |
 | Sim→Unity bridge: fixed-tick `Simulation.Update`, `InputFrame` adapter, body/camera sync | `unity/Assets/Scripts/Presentation/MatchDriver.cs` + `HGO.Presentation.asmdef` |
 | Unity audio playback: PCM→`AudioClip` bank, voice pool, drains `Sim.Sounds` via `AudioMix.Resolve` | `unity/Assets/Scripts/Presentation/SimAudioPlayer.cs` |
-| Unity blockout pass: brush cubes, bot capsules, sim-driven view-model + muzzle flash, code-built uGUI HUD + menu stack, pooled combat effects, crosshair profile + reticle, camera-feedback levels | `unity/Assets/Scripts/Presentation/` (`MapBlockout.cs`, `ActorViews.cs`, `ViewModelSync.cs`, `HudSync.cs`, `MenuSync.cs`, `EffectsSync.cs`, `CrosshairSettings.cs`, `CameraFeedbackSettings.cs`) |
+| Unity blockout pass: brush cubes, bot capsules, sim-driven view-model + muzzle flash, code-built uGUI HUD + menu stack, pooled combat effects, crosshair profile + reticle, camera-feedback levels, match-setup rows | `unity/Assets/Scripts/Presentation/` (`MapBlockout.cs`, `ActorViews.cs`, `ViewModelSync.cs`, `HudSync.cs`, `MenuSync.cs`, `EffectsSync.cs`, `CrosshairSettings.cs`, `CameraFeedbackSettings.cs`) |
 | Parity suite (shared) + Unity edit-mode tests | `unity/Assets/Tests/EditMode/` (`ParityChecks.cs`, `ParityTests.cs`, `HGO.Sim.Tests.asmdef`) |
 | Parity console harness + golden reports | `tools/parity/` (`Parity.csproj`, thin `Program.cs`, `goldens/`) |
 | Presentation compile gate (editor-free) | `tools/presentation-check/` (`PresentationCheck.csproj`, `UnityStubs.cs`, thin `Program.cs`) |
@@ -473,7 +483,8 @@ the next session knows whether GitHub is current.
   enable nullable; keep every other warning an error. Run the gate after any change under
   `unity/Assets/Scripts/Presentation/`.
 - A menu row added to the main menu will re-break the footer overlap unless the pitch math above
-  is re-checked.
+  is re-checked. `MenuSync` mirrors that split: the main (12 rows) and crosshair (9 rows) screens
+  run tight 42-px rows under the lifted title, the shorter screens keep the roomy 52-px pitch.
 - **`UnityStubs.cs` now models the uGUI slice too** (Color/Material/Renderer/Camera/RectTransform/
   Canvas/CanvasScaler/Text/Image/TextAnchor/Resource fonts...). It is compile-only: getters return
   stubs and layout does nothing, so HudSync's rect math cannot be regression-tested here — verify
@@ -489,10 +500,10 @@ the next session knows whether GitHub is current.
   component (not `gameObject`) outside the Playing screen, so the fixed tick, input capture and
   audio drain all stop while a menu is up. The driver still locks the cursor in its own `Awake`,
   but `MenuSync` applies menu state in `Start` and wins; don't move that to `Awake` (component
-  `Awake` order on one GameObject is undefined). `MenuSync.Restart()` recreates the `Simulation`
-  with the same inspector setup — the blockout is not rebuilt because the map layout is
-  deterministic per `MapName`, so changing bot count / map / seed requires re-entering Play Mode
-  or a future setup screen, not the in-match RESTART.
+  `Awake` order on one GameObject is undefined). The match-setup rows push bot count / skill /
+  kill limit / map / loadout onto the driver, and PLAY / RESTART read them back in
+  `MatchDriver.Restart()`. `MapBlockout` re-checks `Sim.Map` every `LateUpdate`, so swapping the
+  map clears the old cubes and rebuilds even mid-Play-Mode.
 
 ## Open items / sensible next steps
 
@@ -513,15 +524,14 @@ the next session knows whether GitHub is current.
   4. Rebuild presentation (rendering/map meshes, HUD, menus) against the
      reference — gameplay behaviour is already pinned by the parity goldens, so the view layer is
      free to diverge where it is purely cosmetic. A first presentation pass now exists as a
-     blockout (`MapBlockout` brush cubes, `ActorViews` capsule bots, `ViewModelSync` view-model
-     dynamics + muzzle flash, `HudSync` code-built uGUI HUD, `MenuSync` code-built menu stack
-     (incl. the ported crosshair options screen), `EffectsSync` tracers/particles/decals,
-     `CrosshairSettings` profile + reticle graphic) — see the migration-state bullet; editor
-     wiring is one GameObject + one viewmodel placeholder. What remains above blockout: real map
-     meshes and bot meshes, VFX polish (transparent/additive materials, muzzle flame lobes),
-     the main-menu match-setup rows, a styled
-     options/settings screen and match-setup picker, screenshot
-     tooling, per-art viewmodel calibration.
+      blockout (`MapBlockout` brush cubes, `ActorViews` capsule bots, `ViewModelSync` view-model
+      dynamics + muzzle flash, `HudSync` code-built uGUI HUD, `MenuSync` code-built menu stack
+      (incl. the ported crosshair options screen and match-setup rows), `EffectsSync` tracers/particles/decals,
+      `CrosshairSettings` profile + reticle graphic, `CameraFeedbackSettings`) — see the migration-state bullet; editor
+      wiring is one GameObject + one viewmodel placeholder. What remains above blockout: real map
+      meshes and bot meshes, VFX polish (transparent/additive materials, muzzle flame lobes),
+      a styled options/settings screen, screenshot
+      tooling, per-art viewmodel calibration.
       Audio synthesis, `AudioMix` routing and the
       `SimAudioPlayer` playback bridge are already ported (`Sim/Audio/` + `Presentation/`), so audio
       is wired end to end bar a device to hear it. Every presentation change goes through
