@@ -410,6 +410,10 @@ the next session knows whether GitHub is current.
   Unity's `HGO.Sim.Tests`. Keep it free of engine, NUnit and C# 10+ syntax; after changing it run
   `tools/parity` and, once the editor exists, the edit-mode tests. Unity generates `.meta` files
   for `unity/Assets/Tests/EditMode/` on first open — commit them with the next editor change.
+- **Unity YAML assets are pinned to LF in `.gitattributes`** (`*.meta`, `*.unity`, `*.prefab`,
+  `*.asset`, `*.mat`, `*.anim`, `*.controller`, `*.asmdef` are `text eol=lf`) so a Windows
+  checkout never surfaces phantom-dirty scene or meta files; add any new Unity text extension to
+  that list.
 - **`tools/presentation-check` is a compile gate, not a runtime** — `UnityStubs.cs` models only the
   Unity members the presentation layer uses (`Object`/`GameObject`/`Component`, `AudioClip`,
   `AudioSource`, plus the transform/input/math types), so adding a new Unity API call to

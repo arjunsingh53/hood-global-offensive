@@ -16,5 +16,16 @@
 *.gltf    binary
 *.bin     binary
 
+# Unity: serialised YAML is LF on every platform; treat as text, force LF
+# so Windows checkouts never surface phantom-dirty scene/meta files.
+*.meta       text eol=lf
+*.unity      text eol=lf
+*.prefab     text eol=lf
+*.asset      text eol=lf
+*.mat        text eol=lf
+*.anim       text eol=lf
+*.controller text eol=lf
+*.asmdef     text eol=lf
+
 # Keep generated screenshots out of language statistics.
 shots/*.png linguist-documentation
