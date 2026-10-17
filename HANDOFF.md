@@ -45,8 +45,8 @@
   `.gitattributes` prep, combat-effects blockout, the HUD floating damage numbers, the crosshair
   options port, the camera-feedback levels, the main-menu match-setup rows, the upgrade-cabinet
   overlay, the Tab scoreboard + pause/match-over parity fixes, the scenic menu backdrop, the
-  scope/hook/vitals HUD pass) are
-  **local only — 18 commits ahead of `origin/main`** — keep them local until the team asks
+  scope/hook/vitals HUD pass, the top-bar + compass pass) are
+  **local only — 19 commits ahead of `origin/main`** — keep them local until the team asks
   for another push.
   Pre-push gate for future work: `-warnaserror` build clean, both CI gates `RESULT: PASS`, `tools/parity`
   `PARITY: PASS`, `tools/presentation-check` build clean, and `tools/editmode-check` build clean.
@@ -238,9 +238,15 @@ behaviour questions.
     vitals build row (HP/DMG/SPD/JMP pips with live levels from `Simulation.UpgradeLevel`)
     and the COMBAT READY / CRITICAL status word, plus the reference peripheral fade
     (`Hud.PeripheralHudOpacity`: peripheral anchors drop to 0.38 opacity behind a real scope
-    or calibrated sight picture; reticle, hitmarker and scope mask never fade). Still blockout:
-    the radar, the compass tape / top-bar restyle, weapon-readout detail lines, the
-    arena-panel card skin, and the peripheral-fringe/trauma-mark vignette extras.
+    or calibrated sight picture; reticle, hitmarker and scope mask never fade).
+    **Top bar + compass ported:** the top-centre match-clock panel (MATCH CLOCK caption,
+    two-digit clock that turns red under 30 s like the reference, YOU/LEAD/FT line from
+    `Simulation.Leaderboard()`; the panel border tints with the accent/urgency colour since
+    the arena corner brackets are not drawn) and the heading tape (630-wide at 1.5x, ticks
+    every 15 degrees with N/NE/... labels at 45s, gold caret, three-digit heading under the
+    strip; game yaw flipped to clockwise compass degrees exactly like the reference). Still
+    blockout: the radar, weapon-readout detail lines, the arena-panel card skin (corner
+    brackets), and the peripheral-fringe/trauma-mark vignette extras.
   - `MenuSync.cs` — code-built uGUI front end and game-flow owner (main / pause / settings /
     crosshair options / match-over). It never changes sim rules: leaving the Playing screen
     disables the

@@ -13,13 +13,14 @@ namespace HoodGlobalOffensive.Presentation
     /// First-pass uGUI HUD driven entirely by sim state — no editor wiring needed:
     /// the canvas, scaler and every element are built in code. It mirrors the
     /// reference HUD's information layer (health card with build pips, ammo card,
-    /// timer, score, kill feed, hitmarker, hook status squares, station prompt,
-    /// damage flash + directional indicator, low-health vignette, scope overlay,
-    /// match-over banner, Tab scoreboard) as one blockout; per-part colours follow
-    /// the reference palette where the values were already captured. The peripheral
-    /// anchors fade to 0.38 opacity behind a real scope / calibrated sight picture
-    /// (reference Hud.PeripheralHudOpacity); the reticle, hitmarker and scope mask
-    /// are never faded. Read-only view: it never writes to the simulation.
+    /// top bar with match clock + YOU/LEAD/FT line, compass tape, kill feed,
+    /// hitmarker, hook status squares, station prompt, damage flash + directional
+    /// indicator, low-health vignette, scope overlay, match-over banner, Tab
+    /// scoreboard) as one blockout; per-part colours follow the reference palette
+    /// where the values were already captured. The peripheral anchors fade to 0.38
+    /// opacity behind a real scope / calibrated sight picture (reference
+    /// Hud.PeripheralHudOpacity); the reticle, hitmarker and scope mask are never
+    /// faded. Read-only view: it never writes to the simulation.
     /// </summary>
     public sealed class HudSync : MonoBehaviour
     {
@@ -50,7 +51,16 @@ namespace HoodGlobalOffensive.Presentation
         Text _ammoReserve;
         Text _timer;
         Text _matchResult;
-        Text _score;
+        Image? _topBarBorder;
+        Image? _topBarFill;
+        Text? _clockLabel;
+        Text? _clockScore;
+        Image? _compassBorder;
+        Image? _compassFill;
+        Image? _compassCaret;
+        Text? _compassHeading;
+        Image?[] _compassTicks = Array.Empty<Image?>();
+        Text?[] _compassTickLabels = Array.Empty<Text?>();
         CrosshairGraphic _crosshair;
         Text _hitmarker;
         Text _deathNotice;
@@ -326,15 +336,89 @@ namespace HoodGlobalOffensive.Presentation
                 : "MELEE";
             _ammoReserve.color = Fade(Dim, op);
 
-            // Timer / match state ------------------------------------------
-            _timer.text = sim.MatchOver ? "" : FormatClock(sim.TimeLeft);
-            _timer.color = Fade(Ink, op);
+            // Top bar (reference DrawTopBar) ---------------------------------
             _matchResult.gameObject.SetActive(sim.MatchOver);
             _matchResult.text = sim.MatchResult;
+            bool urgent = !sim.MatchOver && sim.TimeLeft < 30f;
+            _timer.text = sim.MatchOver ? "" : FormatClock(sim.TimeLeft);
+            _timer.color = Fade(urgent ? Danger : new Color(242f / 255f, 246f / 255f, 248f / 255f), op);
+            if (_clockLabel != null) _clockLabel.color = Fade(Faint, op);
+            if (_topBarBorder != null)
+            {
+                Color borderAccent = urgent ? Danger : Gold;
+                _topBarBorder.color = Fade(
+                    new Color(borderAccent.r, borderAccent.g, borderAccent.b, 74f / 255f), op);
+            }
+            if (_topBarFill != null)
+            {
+                _topBarFill.color = Fade(new Color(5f / 255f, 8f / 255f, 13f / 255f, 206f / 255f), op);
+            }
+            if (_clockScore != null)
+            {
+                int leadKills = 0;
+                foreach (Actor leader in sim.Leaderboard())
+                {
+                    leadKills = leader.Kills;
+                    break;
+                }
+                _clockScore.text = $"YOU {p.Kills:00}   -   LEAD {leadKills:00}   -   FT {sim.KillsToWin}";
+                _clockScore.color = Fade(Dim, op);
+            }
 
-            // Score --------------------------------------------------------
-            _score.text = $"K {p.Kills}   D {p.Deaths}   PTS {p.KillPoints}   #{sim.PlayerRank() + 1}";
-            _score.color = Fade(Ink, op);
+            // Compass tape (reference DrawCompassTape) ----------------------
+            if (_compassFill != null && _compassCaret != null && _compassHeading != null)
+            {
+                _compassBorder!.color = Fade(new Color(232f / 255f, 240f / 255f, 244f / 255f, 74f / 255f), op);
+                _compassFill.color = Fade(new Color(5f / 255f, 8f / 255f, 13f / 255f, 206f / 255f), op);
+                _compassCaret.color = Fade(Gold, op);
+
+                // Game yaw increases to the left; flip it for clockwise compass
+                // degrees (N=000, E=090, S=180, W=270), like the reference.
+                float heading = WrapHeading(-p.Yaw);
+                const float pixelsPerDegree = 1.575f;
+                const float halfWidth = 315f;
+                float halfDegrees = halfWidth / pixelsPerDegree;
+                int firstTick = (int)MathF.Floor((heading - halfDegrees) / 15f) * 15;
+                int lastTick = (int)MathF.Ceiling((heading + halfDegrees) / 15f) * 15;
+                int index = 0;
+                for (int degree = firstTick;
+                    degree <= lastTick && index < _compassTicks.Length;
+                    degree += 15)
+                {
+                    float delta = SignedHeadingDelta(heading, degree);
+                    float x = delta * pixelsPerDegree;
+                    if (x < -halfWidth - 3f || x > halfWidth + 3f) continue;
+
+                    int normalized = ((degree % 360) + 360) % 360;
+                    bool labelled = normalized % 45 == 0;
+                    float height = labelled ? 10.5f : 5.25f;
+                    Image tick = _compassTicks[index]!;
+                    Text label = _compassTickLabels[index]!;
+                    tick.gameObject.SetActive(true);
+                    tick.rectTransform.anchoredPosition = new Vector2(x, -(123f + height * 0.5f));
+                    tick.rectTransform.sizeDelta = new Vector2(2f, height);
+                    tick.color = Fade(labelled
+                        ? new Color(236f / 255f, 240f / 255f, 244f / 255f, 188f / 255f)
+                        : new Color(236f / 255f, 240f / 255f, 244f / 255f, 92f / 255f), op);
+                    label.gameObject.SetActive(labelled);
+                    if (labelled)
+                    {
+                        label.text = CompassLabel(normalized);
+                        label.rectTransform.anchoredPosition = new Vector2(x, -142f);
+                        label.color = Fade(Dim, op);
+                    }
+                    index++;
+                }
+                for (; index < _compassTicks.Length; index++)
+                {
+                    if (_compassTicks[index]!.gameObject.activeSelf) _compassTicks[index]!.gameObject.SetActive(false);
+                    if (_compassTickLabels[index]!.gameObject.activeSelf) _compassTickLabels[index]!.gameObject.SetActive(false);
+                }
+
+                int headingDisplay = ((int)MathF.Round(heading)) % 360;
+                _compassHeading.text = $"{headingDisplay:000}";
+                _compassHeading.color = Fade(Faint, op);
+            }
 
             // Kill feed (newest first, 6.5 s life like the reference) -------
             int line = 0;
@@ -667,12 +751,39 @@ namespace HoodGlobalOffensive.Presentation
             return U.Lerp(1f, 0.38f, t);
         }
 
+        static float WrapHeading(float degrees)
+        {
+            float wrapped = degrees % 360f;
+            return wrapped < 0f ? wrapped + 360f : wrapped;
+        }
+
+        static float SignedHeadingDelta(float current, float candidate)
+        {
+            float delta = (candidate - current) % 360f;
+            if (delta > 180f) delta -= 360f;
+            if (delta < -180f) delta += 360f;
+            return delta;
+        }
+
+        static string CompassLabel(int degrees) => degrees switch
+        {
+            0 => "N",
+            45 => "NE",
+            90 => "E",
+            135 => "SE",
+            180 => "S",
+            225 => "SW",
+            270 => "W",
+            315 => "NW",
+            _ => $"{degrees:000}",
+        };
+
         static string FormatClock(float seconds)
         {
             float clamped = MathF.Max(0f, seconds);
             int minutes = (int)(clamped / 60f);
             int secs = (int)(clamped % 60f);
-            return $"{minutes:0}:{secs:00}";
+            return $"{minutes:00}:{secs:00}";
         }
 
         // ------------------------------------------------------------------ build
@@ -734,16 +845,47 @@ namespace HoodGlobalOffensive.Presentation
             _ammoReserve = MakeText(root, "Ammo Reserve", AnchorBottomRight,
                 new Vector2(-24f, 2f), new Vector2(400f, 20f), 13, TextAnchor.UpperRight, Dim);
 
-            // Timer / match result ------------------------------------------
+            // Top bar (reference DrawTopBar; panel 220x58 at 1.5x) ------------
+            _topBarBorder = MakeImage(root, "Top Bar Border", AnchorTopCenter,
+                new Vector2(0f, -65.5f), new Vector2(332f, 89f), new Color(1f, 1f, 1f, 0.29f));
+            _topBarFill = MakeImage(root, "Top Bar Fill", AnchorTopCenter,
+                new Vector2(0f, -65.5f), new Vector2(330f, 87f),
+                new Color(5f / 255f, 8f / 255f, 13f / 255f, 206f / 255f));
+            _clockLabel = MakeText(root, "Match Clock Label", AnchorTopCenter,
+                new Vector2(0f, -40f), new Vector2(220f, 20f), 14, TextAnchor.MiddleCenter, Faint);
+            _clockLabel.text = "MATCH CLOCK";
             _timer = MakeText(root, "Timer", AnchorTopCenter,
-                new Vector2(0f, -16f), new Vector2(720f, 40f), 30, TextAnchor.UpperCenter, Ink);
+                new Vector2(0f, -68.5f), new Vector2(300f, 50f), 42, TextAnchor.MiddleCenter, Ink);
+            _clockScore = MakeText(root, "Clock Score", AnchorTopCenter,
+                new Vector2(0f, -95.5f), new Vector2(400f, 20f), 14, TextAnchor.MiddleCenter, Dim);
+
+            // Match result banner -------------------------------------------
             _matchResult = MakeText(root, "Match Result", AnchorCenter,
                 new Vector2(0f, 40f), new Vector2(1440f, 120f), 56, TextAnchor.MiddleCenter, Gold);
             _matchResult.gameObject.SetActive(false);
 
-            // Score (top-left) ----------------------------------------------
-            _score = MakeText(root, "Score", AnchorTopLeft,
-                new Vector2(20f, -14f), new Vector2(320f, 26f), 18, TextAnchor.UpperLeft, Ink);
+            // Compass tape (reference DrawCompassTape; 420x21 at 1.5x) -------
+            _compassBorder = MakeImage(root, "Compass Border", AnchorTopCenter,
+                new Vector2(0f, -135.75f), new Vector2(632f, 33f), new Color(1f, 1f, 1f, 0.29f));
+            _compassFill = MakeImage(root, "Compass Fill", AnchorTopCenter,
+                new Vector2(0f, -135.75f), new Vector2(630f, 31f),
+                new Color(5f / 255f, 8f / 255f, 13f / 255f, 206f / 255f));
+            _compassCaret = MakeImage(root, "Compass Caret", AnchorTopCenter,
+                new Vector2(0f, -124f), new Vector2(7f, 7f), Gold);
+            _compassCaret.rectTransform.localRotation = Quaternion.Euler(0f, 0f, 45f);
+            _compassHeading = MakeText(root, "Compass Heading", AnchorTopCenter,
+                new Vector2(0f, -161.5f), new Vector2(120f, 14f), 14, TextAnchor.MiddleCenter, Faint);
+            _compassTicks = new Image?[30];
+            _compassTickLabels = new Text?[30];
+            for (int i = 0; i < _compassTicks.Length; i++)
+            {
+                _compassTicks[i] = MakeImage(root, $"Compass Tick {i}", AnchorTopCenter,
+                    Vector2.zero, new Vector2(2f, 8f), new Color(1f, 1f, 1f, 0.5f));
+                _compassTickLabels[i] = MakeText(root, $"Compass Label {i}", AnchorTopCenter,
+                    new Vector2(0f, -142f), new Vector2(40f, 14f), 14, TextAnchor.MiddleCenter, Dim);
+                _compassTicks[i]!.gameObject.SetActive(false);
+                _compassTickLabels[i]!.gameObject.SetActive(false);
+            }
 
             // Kill feed (top-right) ------------------------------------------
             _killFeed = new Text[FeedLines];
