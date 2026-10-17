@@ -50,6 +50,15 @@ namespace UnityEngine
         public static Vector3 up => new Vector3(0f, 1f, 0f);
         public static Vector3 zero => new Vector3(0f, 0f, 0f);
 
+        public Vector3 normalized
+        {
+            get
+            {
+                float length = MathF.Sqrt(x * x + y * y + z * z);
+                return length > 0.000001f ? new Vector3(x / length, y / length, z / length) : default;
+            }
+        }
+
         public static Vector3 operator +(Vector3 a, Vector3 b) =>
             new Vector3(a.x + b.x, a.y + b.y, a.z + b.z);
 

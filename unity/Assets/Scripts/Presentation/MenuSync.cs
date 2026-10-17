@@ -277,6 +277,9 @@ namespace HoodGlobalOffensive.Presentation
             // The reference draws its scoreboard inside the match-over screen; the HUD
             // forces it up so the same information is visible behind the menu backdrop.
             if (_hud != null) _hud.ForceScoreboard = screen == Screen.MatchOver;
+            // Main shows the reference's fixed scenic backdrop over the map instead of
+            // the last gameplay frame (Renderer.DrawMenuBackdrop).
+            if (screen == Screen.Main && _driver != null) _driver.ParkMenuBackdrop();
 
             RefreshRows();
         }

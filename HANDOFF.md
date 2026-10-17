@@ -44,8 +44,8 @@
   bridge, first presentation-blockout pass, the code-built front end, the Unity YAML
   `.gitattributes` prep, combat-effects blockout, the HUD floating damage numbers, the crosshair
   options port, the camera-feedback levels, the main-menu match-setup rows, the upgrade-cabinet
-  overlay, the Tab scoreboard + pause/match-over parity fixes) are
-  **local only — 16 commits ahead of `origin/main`** — keep them local until the team asks
+  overlay, the Tab scoreboard + pause/match-over parity fixes, the scenic menu backdrop) are
+  **local only — 17 commits ahead of `origin/main`** — keep them local until the team asks
   for another push.
   Pre-push gate for future work: `-warnaserror` build clean, both CI gates `RESULT: PASS`, `tools/parity`
   `PARITY: PASS`, `tools/presentation-check` build clean, and `tools/editmode-check` build clean.
@@ -238,7 +238,11 @@ behaviour questions.
     setup); pause `QUIT TO MENU` and match-over `BACK TO MENU` return to the main screen like
     the reference (`ScreenAction.QuitToMenu`), while only the main menu's QUIT exits the app.
     The pause screen carries the reference's live kills/deaths/upgrade-points subtitle and the
-    match-over subtitle appends the reference's "you finished rank X of Y" line. Also owns the
+    match-over subtitle appends the reference's "you finished rank X of Y" line. Entering the
+    main screen parks the camera on the reference's scenic menu backdrop
+    (`Renderer.DrawMenuBackdrop`'s fixed 58° pose over the Industrial raw coordinates, via
+    `MatchDriver.ParkMenuBackdrop`); every other screen keeps the live gameplay frame behind
+    it, like the reference. Also owns the
     cursor — the driver still locks it in its `Awake`, but `MenuSync` applies menu state in
     `Start` (after every `Awake`), so the main menu wins. Keyboard-driven (Up/Down to move,
     Enter to select, Esc to pause/back, Left/Right to adjust) so it needs no
@@ -298,8 +302,8 @@ behaviour questions.
   without it the driver runs unpaused from frame one with the cursor locked, as before;
   `UpgradeSync` is optional too, and without it the cabinet simply never opens.
   **Not yet ported:** real map meshes and bot meshes (primitive blockouts exist), VFX polish
-  (transparent/additive materials, muzzle flame lobes), a match-launch map preview,
-  screenshot tooling, per-art view-model calibration. The menu stack is a
+  (transparent/additive materials, muzzle flame lobes), screenshot tooling, per-art view-model
+  calibration. The menu stack is a
   first pass (`MenuSync`): main/pause/settings/crosshair-options/match-over are covered; an
   audio/keybind options pass and a styled reference-matched skin are
   still blockout quality. The

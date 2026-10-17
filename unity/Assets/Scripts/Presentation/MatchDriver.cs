@@ -205,6 +205,26 @@ namespace HoodGlobalOffensive.Presentation
         }
 
         /// <summary>
+        /// Parks the player camera on the reference's main-menu scenic backdrop
+        /// (<c>Renderer.DrawMenuBackdrop</c>): a fixed 58-degree view from raw
+        /// (-78, 62) +460 units up, aimed at raw (8, -8) +72. RawToWorld plus the
+        /// identity <see cref="ToUnity(System.Numerics.Vector3)"/> conversion put the
+        /// pose straight into Unity space. Safe at any time — the next Playing frame
+        /// re-asserts the live first-person pose from the sim.
+        /// </summary>
+        public void ParkMenuBackdrop()
+        {
+            if (PlayerCamera == null) return;
+
+            Vector3 target = ToUnity(IndustrialZoneLayout.RawToWorld(8f, -8f)) + Vector3.up * 72f;
+            Vector3 position = ToUnity(IndustrialZoneLayout.RawToWorld(-78f, 62f)) + Vector3.up * 460f;
+            PlayerCamera.position = position;
+            PlayerCamera.rotation = Quaternion.LookRotation((target - position).normalized, Vector3.up);
+            if (_camera == null) _camera = PlayerCamera.GetComponent<Camera>();
+            if (_camera != null) _camera.fieldOfView = 58f;
+        }
+
+        /// <summary>
         /// The world-camera portion of the camera feedback (reference
         /// <c>Renderer.GetFeedbackFovKick</c>): a small lens response to footsteps,
         /// landings and incoming damage. Unlike a positional shake, changing FOV keeps
