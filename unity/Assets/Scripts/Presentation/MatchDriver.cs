@@ -1,0 +1,157 @@
+using HoodGlobalOffensive.Core;
+using HoodGlobalOffensive.Entities;
+using HoodGlobalOffensive.Sim;
+using HoodGlobalOffensive.World;
+using UnityEngine;
+
+namespace HoodGlobalOffensive.Presentation
+{
+    public sealed class MatchDriver : MonoBehaviour
+    {
+        [Header("Match setup")]
+        public int BotCount = 9;
+        public BotSkill Skill = BotSkill.Normal;
+        public ulong Seed = 20260114UL;
+        public string MapName = MapRegistry.Default;
+
+        [Header("Scene wiring")]
+        public Transform PlayerBody;
+        public Transform PlayerCamera;
+
+        [Header("Input tuning")]
+        public float LookGain = 1f;
+
+        public Simulation Sim { get; private set; }
+
+        const float TickDt = 1f / 60f;
+        float _accumulator;
+
+        bool _firePressed;
+        bool _zoomPressed;
+        bool _reloadPressed;
+        bool _grappleLeftPressed;
+        bool _grappleRightPressed;
+        bool _crouchTogglePressed;
+        bool _meleePressed;
+        bool _flashlightPressed;
+        int _switchSlot = -1;
+        int _switchCycle;
+        bool _usePressed;
+
+        void Awake()
+        {
+            Sim = new Simulation(BotCount, Skill, Seed, mapName: MapName);
+            Cursor.lockState = CursorLockMode.Locked;
+            SyncView();
+        }
+
+        void Update()
+        {
+            CapturePressedFlags();
+
+            _accumulator += Time.deltaTime;
+            bool stepped = false;
+            while (_accumulator >= TickDt)
+            {
+                Sim.Update(BuildInput(), TickDt);
+                _accumulator -= TickDt;
+                stepped = true;
+            }
+            _accumulator = Mathf.Min(_accumulator, TickDt);
+
+            if (stepped) SyncView();
+        }
+
+        void CapturePressedFlags()
+        {
+            _firePressed |= Input.GetMouseButtonDown(0);
+            _zoomPressed |= Input.GetMouseButtonDown(1);
+            _reloadPressed |= Input.GetKeyDown(KeyCode.R);
+            _grappleLeftPressed |= Input.GetKeyDown(KeyCode.Q);
+            _grappleRightPressed |= Input.GetKeyDown(KeyCode.E);
+            _usePressed |= _grappleRightPressed;
+            _crouchTogglePressed |= Input.GetKeyDown(KeyCode.C);
+            _meleePressed |= Input.GetKeyDown(KeyCode.V);
+            _flashlightPressed |= Input.GetKeyDown(KeyCode.F);
+
+            if (Input.GetKeyDown(KeyCode.Alpha1)) _switchSlot = 1;
+            else if (Input.GetKeyDown(KeyCode.Alpha2)) _switchSlot = 2;
+            else if (Input.GetKeyDown(KeyCode.Alpha3)) _switchSlot = 3;
+            else if (Input.GetKeyDown(KeyCode.Alpha4)) _switchSlot = 4;
+
+            float scroll = Input.mouseScrollDelta.y;
+            if (scroll != 0f && _switchCycle == 0)
+                _switchCycle = scroll > 0f ? 1 : -1;
+        }
+
+        InputFrame BuildInput()
+        {
+            var frame = InputFrame.Neutral;
+            frame.Move = new System.Numerics.Vector2(
+                Input.GetAxisRaw("Horizontal"),
+                Input.GetAxisRaw("Vertical"));
+            // Sim expects raylib GetMouseDelta counts: +X = right, +Y = down
+            // (Player.cs subtracts Look, so +Y pitches down). Unity's "Mouse Y"
+            // axis is +Y = up, so negate it to keep vertical look non-inverted.
+            frame.Look = new System.Numerics.Vector2(
+                Input.GetAxisRaw("Mouse X") * LookGain,
+                -Input.GetAxisRaw("Mouse Y") * LookGain);
+            frame.Jump = Input.GetButton("Jump");
+            frame.Crouch = Input.GetKey(KeyCode.LeftControl);
+            frame.FireDown = Input.GetMouseButton(0);
+            frame.FirePressed = Take(ref _firePressed);
+            frame.ZoomPressed = Take(ref _zoomPressed);
+            frame.ZoomDown = Input.GetMouseButton(1);
+            frame.Reload = Take(ref _reloadPressed);
+            frame.GrappleLeftPressed = Take(ref _grappleLeftPressed);
+            frame.GrappleRightPressed = Take(ref _grappleRightPressed);
+            frame.UsePressed = Take(ref _usePressed);
+            frame.CrouchTogglePressed = Take(ref _crouchTogglePressed);
+            frame.MeleePressed = Take(ref _meleePressed);
+            frame.FlashlightTogglePressed = Take(ref _flashlightPressed);
+            frame.SwitchSlot = TakeSlot();
+            frame.SwitchCycle = TakeCycle();
+            return frame;
+        }
+
+        static bool Take(ref bool flag)
+        {
+            bool value = flag;
+            flag = false;
+            return value;
+        }
+
+        int TakeSlot()
+        {
+            int slot = _switchSlot;
+            _switchSlot = -1;
+            return slot;
+        }
+
+        int TakeCycle()
+        {
+            int cycle = _switchCycle;
+            _switchCycle = 0;
+            return cycle;
+        }
+
+        public static Vector3 ToUnity(System.Numerics.Vector3 v) => new Vector3(v.X, v.Y, v.Z);
+
+        void SyncView()
+        {
+            Player p = Sim.Player;
+            Vector3 feet = ToUnity(p.Position);
+            Vector3 aim = ToUnity(U.DirFromAngles(p.Yaw, p.Pitch));
+
+            if (PlayerBody == null) PlayerBody = transform;
+            PlayerBody.position = feet;
+            PlayerBody.rotation = Quaternion.LookRotation(ToUnity(U.DirFromAngles(p.Yaw, 0f)), Vector3.up);
+
+            if (PlayerCamera != null)
+            {
+                PlayerCamera.position = feet + Vector3.up * p.EyeHeight;
+                PlayerCamera.rotation = Quaternion.LookRotation(aim, Vector3.up);
+            }
+        }
+    }
+}

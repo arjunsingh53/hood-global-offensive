@@ -119,24 +119,41 @@ behaviour questions.
   C# 9, `-warnaserror`) and the console harness passes, but no real Unity editor has compiled
   them yet — the first editor open is still the next milestone. Commit the `.meta` files Unity
   generates for `unity/Assets/Tests/EditMode/`.
-- **Not yet ported:** all presentation — rendering, HUD/menus, input plumbing beyond `InputFrame`,
-  settings, audio playback, screenshot tooling. The Unity project itself is a skeleton: editor
-  version `6000.3.26f1` (`unity/ProjectSettings/ProjectVersion.txt`), a minimal package manifest
-  (test framework + uGUI) and the `HGO.Sim` asmdef. **No Unity editor pass has been run yet** —
-  opening the project in Unity 6.3 and running the edit-mode parity tests (already authored, see
-  above) is the next milestone.
+- **Presentation bridge done:** `unity/Assets/Scripts/Presentation/MatchDriver.cs` drives
+  `Simulation.Update(InputFrame, dt)` at a fixed 1/60s accumulator, adapts legacy Unity input
+  (mouse, keyboard axes, one-shot flags) into `InputFrame`, and syncs `PlayerBody` (feet position
+  + yaw) and `PlayerCamera` (eye-height position + yaw/pitch aim) to `Sim.Player`. It lives in
+  `HGO.Presentation.asmdef` which references `HGO.Sim` (engine-free, `noEngineReferences: true`).
+  The adapter negates Unity's `"Mouse Y"` before feeding `InputFrame.Look`: the sim consumes raw
+  raylib `GetMouseDelta` counts (Y positive = down, `src/Core/Input.cs:82`) and subtracts them
+  (`Player.cs:122`), whereas Unity's Mouse Y is positive = up — without the negation the ported
+  view looks inverted.
+  **Not yet ported:** rendering/map meshes, HUD/menus, settings, audio playback, screenshot
+  tooling, bot view prefabs. The Unity project itself is a skeleton: editor version
+  `6000.3.26f1` (`unity/ProjectSettings/ProjectVersion.txt`), a minimal package manifest (test
+  framework + uGUI), the `HGO.Sim` asmdef and the new `HGO.Presentation` asmdef. **No Unity
+  editor pass has been run yet** — opening the project in Unity 6.3 and running the edit-mode
+  parity tests (already authored, see above) is the next milestone.
+  **Gates verified on this box (2026-10-17):** once SDK 10.0.402 was installed user-locally, all
+  three gates passed locally — `dotnet build --nologo -warnaserror` (0 warn/0 err), both CI
+  gates `RESULT: PASS`, and `tools/parity` `PARITY: PASS` (Unity port byte-matches the raylib
+  reference goldens on both runs; the `unknown map 'nope'` line it prints is the harness's
+  fallback-map test, not an error). The remaining unverified gate is Unity's Test Runner —
+  editor only.
 
 ## How to work on this repository
 
 ### Build, run, verify
 
-If the SDK is installed per-user, call it explicitly — check `$env:USERPROFILE\.dotnet` first,
-then `$env:LOCALAPPDATA\Microsoft\dotnet` (the original machine used the latter; PATH `dotnet`
-may only carry a runtime):
+If the SDK is installed per-user, call it explicitly. On the current machine (`F:\` work box)
+`C:\Program Files\dotnet\dotnet.exe` is a runtime-only host and **SDK 10.0.402 was installed
+user-locally** at `C:\Users\Aryan\AppData\Local\Temp\opencode\dotnet` (via `dotnet-install.ps1`;
+that temp path may be wiped, so re-run the installer with `-Channel 10.0` if it's gone). Use:
 
 ```powershell
-$dotnet = "$env:USERPROFILE\.dotnet\dotnet.exe"
-if (-not (Test-Path $dotnet)) { $dotnet = "$env:LOCALAPPDATA\Microsoft\dotnet\dotnet.exe" }
+$dotnet = "$env:LOCALAPPDATA\Temp\opencode\dotnet\dotnet.exe"
+if (-not (Test-Path $dotnet)) { $dotnet = "C:\Users\Aryan\AppData\Local\Temp\opencode\dotnet\dotnet.exe" }
+$env:DOTNET_ROOT = Split-Path $dotnet
 & $dotnet build --nologo -warnaserror        # must stay 0 warnings, 0 errors
 & $dotnet run --no-build -- <args>
 ```
@@ -239,6 +256,7 @@ is current.
 | Menus (see the row-pitch note above) | `src/UI/Screens.cs` |
 | Rig converter | `tools/build_animated_viewmodels.py` |
 | Unity sim port (mirrors `src/`, engine-free) | `unity/Assets/Scripts/Sim/` |
+| Sim→Unity bridge: fixed-tick `Simulation.Update`, `InputFrame` adapter, body/camera sync | `unity/Assets/Scripts/Presentation/MatchDriver.cs` + `HGO.Presentation.asmdef` |
 | Parity suite (shared) + Unity edit-mode tests | `unity/Assets/Tests/EditMode/` (`ParityChecks.cs`, `ParityTests.cs`, `HGO.Sim.Tests.asmdef`) |
 | Parity console harness + golden reports | `tools/parity/` (`Parity.csproj`, thin `Program.cs`, `goldens/`) |
 | Unity project skeleton | `unity/` (`ProjectVersion.txt`, `Packages/manifest.json`, `HGO.Sim.asmdef`) |
@@ -277,9 +295,12 @@ is current.
      `HGO.Sim.Tests`) in the editor's Test Runner — they already reuse `tools/parity/goldens/`;
      until the editor is part of CI the console harness remains the automated gate. Commit the
      `.meta` files Unity generates.
-  3. Port input plumbing and settings, then rebuild presentation (rendering, HUD, menus, audio)
-     against the reference — gameplay behaviour is already pinned by the parity goldens, so the
-     view layer is free to diverge where it is purely cosmetic.
+  3. Wire the Unity scene: empty `PlayerBody` GameObject with `MatchDriver`, separate unparented
+     `Main Camera` assigned to `MatchDriver.PlayerCamera` (the driver sets its world pose). Tune
+     `LookGain` so mouse counts match the raylib feel (Unity default axes are not 1:1 counts).
+  4. Rebuild presentation (rendering/map meshes, HUD, menus, audio) against the reference —
+     gameplay behaviour is already pinned by the parity goldens, so the view layer is free to
+     diverge where it is purely cosmetic.
 - **Bacon-hand assets** (`hands/source/baconhand_smg.fbx`) were reviewed and deliberately left
   unused — the rigs already ship gloved arms. Swap them in only if the look is wanted.
 - **Sniper ADS** does not exist (model stows, scope overlay takes over — verified clean). Adding

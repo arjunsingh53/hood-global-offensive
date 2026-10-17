@@ -1,0 +1,16 @@
+{
+    "name": "HGO.Presentation",
+    "rootNamespace": "HoodGlobalOffensive.Presentation",
+    "references": [
+        "HGO.Sim"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}
