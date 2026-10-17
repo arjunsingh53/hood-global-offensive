@@ -25,8 +25,9 @@
   (`MapBlockout` etc.), the code-built front end (`MenuSync`), the Unity YAML `.gitattributes`
   prep, the combat-effects blockout (`EffectsSync`), the HUD floating damage numbers, the
   crosshair options port (settings profile, live HUD reticle, menu screen), the
-  camera-feedback levels (driver FOV kick + view-model offsets), and the main-menu match-setup
-  rows (loadout slots, map, bots, skill, kill limit). The GitHub release asset for `v0.2.2` was
+  camera-feedback levels (driver FOV kick + view-model offsets), the main-menu match-setup
+  rows (loadout slots, map, bots, skill, kill limit), and the upgrade-cabinet overlay. The
+  GitHub release asset for `v0.2.2` was
   rebuilt in place (`gh release upload --clobber`) so the downloadable exe includes the menu fix.
   Run `git log --oneline -5` for exact hashes.
 - **Verified state:** `-warnaserror` build clean; both headless CI gates print `RESULT: PASS`;
@@ -42,8 +43,9 @@
   compile gate, edit-mode gate, audio synthesis port, `AudioMix` routing port, audio playback
   bridge, first presentation-blockout pass, the code-built front end, the Unity YAML
   `.gitattributes` prep, combat-effects blockout, the HUD floating damage numbers, the crosshair
-  options port, the camera-feedback levels, the main-menu match-setup rows) are
-  **local only — 14 commits ahead of `origin/main`** — keep them local until the team asks
+  options port, the camera-feedback levels, the main-menu match-setup rows, the upgrade-cabinet
+  overlay) are
+  **local only — 15 commits ahead of `origin/main`** — keep them local until the team asks
   for another push.
   Pre-push gate for future work: `-warnaserror` build clean, both CI gates `RESULT: PASS`, `tools/parity`
   `PARITY: PASS`, `tools/presentation-check` build clean, and `tools/editmode-check` build clean.
@@ -254,6 +256,18 @@ behaviour questions.
     `MapName` + the three loadout slots) for the next `Restart`; restore rules mirror the
     reference `UserSettingsStore` (clamps, unknown skill → Normal, map `Normalize`, gun slots
     sanitised against the loadout pool).
+  - `UpgradeSync.cs` — the kill-point upgrade cabinet overlay (reference `Screens.UpgradeMenu`).
+    When the sim raises `Player.WantsOpenUpgrade` (E next to a station), it opens a code-built
+    uGUI panel and freezes the match — `MatchDriver.Update` skips its tick while `IsOpen`,
+    exactly like the reference never steps the sim from its UpgradeMenu state. Four stat rows
+    with three level pips each, KILL POINTS badge, live COST/MAX/NEEDS POINTS status, then a
+    CLOSE row and a 1.6 s result message; Up/Down (or W/S) move, Space/E buys via
+    `Simulation.TryBuyUpgrade`, Esc closes, and the E that opened the cabinet must be released
+    once before it can buy (reference `UpgradeMenuKeyLatch`). The two deviations from the
+    reference, both documented in the file: the CLOSE row is drawn like a normal row (the
+    reference leaves it invisible) and the footer key hint sits below it for 1080p legibility.
+    `MenuSync` skips its own input while `UpgradeSync.BlocksMenuInput` (open, or the frame it
+    closed), so the closing Esc never also pauses.
   `MatchDriver.SyncView` also now pins `PlayerCamera.fieldOfView` to `Sim.Player.CurrentFov`.
   **Combat-effects blockout ported:** `EffectsSync.cs` pools primitive stand-ins for the sim's
   effect lists, synced in `LateUpdate` (the sim owns every lifetime — it ages and prunes the
@@ -268,10 +282,11 @@ behaviour questions.
   with the model. Opaque primitive materials cannot fade like the reference's alpha draws, so the
   scale curves carry the life cue and tracers/decals simply vanish when pruned; the amber flame
   lobes wait for the mesh pass. Compile-verified editor-free by `tools/presentation-check`.
-  Wiring: attach `MenuSync`/`HudSync`/`ActorViews`/`MapBlockout`/`ViewModelSync`/`EffectsSync` to the same
+  Wiring: attach `MenuSync`/`HudSync`/`ActorViews`/`MapBlockout`/`ViewModelSync`/`EffectsSync`/`UpgradeSync` to the same
   GameObject as `MatchDriver` (they self-locate it) and assign `ViewModelRoot` (a camera-local
   placeholder mesh) to `ViewModelSync`; everything else auto-builds. `MenuSync` is optional —
-  without it the driver runs unpaused from frame one with the cursor locked, as before.
+  without it the driver runs unpaused from frame one with the cursor locked, as before;
+  `UpgradeSync` is optional too, and without it the cabinet simply never opens.
   **Not yet ported:** real map meshes and bot meshes (primitive blockouts exist), VFX polish
   (transparent/additive materials, muzzle flame lobes), a match-launch map preview,
   screenshot tooling, per-art view-model calibration. The menu stack is a
@@ -438,7 +453,7 @@ the next session knows whether GitHub is current.
 | Unity audio synthesis + mix routing port, cue manifest (engine-free) | `unity/Assets/Scripts/Sim/Audio/` (`WavGen.cs`, `AudioCatalog.cs`, `AudioMix.cs`) |
 | Sim→Unity bridge: fixed-tick `Simulation.Update`, `InputFrame` adapter, body/camera sync | `unity/Assets/Scripts/Presentation/MatchDriver.cs` + `HGO.Presentation.asmdef` |
 | Unity audio playback: PCM→`AudioClip` bank, voice pool, drains `Sim.Sounds` via `AudioMix.Resolve` | `unity/Assets/Scripts/Presentation/SimAudioPlayer.cs` |
-| Unity blockout pass: brush cubes, bot capsules, sim-driven view-model + muzzle flash, code-built uGUI HUD + menu stack, pooled combat effects, crosshair profile + reticle, camera-feedback levels, match-setup rows | `unity/Assets/Scripts/Presentation/` (`MapBlockout.cs`, `ActorViews.cs`, `ViewModelSync.cs`, `HudSync.cs`, `MenuSync.cs`, `EffectsSync.cs`, `CrosshairSettings.cs`, `CameraFeedbackSettings.cs`) |
+| Unity blockout pass: brush cubes, bot capsules, sim-driven view-model + muzzle flash, code-built uGUI HUD + menu stack, pooled combat effects, crosshair profile + reticle, camera-feedback levels, match-setup rows, upgrade-cabinet overlay | `unity/Assets/Scripts/Presentation/` (`MapBlockout.cs`, `ActorViews.cs`, `ViewModelSync.cs`, `HudSync.cs`, `MenuSync.cs`, `EffectsSync.cs`, `CrosshairSettings.cs`, `CameraFeedbackSettings.cs`, `UpgradeSync.cs`) |
 | Parity suite (shared) + Unity edit-mode tests | `unity/Assets/Tests/EditMode/` (`ParityChecks.cs`, `ParityTests.cs`, `HGO.Sim.Tests.asmdef`) |
 | Parity console harness + golden reports | `tools/parity/` (`Parity.csproj`, thin `Program.cs`, `goldens/`) |
 | Presentation compile gate (editor-free) | `tools/presentation-check/` (`PresentationCheck.csproj`, `UnityStubs.cs`, thin `Program.cs`) |
@@ -526,7 +541,8 @@ the next session knows whether GitHub is current.
      free to diverge where it is purely cosmetic. A first presentation pass now exists as a
       blockout (`MapBlockout` brush cubes, `ActorViews` capsule bots, `ViewModelSync` view-model
       dynamics + muzzle flash, `HudSync` code-built uGUI HUD, `MenuSync` code-built menu stack
-      (incl. the ported crosshair options screen and match-setup rows), `EffectsSync` tracers/particles/decals,
+      (incl. the ported crosshair options screen and match-setup rows), `UpgradeSync` cabinet
+      overlay, `EffectsSync` tracers/particles/decals,
       `CrosshairSettings` profile + reticle graphic, `CameraFeedbackSettings`) — see the migration-state bullet; editor
       wiring is one GameObject + one viewmodel placeholder. What remains above blockout: real map
       meshes and bot meshes, VFX polish (transparent/additive materials, muzzle flame lobes),

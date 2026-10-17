@@ -39,6 +39,7 @@ namespace HoodGlobalOffensive.Presentation
         const float TickDt = 1f / 60f;
         float _accumulator;
         Camera? _camera;
+        UpgradeSync? _upgradeSync;
 
         bool _firePressed;
         bool _zoomPressed;
@@ -56,6 +57,7 @@ namespace HoodGlobalOffensive.Presentation
         {
             Sim = new Simulation(BotCount, Skill, Seed, KillsToWin, Loadout, mapName: MapName);
             if (Audio == null) Audio = gameObject.AddComponent<SimAudioPlayer>();
+            _upgradeSync = GetComponent<UpgradeSync>();
             Cursor.lockState = CursorLockMode.Locked;
             SyncView();
         }
@@ -75,6 +77,15 @@ namespace HoodGlobalOffensive.Presentation
 
         void Update()
         {
+            // The cabinet overlay freezes the match: the reference never steps the
+            // sim from its UpgradeMenu state and never polls input there either.
+            // Drop the accumulator so closing the cabinet cannot burst catch-up ticks.
+            if (_upgradeSync != null && _upgradeSync.IsOpen)
+            {
+                _accumulator = 0f;
+                return;
+            }
+
             CapturePressedFlags();
 
             _accumulator += Time.deltaTime;

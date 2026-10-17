@@ -271,6 +271,7 @@ namespace UnityEngine
     public static class Time
     {
         public static float deltaTime => 0f;
+        public static float unscaledTime => 0f;
         public static float timeScale { get; set; } = 1f;
     }
 
@@ -300,6 +301,8 @@ namespace UnityEngine
         R,
         Q,
         E,
+        W,
+        S,
         C,
         V,
         F,

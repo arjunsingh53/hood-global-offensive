@@ -63,6 +63,7 @@ namespace HoodGlobalOffensive.Presentation
 
         MatchDriver? _driver;
         HudSync? _hud;
+        UpgradeSync? _upgradeSync;
         Font? _font;
         GameObject? _panel;
         GameObject? _previewPanel;
@@ -109,6 +110,7 @@ namespace HoodGlobalOffensive.Presentation
             if (_driver == null) return;
 
             _hud = GetComponent<HudSync>();
+            _upgradeSync = GetComponent<UpgradeSync>();
 
             _font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
             if (_font == null) _font = Font.CreateDynamicFontFromOSFont("Arial", 24);
@@ -123,6 +125,10 @@ namespace HoodGlobalOffensive.Presentation
         void Update()
         {
             if (_driver == null) return;
+
+            // The upgrade cabinet owns input while it is up (and on the frame it
+            // closes), so Esc/Enter here never fight it.
+            if (_upgradeSync != null && _upgradeSync.BlocksMenuInput) return;
 
             bool esc = Input.GetKeyDown(KeyCode.Escape);
             bool enter = Input.GetKeyDown(KeyCode.Return);
