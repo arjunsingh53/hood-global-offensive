@@ -30,6 +30,8 @@ namespace HoodGlobalOffensive.Presentation
         static readonly Color DamageTint = new Color(1.00f, 0.12f, 0.10f);
         static readonly Color DamageInk = new Color(248f / 255f, 248f / 255f, 240f / 255f);
         static readonly Color HeadshotDamage = new Color(1f, 176f / 255f, 48f / 255f);
+        static readonly Color Faint = new Color(0.38f, 0.40f, 0.42f);
+        static readonly Color ScorePanel = new Color(8f / 255f, 10f / 255f, 14f / 255f, 225f / 255f);
 
         const int FeedLines = 6;
 
@@ -53,6 +55,23 @@ namespace HoodGlobalOffensive.Presentation
         Image _traumaOverlay;
         RectTransform _damageWheel;
         Text[] _killFeed;
+        GameObject? _scoreboard;
+        RectTransform? _scoreboardRect;
+        Text? _scoreTitle;
+        Text? _scoreFirstTo;
+        Text? _scoreFooter;
+        readonly List<ScoreRow> _scoreRows = new();
+
+        sealed class ScoreRow
+        {
+            public GameObject Root = null!;
+            public GameObject Fill = null!;
+            public Text Name = null!;
+            public Text Kills = null!;
+            public Text Deaths = null!;
+            public Text Kd = null!;
+            public Text Pts = null!;
+        }
 
         Camera? _camera;
         Transform? _canvasRoot;
@@ -66,6 +85,14 @@ namespace HoodGlobalOffensive.Presentation
         /// HUD keeps the default Classic profile.
         /// </summary>
         public CrosshairSettings Crosshair { get; set; } = new CrosshairSettings();
+
+        /// <summary>
+        /// Forces the scoreboard up outside the Tab-held path. The menu sets this while
+        /// the match-over screen is up — the reference draws the same panel inside that
+        /// screen (Screens.MatchOver). The board then sits under the menu backdrop; the
+        /// reference draws it above. Acceptable blockout deviation, see HANDOFF.
+        /// </summary>
+        public bool ForceScoreboard { get; set; }
 
         void Awake()
         {
@@ -193,6 +220,17 @@ namespace HoodGlobalOffensive.Presentation
 
             // Floating damage numbers --------------------------------------
             SyncDamageNumbers(sim);
+
+            // Scoreboard (reference DrawScoreboard): Tab-held during play, or forced
+            // while the match-over screen is up. It never shows while paused, because
+            // the driver is disabled outside the playing screen.
+            bool showScores = ForceScoreboard ||
+                (_driver != null && _driver.enabled && Input.GetKey(KeyCode.Tab));
+            if (_scoreboard != null)
+            {
+                _scoreboard.SetActive(showScores);
+                if (showScores) SyncScoreboard(sim);
+            }
         }
 
         /// <summary>
@@ -289,6 +327,83 @@ namespace HoodGlobalOffensive.Presentation
                 pool.Add(text);
             }
             return pool[index];
+        }
+
+        /// <summary>
+        /// Tab-held scoreboard mirroring the reference <c>Screens.DrawScoreboardContent</c>
+        /// (1280x720 logical metrics scaled 1.5x onto the 1080p canvas): map header,
+        /// "FIRST TO" line, K / D / K-D / PTS columns, ranked leaderboard and the gold
+        /// highlight row behind the local player. "TAB to close" footer included; the
+        /// reference always draws it, including inside the match-over screen.
+        /// </summary>
+        void SyncScoreboard(Simulation sim)
+        {
+            if (_scoreboard == null || _scoreboardRect == null || _scoreFooter == null) return;
+
+            int rows = sim.Actors.Count + 2;
+            float panelH = 84f + rows * 39f;
+            _scoreboardRect.sizeDelta = new Vector2(1140f, panelH);
+            _scoreboardRect.anchoredPosition = new Vector2(0f, -(150f + panelH * 0.5f));
+            if (_scoreTitle != null) _scoreTitle.text = $"{sim.Map.Name.ToUpperInvariant()}  -  DEATHMATCH";
+            if (_scoreFirstTo != null) _scoreFirstTo.text = $"FIRST TO {sim.KillsToWin}";
+            _scoreFooter.rectTransform.anchoredPosition = new Vector2(280f, -(panelH - 24f));
+
+            int index = 0;
+            int rank = 1;
+            foreach (Actor actor in sim.Leaderboard())
+            {
+                ScoreRow row = EnsureScoreRow(index);
+                row.Root.SetActive(true);
+                row.Fill.SetActive(actor.IsPlayer);
+                row.Name.text = $"{rank}.  {actor.Name}{(actor.IsPlayer ? "  (you)" : "")}";
+                row.Name.color = actor.IsPlayer ? Gold : (actor.Alive ? Ink : Dim);
+                float kd = actor.Deaths > 0 ? actor.Kills / (float)actor.Deaths : actor.Kills;
+                row.Kills.text = $"{actor.Kills}";
+                row.Deaths.text = $"{actor.Deaths}";
+                row.Kd.text = $"{kd:0.00}";
+                row.Pts.text = $"{actor.KillPoints}";
+                index++;
+                rank++;
+            }
+            for (int i = index; i < _scoreRows.Count; i++)
+            {
+                if (_scoreRows[i].Root.activeSelf) _scoreRows[i].Root.SetActive(false);
+            }
+        }
+
+        ScoreRow EnsureScoreRow(int index)
+        {
+            while (_scoreRows.Count <= index)
+            {
+                int i = _scoreRows.Count;
+                GameObject root = new GameObject($"Score Row {i}");
+                RectTransform rect = root.AddComponent<RectTransform>();
+                root.transform.SetParent(_scoreboard!.transform);
+                rect.anchorMin = new Vector2(0f, 1f);
+                rect.anchorMax = new Vector2(0f, 1f);
+                rect.pivot = new Vector2(0.5f, 0.5f);
+                rect.sizeDelta = new Vector2(1140f, 39f);
+                rect.anchoredPosition = new Vector2(570f, -(99f + i * 39f + 19.5f));
+
+                ScoreRow row = new ScoreRow();
+                row.Root = root;
+                row.Fill = MakeImage(root.transform, "Highlight", AnchorTopLeft,
+                    new Vector2(570f, -24f), new Vector2(1116f, 36f),
+                    new Color(Gold.r, Gold.g, Gold.b, 38f / 255f)).gameObject;
+                row.Name = MakeText(root.transform, "Name", AnchorTopLeft,
+                    new Vector2(380f, -19.5f), new Vector2(700f, 30f), 15, TextAnchor.MiddleLeft, Ink);
+                row.Kills = MakeText(root.transform, "K", AnchorTopRight,
+                    new Vector2(-355f, -19.5f), new Vector2(80f, 30f), 15, TextAnchor.MiddleRight, Ink);
+                row.Deaths = MakeText(root.transform, "D", AnchorTopRight,
+                    new Vector2(-265f, -19.5f), new Vector2(80f, 30f), 15, TextAnchor.MiddleRight, Dim);
+                row.Kd = MakeText(root.transform, "K/D", AnchorTopRight,
+                    new Vector2(-175f, -19.5f), new Vector2(80f, 30f), 15, TextAnchor.MiddleRight, Dim);
+                row.Pts = MakeText(root.transform, "PTS", AnchorTopRight,
+                    new Vector2(-70f, -19.5f), new Vector2(80f, 30f), 15, TextAnchor.MiddleRight, Gold);
+                row.Root.SetActive(false);
+                _scoreRows.Add(row);
+            }
+            return _scoreRows[index];
         }
 
         Camera? PlayerCamera()
@@ -389,6 +504,33 @@ namespace HoodGlobalOffensive.Presentation
             _deathNotice = MakeText(root, "Death Notice", AnchorBottomCenter,
                 new Vector2(0f, 120f), new Vector2(1200f, 40f), 30, TextAnchor.MiddleCenter, Danger);
             _deathNotice.gameObject.SetActive(false);
+
+            // Scoreboard overlay (hidden; reference DrawScoreboardContent at 1.5x on
+            // the 1080p canvas: panel 1140 wide, row pitch 39, top offset 150).
+            Image scorePanel = MakeImage(root, "Scoreboard", AnchorTopCenter,
+                Vector2.zero, new Vector2(1140f, 400f), ScorePanel);
+            _scoreboard = scorePanel.gameObject;
+            _scoreboardRect = scorePanel.rectTransform;
+            Transform scoreRoot = _scoreboard.transform;
+
+            _scoreTitle = MakeText(scoreRoot, "Scoreboard Title", AnchorTopLeft,
+                new Vector2(380f, -41f), new Vector2(700f, 40f), 30, TextAnchor.MiddleLeft, Ink);
+            _scoreFirstTo = MakeText(scoreRoot, "Scoreboard First To", AnchorTopRight,
+                new Vector2(-230f, -42f), new Vector2(400f, 30f), 22, TextAnchor.MiddleRight, Gold);
+            MakeText(scoreRoot, "Scoreboard Header Player", AnchorTopLeft,
+                new Vector2(130f, -84f), new Vector2(200f, 24f), 15, TextAnchor.MiddleLeft, Dim).text = "PLAYER";
+            MakeText(scoreRoot, "Scoreboard Header K", AnchorTopRight,
+                new Vector2(-355f, -84f), new Vector2(80f, 24f), 15, TextAnchor.MiddleRight, Dim).text = "K";
+            MakeText(scoreRoot, "Scoreboard Header D", AnchorTopRight,
+                new Vector2(-265f, -84f), new Vector2(80f, 24f), 15, TextAnchor.MiddleRight, Dim).text = "D";
+            MakeText(scoreRoot, "Scoreboard Header KD", AnchorTopRight,
+                new Vector2(-175f, -84f), new Vector2(80f, 24f), 15, TextAnchor.MiddleRight, Dim).text = "K/D";
+            MakeText(scoreRoot, "Scoreboard Header PTS", AnchorTopRight,
+                new Vector2(-70f, -84f), new Vector2(80f, 24f), 15, TextAnchor.MiddleRight, Dim).text = "PTS";
+            _scoreFooter = MakeText(scoreRoot, "Scoreboard Footer", AnchorTopLeft,
+                new Vector2(280f, -300f), new Vector2(500f, 30f), 15, TextAnchor.MiddleLeft, Faint);
+            _scoreFooter.text = "TAB to close";
+            _scoreboard.SetActive(false);
         }
 
         static readonly Vector2 AnchorBottomLeft = new Vector2(0f, 0f);

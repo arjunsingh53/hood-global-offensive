@@ -225,12 +225,12 @@ namespace HoodGlobalOffensive.Presentation
                     else if (_selected == 1) OpenCrosshair(Screen.Paused);
                     else if (_selected == 3) OpenSettings(Screen.Paused);
                     else if (_selected == 4) BeginPlay();
-                    else if (_selected == 5) Quit();
+                    else if (_selected == 5) SetScreen(Screen.Main);
                     // Row 2 (camera feedback) is adjusted with Left/Right.
                     break;
                 case Screen.MatchOver:
                     if (_selected == 0) BeginPlay();
-                    else Quit();
+                    else SetScreen(Screen.Main);
                     break;
                 case Screen.Settings:
                     if (_selected == 1) ToggleInvert();
@@ -274,6 +274,9 @@ namespace HoodGlobalOffensive.Presentation
             Time.timeScale = playing ? 1f : 0f;
             if (_panel != null) _panel.SetActive(!playing);
             if (_previewPanel != null) _previewPanel.SetActive(screen == Screen.Crosshair);
+            // The reference draws its scoreboard inside the match-over screen; the HUD
+            // forces it up so the same information is visible behind the menu backdrop.
+            if (_hud != null) _hud.ForceScoreboard = screen == Screen.MatchOver;
 
             RefreshRows();
         }
@@ -478,6 +481,7 @@ namespace HoodGlobalOffensive.Presentation
 
         void RefreshRows()
         {
+            var sim = _driver != null ? _driver.Sim : null;
             switch (_screen)
             {
                 case Screen.Main:
@@ -498,19 +502,23 @@ namespace HoodGlobalOffensive.Presentation
                     break;
                 case Screen.Paused:
                     _title.text = "PAUSED";
-                    _subtitle.text = "";
+                    _subtitle.text = sim != null
+                        ? $"{sim.Player.Kills} kills   {sim.Player.Deaths} deaths   {sim.Player.KillPoints} upgrade points"
+                        : "";
                     _rows[0] = "RESUME";
                     _rows[1] = $"CROSSHAIR OPTIONS   {_crosshair.PresetLabel}";
                     _rows[2] = $"CAMERA FEEDBACK   {_cameraFeedback.Label}";
                     _rows[3] = "SETTINGS";
-                    _rows[4] = "RESTART";
-                    _rows[5] = "QUIT";
+                    _rows[4] = "RESTART MATCH";
+                    _rows[5] = "QUIT TO MENU";
                     break;
                 case Screen.MatchOver:
                     _title.text = "MATCH OVER";
-                    _subtitle.text = _driver != null && _driver.Sim != null ? _driver.Sim.MatchResult : "";
+                    _subtitle.text = sim != null
+                        ? $"{sim.MatchResult}   -   you finished rank {sim.PlayerRank() + 1} of {sim.Actors.Count}"
+                        : "";
                     _rows[0] = "PLAY AGAIN";
-                    _rows[1] = "QUIT";
+                    _rows[1] = "BACK TO MENU";
                     break;
                 case Screen.Settings:
                     _title.text = "SETTINGS";

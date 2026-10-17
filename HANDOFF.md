@@ -44,8 +44,8 @@
   bridge, first presentation-blockout pass, the code-built front end, the Unity YAML
   `.gitattributes` prep, combat-effects blockout, the HUD floating damage numbers, the crosshair
   options port, the camera-feedback levels, the main-menu match-setup rows, the upgrade-cabinet
-  overlay) are
-  **local only — 15 commits ahead of `origin/main`** — keep them local until the team asks
+  overlay, the Tab scoreboard + pause/match-over parity fixes) are
+  **local only — 16 commits ahead of `origin/main`** — keep them local until the team asks
   for another push.
   Pre-push gate for future work: `-warnaserror` build clean, both CI gates `RESULT: PASS`, `tools/parity`
   `PARITY: PASS`, `tools/presentation-check` build clean, and `tools/editmode-check` build clean.
@@ -222,13 +222,23 @@ behaviour questions.
     `SpreadFor(…)` projected through the camera's vertical FOV at 1080p, clamped to 0.32×height.
     The profile instance is pushed by `MenuSync` (public `HudSync.Crosshair` property, same
     object so edits show live); without a menu the default Classic profile applies.
+    **Scoreboard ported (Tab):** holding Tab during play raises the reference
+    `Screens.DrawScoreboardContent` panel (1140-wide at 1.5x on the 1080p canvas): map header,
+    "FIRST TO" line, K/D/K-D/PTS columns from `Simulation.Leaderboard()`, the gold row behind
+    the local player, and the "TAB to close" footer. It never appears while paused (the driver
+    is disabled outside Playing). While the match-over screen is up, `MenuSync` sets
+    `HudSync.ForceScoreboard` so the same board shows there like the reference — one documented
+    divergence: the Unity board sits under the menu backdrop instead of above it.
   - `MenuSync.cs` — code-built uGUI front end and game-flow owner (main / pause / settings /
     crosshair options / match-over). It never changes sim rules: leaving the Playing screen
     disables the
     `MatchDriver` (stopping the fixed tick), unlocks the cursor and zeroes `Time.timeScale`;
-    entering it re-enables the driver, locks the cursor and restores time. `PLAY`/`RESTART`/
-    `PLAY AGAIN` call `MatchDriver.Restart()` (fresh `Simulation` built from the menu's match
-    setup). Also owns the
+    entering it re-enables the driver, locks the cursor and restores time. `PLAY`/`RESTART
+    MATCH`/`PLAY AGAIN` call `MatchDriver.Restart()` (fresh `Simulation` built from the menu's match
+    setup); pause `QUIT TO MENU` and match-over `BACK TO MENU` return to the main screen like
+    the reference (`ScreenAction.QuitToMenu`), while only the main menu's QUIT exits the app.
+    The pause screen carries the reference's live kills/deaths/upgrade-points subtitle and the
+    match-over subtitle appends the reference's "you finished rank X of Y" line. Also owns the
     cursor — the driver still locks it in its `Awake`, but `MenuSync` applies menu state in
     `Start` (after every `Awake`), so the main menu wins. Keyboard-driven (Up/Down to move,
     Enter to select, Esc to pause/back, Left/Right to adjust) so it needs no
@@ -453,7 +463,7 @@ the next session knows whether GitHub is current.
 | Unity audio synthesis + mix routing port, cue manifest (engine-free) | `unity/Assets/Scripts/Sim/Audio/` (`WavGen.cs`, `AudioCatalog.cs`, `AudioMix.cs`) |
 | Sim→Unity bridge: fixed-tick `Simulation.Update`, `InputFrame` adapter, body/camera sync | `unity/Assets/Scripts/Presentation/MatchDriver.cs` + `HGO.Presentation.asmdef` |
 | Unity audio playback: PCM→`AudioClip` bank, voice pool, drains `Sim.Sounds` via `AudioMix.Resolve` | `unity/Assets/Scripts/Presentation/SimAudioPlayer.cs` |
-| Unity blockout pass: brush cubes, bot capsules, sim-driven view-model + muzzle flash, code-built uGUI HUD + menu stack, pooled combat effects, crosshair profile + reticle, camera-feedback levels, match-setup rows, upgrade-cabinet overlay | `unity/Assets/Scripts/Presentation/` (`MapBlockout.cs`, `ActorViews.cs`, `ViewModelSync.cs`, `HudSync.cs`, `MenuSync.cs`, `EffectsSync.cs`, `CrosshairSettings.cs`, `CameraFeedbackSettings.cs`, `UpgradeSync.cs`) |
+| Unity blockout pass: brush cubes, bot capsules, sim-driven view-model + muzzle flash, code-built uGUI HUD (incl. Tab scoreboard) + menu stack, pooled combat effects, crosshair profile + reticle, camera-feedback levels, match-setup rows, upgrade-cabinet overlay | `unity/Assets/Scripts/Presentation/` (`MapBlockout.cs`, `ActorViews.cs`, `ViewModelSync.cs`, `HudSync.cs`, `MenuSync.cs`, `EffectsSync.cs`, `CrosshairSettings.cs`, `CameraFeedbackSettings.cs`, `UpgradeSync.cs`) |
 | Parity suite (shared) + Unity edit-mode tests | `unity/Assets/Tests/EditMode/` (`ParityChecks.cs`, `ParityTests.cs`, `HGO.Sim.Tests.asmdef`) |
 | Parity console harness + golden reports | `tools/parity/` (`Parity.csproj`, thin `Program.cs`, `goldens/`) |
 | Presentation compile gate (editor-free) | `tools/presentation-check/` (`PresentationCheck.csproj`, `UnityStubs.cs`, thin `Program.cs`) |
