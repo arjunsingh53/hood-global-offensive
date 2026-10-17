@@ -23,7 +23,7 @@
   port (`8ebbce1`), the `AudioMix` routing port, the audio playback bridge
   (`unity/Assets/Scripts/Presentation/SimAudioPlayer.cs`), the first presentation-blockout pass
   (`MapBlockout` etc.), the code-built front end (`MenuSync`), the Unity YAML `.gitattributes`
-  prep, and the combat-effects blockout (`EffectsSync`). The GitHub release asset for `v0.2.2` was
+  prep, the combat-effects blockout (`EffectsSync`), and the HUD floating damage numbers. The GitHub release asset for `v0.2.2` was
   rebuilt in place (`gh release upload --clobber`) so the downloadable exe includes the menu fix.
   Run `git log --oneline -5` for exact hashes.
 - **Verified state:** `-warnaserror` build clean; both headless CI gates print `RESULT: PASS`;
@@ -38,8 +38,9 @@
   port and the edit-mode tests). The follow-up migration commits (presentation bridge and its
   compile gate, edit-mode gate, audio synthesis port, `AudioMix` routing port, audio playback
   bridge, first presentation-blockout pass, the code-built front end, the Unity YAML
-  `.gitattributes` prep, combat-effects blockout) are **local only —
-  10 commits ahead of `origin/main`** — keep them local until the team asks for another push.
+  `.gitattributes` prep, combat-effects blockout, the HUD floating damage numbers) are
+  **local only — 11 commits ahead of `origin/main`** — keep them local until the team asks
+  for another push.
   Pre-push gate for future work: `-warnaserror` build clean, both CI gates `RESULT: PASS`, `tools/parity`
   `PARITY: PASS`, `tools/presentation-check` build clean, and `tools/editmode-check` build clean.
   After a push, update this bullet with the new sync point.
@@ -198,7 +199,12 @@ behaviour questions.
     (value/label/segment fill), ammo card (weapon, mag `00`, reserve `INF`), match timer,
     score line, kill feed (6 lines, 6.5 s life), centre crosshair, hitmarker (0.12 s life,
     kill/headshot tint), damage flash + rotating directional arrow, low-health trauma vignette,
-    respawn notice and the match-result banner. Uses `UnityEngine.UI` (uGUI is already in the
+    respawn notice and the match-result banner. Floating damage numbers are now ported too: the
+    sim's player-dealt damage numbers are projected from their world hit point through the
+    assigned camera (`WorldToViewportPoint`) and positioned in 1080p canvas units, so the
+    reference's y-down screen flip lives there; the reference fade curve `min(1, t*2.2)`, larger
+    amber `!`-suffixed headshot style and its half-alpha drop shadow are kept. Uses
+    `UnityEngine.UI` (uGUI is already in the
     package manifest; TextMeshPro is NOT — don't add a TMP HUD here casually).
   - `MenuSync.cs` — code-built uGUI front end and game-flow owner (main / pause / settings /
     match-over). It never changes sim rules: leaving the Playing screen disables the
@@ -229,7 +235,7 @@ behaviour questions.
   placeholder mesh) to `ViewModelSync`; everything else auto-builds. `MenuSync` is optional —
   without it the driver runs unpaused from frame one with the cursor locked, as before.
   **Not yet ported:** real map meshes and bot meshes (primitive blockouts exist), VFX polish
-  (transparent/additive materials, muzzle flame lobes, floating damage numbers), screenshot
+  (transparent/additive materials, muzzle flame lobes), screenshot
   tooling, per-art view-model calibration. The menu stack is a
   first pass (`MenuSync`): main/pause/settings/match-over are covered; a real options screen
   (crosshair, audio, keybinds), a map/server picker and a styled reference-matched skin are
@@ -483,8 +489,8 @@ the next session knows whether GitHub is current.
      dynamics + muzzle flash, `HudSync` code-built uGUI HUD, `MenuSync` code-built menu stack,
      `EffectsSync` tracers/particles/decals) — see the migration-state bullet; editor wiring is
      one GameObject + one viewmodel placeholder. What remains above blockout: real map meshes
-     and bot meshes, VFX polish (transparent/additive materials, muzzle flame lobes, floating
-     damage numbers), a styled options/settings screen and match-setup picker, screenshot
+     and bot meshes, VFX polish (transparent/additive materials, muzzle flame lobes), a styled
+     options/settings screen and match-setup picker, screenshot
      tooling, per-art viewmodel calibration.
       Audio synthesis, `AudioMix` routing and the
       `SimAudioPlayer` playback bridge are already ported (`Sim/Audio/` + `Presentation/`), so audio

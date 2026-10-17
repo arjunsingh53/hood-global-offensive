@@ -144,6 +144,7 @@ namespace UnityEngine
     public class Camera : Behaviour
     {
         public float fieldOfView { get; set; } = 60f;
+        public Vector3 WorldToViewportPoint(Vector3 position) => default;
     }
 
     public class CanvasRenderer : Component { }

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using HoodGlobalOffensive.Combat;
 using HoodGlobalOffensive.Core;
 using HoodGlobalOffensive.Entities;
@@ -27,6 +28,8 @@ namespace HoodGlobalOffensive.Presentation
         static readonly Color Amber = new Color(1.00f, 0.74f, 0.27f);
         static readonly Color Gold = new Color(0.94f, 0.78f, 0.35f);
         static readonly Color DamageTint = new Color(1.00f, 0.12f, 0.10f);
+        static readonly Color DamageInk = new Color(248f / 255f, 248f / 255f, 240f / 255f);
+        static readonly Color HeadshotDamage = new Color(1f, 176f / 255f, 48f / 255f);
 
         const int FeedLines = 6;
 
@@ -50,6 +53,12 @@ namespace HoodGlobalOffensive.Presentation
         Image _traumaOverlay;
         RectTransform _damageWheel;
         Text[] _killFeed;
+
+        Camera? _camera;
+        Transform? _canvasRoot;
+        readonly List<Text> _damageShadows = new();
+        readonly List<Text> _damageLabels = new();
+        int _damageShown;
 
         void Awake()
         {
@@ -171,6 +180,84 @@ namespace HoodGlobalOffensive.Presentation
             {
                 _deathNotice.text = $"RESPAWNING IN {MathF.Max(0f, p.RespawnAt - sim.Time):0.0}s";
             }
+
+            // Floating damage numbers --------------------------------------
+            SyncDamageNumbers(sim);
+        }
+
+        /// <summary>
+        /// Floating damage the local player dealt (reference <c>Hud.DrawDamageNumbers</c>):
+        /// the world hit point is projected through the attached camera and positioned in
+        /// 1080p canvas units. Unity viewports are y-up from the bottom-left while the
+        /// reference screen is y-down from the top-left, so the flip lives here — do not
+        /// "fix" a sign elsewhere. Headshots use the reference's larger amber
+        /// "!"-suffixed style; both styles keep its fade curve, min(1, t * 2.2), and a
+        /// half-alpha black drop shadow one pixel below.
+        /// </summary>
+        void SyncDamageNumbers(Simulation sim)
+        {
+            if (_canvasRoot == null) return;
+            if (_camera == null && _driver != null && _driver.PlayerCamera != null)
+            {
+                _camera = _driver.PlayerCamera.GetComponent<Camera>();
+            }
+
+            int shown = 0;
+            if (_camera != null)
+            {
+                // Reference cull margin: 40 pixels outside the 1920×1080 frame.
+                const float padX = 40f / 1920f;
+                const float padY = 40f / 1080f;
+
+                foreach (FloatingDamage d in sim.DamageNumbers)
+                {
+                    Vector3 viewport = _camera.WorldToViewportPoint(MatchDriver.ToUnity(d.Position));
+                    if (viewport.z <= 0f) continue; // behind the camera
+                    if (viewport.x < -padX || viewport.x > 1f + padX ||
+                        viewport.y < -padY || viewport.y > 1f + padY) continue;
+
+                    float t = U.Clamp01(d.Life / d.MaxLife);
+                    float alpha = MathF.Min(1f, t * 2.2f);
+                    if (alpha <= 0.004f) continue;
+
+                    int size = d.Headshot ? 20 : 14;
+                    string text = d.Headshot ? $"{d.Amount:0}!" : $"{d.Amount:0}";
+                    Color colour = d.Headshot ? HeadshotDamage : DamageInk;
+                    Vector2 position = new Vector2(viewport.x * 1920f, viewport.y * 1080f);
+
+                    Text shadow = GetDamageText(_damageShadows, shown, "Damage Shadow");
+                    Text label = GetDamageText(_damageLabels, shown, "Damage Number");
+                    shadow.text = text;
+                    label.text = text;
+                    shadow.fontSize = size;
+                    label.fontSize = size;
+                    shadow.rectTransform.anchoredPosition = new Vector2(position.x, position.y - 1f);
+                    label.rectTransform.anchoredPosition = position;
+                    shadow.color = new Color(0f, 0f, 0f, alpha * 0.5f);
+                    label.color = new Color(colour.r, colour.g, colour.b, alpha);
+                    shadow.gameObject.SetActive(true);
+                    label.gameObject.SetActive(true);
+                    shown++;
+                }
+            }
+
+            for (int i = shown; i < _damageShown; i++)
+            {
+                _damageShadows[i].gameObject.SetActive(false);
+                _damageLabels[i].gameObject.SetActive(false);
+            }
+            _damageShown = shown;
+        }
+
+        Text GetDamageText(List<Text> pool, int index, string baseName)
+        {
+            while (pool.Count <= index)
+            {
+                Text text = MakeText(_canvasRoot!, $"{baseName} {pool.Count}", AnchorBottomLeft,
+                    Vector2.zero, new Vector2(160f, 36f), 14, TextAnchor.MiddleCenter, Ink);
+                pool.Add(text);
+            }
+            return pool[index];
         }
 
         static string FormatClock(float seconds)
@@ -193,6 +280,7 @@ namespace HoodGlobalOffensive.Presentation
             scaler.referenceResolution = new Vector2(1920f, 1080f);
             canvasGo.transform.SetParent(transform);
             Transform root = canvasGo.transform;
+            _canvasRoot = root;
 
             // Health card (bottom-left, mirrors the reference card stack) ----
             _healthValue = MakeText(root, "Health", AnchorBottomLeft,
