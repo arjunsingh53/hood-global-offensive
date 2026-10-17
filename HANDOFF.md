@@ -23,12 +23,14 @@
   `git log --oneline -5` for exact hashes.
 - **Verified state:** `-warnaserror` build clean; both headless CI gates print `RESULT: PASS`;
   the parity harness prints `PARITY: PASS` (including byte-exact replays of both gates through the
-  ported runner); the single-file exe was re-verified from a clean directory.
+  ported runner); the presentation compile gate (`tools/presentation-check`) builds clean; the
+  single-file exe was re-verified from a clean directory.
 - **Push policy:** `origin/main` is synced with `main`. The migration sync push (2026-10-16, at
   team request, so the other machine could pull the sim port and the edit-mode tests) brought
   GitHub up through `affecef` (the shared parity suite); see `git log --oneline -6`. Pre-push
   gate for future work: `-warnaserror` build clean, both CI gates `RESULT: PASS`, `tools/parity`
-  `PARITY: PASS`. After a push, update this bullet with the new sync point.
+  `PARITY: PASS`, and `tools/presentation-check` build clean. After a push, update this bullet
+  with the new sync point.
 - **Unity migration (in progress — phase 1 committed `8e670b9`):** the deterministic simulation
   is ported into `unity/` and byte-verified against this repo by `tools/parity`. See "Migration
   state" below. The raylib build (`main`) remains the reference implementation and stays healthy.
@@ -127,7 +129,9 @@ behaviour questions.
   The adapter negates Unity's `"Mouse Y"` before feeding `InputFrame.Look`: the sim consumes raw
   raylib `GetMouseDelta` counts (Y positive = down, `src/Core/Input.cs:82`) and subtracts them
   (`Player.cs:122`), whereas Unity's Mouse Y is positive = up — without the negation the ported
-  view looks inverted.
+  view looks inverted. The bridge is now **compile-verified editor-free** by
+  `tools/presentation-check` (a clean `-warnaserror` build there proves `MatchDriver.cs` still
+  type-checks against `HGO.Sim`'s public API through a stub engine — it does not run the bridge).
   **Not yet ported:** rendering/map meshes, HUD/menus, settings, audio playback, screenshot
   tooling, bot view prefabs. The Unity project itself is a skeleton: editor version
   `6000.3.26f1` (`unity/ProjectSettings/ProjectVersion.txt`), a minimal package manifest (test
@@ -172,6 +176,17 @@ against golden captures of the reference, then re-runs both CI gates through the
 ```bash
 dotnet build tools/parity/Parity.csproj --nologo -warnaserror
 dotnet run   --project tools/parity/Parity.csproj --no-build   # must end in PARITY: PASS
+```
+
+The presentation layer has its own gate — `tools/presentation-check` compiles the engine-free sim
+sources **plus** `unity/Assets/Scripts/Presentation/**` against a minimal UnityEngine stub
+(`UnityStubs.cs`) mirroring the Unity assembly layout (`HGO.Presentation` → `HGO.Sim`), so
+`MatchDriver.cs` cannot rot against the sim's public API without a real editor. The clean
+`-warnaserror` build is the gate; the exe prints `PRESENTATION: PASS` for CI logs:
+
+```bash
+dotnet build tools/presentation-check/PresentationCheck.csproj --nologo -warnaserror
+dotnet run   --project tools/presentation-check/PresentationCheck.csproj --no-build
 ```
 
 ### Capturing screenshots (the precision workflow)
@@ -221,9 +236,9 @@ Quick sanity check — peaks should sit roughly 0.2–0.8, never 0 (silence) or 
 
 Push when the team asks or when a release / verified milestone is ready — **the pre-push gate is
 the verified state above:** `-warnaserror` build clean, both CI gates `RESULT: PASS`,
-`tools/parity` `PARITY: PASS`. When you push, update the "Push policy" bullet under "Where the
-project stands" with the new `origin/main` sync point so the next session knows whether GitHub
-is current.
+`tools/parity` `PARITY: PASS`, and `tools/presentation-check` build clean. When you push, update
+the "Push policy" bullet under "Where the project stands" with the new `origin/main` sync point so
+the next session knows whether GitHub is current.
 
 ### Release ritual
 
@@ -259,6 +274,7 @@ is current.
 | Sim→Unity bridge: fixed-tick `Simulation.Update`, `InputFrame` adapter, body/camera sync | `unity/Assets/Scripts/Presentation/MatchDriver.cs` + `HGO.Presentation.asmdef` |
 | Parity suite (shared) + Unity edit-mode tests | `unity/Assets/Tests/EditMode/` (`ParityChecks.cs`, `ParityTests.cs`, `HGO.Sim.Tests.asmdef`) |
 | Parity console harness + golden reports | `tools/parity/` (`Parity.csproj`, thin `Program.cs`, `goldens/`) |
+| Presentation compile gate (editor-free) | `tools/presentation-check/` (`PresentationCheck.csproj`, `UnityStubs.cs`, thin `Program.cs`) |
 | Unity project skeleton | `unity/` (`ProjectVersion.txt`, `Packages/manifest.json`, `HGO.Sim.asmdef`) |
 | Existing docs | `docs/GUIDE.md`, `docs/BUILDING.md`, `docs/ARCHITECTURE.md`, `docs/ROADMAP.md` |
 
@@ -283,6 +299,11 @@ is current.
   Unity's `HGO.Sim.Tests`. Keep it free of engine, NUnit and C# 10+ syntax; after changing it run
   `tools/parity` and, once the editor exists, the edit-mode tests. Unity generates `.meta` files
   for `unity/Assets/Tests/EditMode/` on first open — commit them with the next editor change.
+- **`tools/presentation-check` is a compile gate, not a runtime** — `UnityStubs.cs` models only the
+  Unity members the presentation layer uses, so adding a new Unity API call to `MatchDriver.cs`
+  (or new presentation files) means extending the stub. `CS8618` is suppressed there because Unity
+  wires `[Header]` fields in the inspector and does not enable nullable; keep every other warning
+  an error. Run the gate after any change under `unity/Assets/Scripts/Presentation/`.
 - A menu row added to the main menu will re-break the footer overlap unless the pitch math above
   is re-checked.
 
@@ -300,7 +321,9 @@ is current.
      `LookGain` so mouse counts match the raylib feel (Unity default axes are not 1:1 counts).
   4. Rebuild presentation (rendering/map meshes, HUD, menus, audio) against the reference —
      gameplay behaviour is already pinned by the parity goldens, so the view layer is free to
-     diverge where it is purely cosmetic.
+     diverge where it is purely cosmetic. Every presentation change goes through
+     `tools/presentation-check` (build clean) and, when a new Unity API is touched, through an
+     update to `UnityStubs.cs`.
 - **Bacon-hand assets** (`hands/source/baconhand_smg.fbx`) were reviewed and deliberately left
   unused — the rigs already ship gloved arms. Swap them in only if the look is wanted.
 - **Sniper ADS** does not exist (model stows, scope overlay takes over — verified clean). Adding

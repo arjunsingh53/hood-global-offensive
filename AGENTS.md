@@ -11,9 +11,10 @@ Quick reference:
 - **After finishing every task, update [HANDOFF.md](HANDOFF.md)** — "Where the project stands",
   the code map, and the open items — so the next session (or a friend on another machine) can
   continue from a fresh `git pull` alone, and commit the update with the task.
-- **Pre-push gate:** `-warnaserror` build clean, both CI gates `RESULT: PASS`, and `tools/parity`
-  `PARITY: PASS`. Push when the team asks or the work is production-ready, and update the
-  push-policy bullet in HANDOFF.md with the new `origin/main` sync point.
+- **Pre-push gate:** `-warnaserror` build clean, both CI gates `RESULT: PASS`, `tools/parity`
+  `PARITY: PASS`, and `tools/presentation-check` build clean. Push when the team asks or the work
+  is production-ready, and update the push-policy bullet in HANDOFF.md with the new `origin/main`
+  sync point.
 - Build must stay clean: `dotnet build --nologo -warnaserror`
 - Both CI gates must print `RESULT: PASS`:
   - `dotnet run -- --headless --seconds 300 --bots 9 --skill Normal --seed 20260114`
@@ -21,6 +22,10 @@ Quick reference:
 - The Unity sim port must stay in parity: build `tools/parity/Parity.csproj` and run it; it must
   end in `PARITY: PASS` (it also re-runs both CI gates through the ported runner). Keep the port
   C# 9-compatible and never hand-edit `tools/parity/goldens/`.
+- The Unity presentation layer has an editor-free compile gate: build
+  `tools/presentation-check/PresentationCheck.csproj` clean with `-warnaserror`. It compiles
+  `unity/Assets/Scripts/Presentation/**` against `HGO.Sim` + `UnityStubs.cs`; extend the stub when
+  new Unity APIs are used. Keep it C# 9-compatible.
 - Screenshot capture needs a real GPU and is deterministic per map/seed (`--screenshot`,
   `--weapon`, `--zoom`, `--anim`).
 - `--sfx-dump <dir>` writes every synthesised sound cue to WAV (headless machines have no audio

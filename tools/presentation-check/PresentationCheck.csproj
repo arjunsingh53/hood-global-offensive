@@ -1,0 +1,35 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Compile gate for the Unity presentation layer (HGO.Presentation / MatchDriver.cs).
+    It compiles the engine-free sim sources plus the presentation sources against the
+    minimal UnityEngine stubs in UnityStubs.cs, matching the Unity assembly layout:
+    HGO.Presentation references HGO.Sim. A clean -warnaserror build is the gate; the
+    executable prints a marker so CI can key off it.
+
+    CS8618 (uninitialized non-nullable field) is suppressed only because Unity assigns
+    [Header] serialized fields (PlayerBody / PlayerCamera) in the inspector, not in a
+    constructor, and Unity projects do not enable nullable. Every other warning is an
+    error, mirroring the repo's build policy.
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <LangVersion>9.0</LangVersion>
+    <AssemblyName>PresentationCheck</AssemblyName>
+    <RootNamespace>HoodGlobalOffensive.PresentationCheck</RootNamespace>
+    <NoWarn>$(NoWarn);CS8618</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="Program.cs" />
+    <Compile Include="UnityStubs.cs" />
+    <Compile Include="..\..\unity\Assets\Scripts\Sim\**\*.cs" />
+    <Compile Include="..\..\unity\Assets\Scripts\Presentation\**\*.cs" />
+  </ItemGroup>
+
+</Project>
