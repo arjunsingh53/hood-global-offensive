@@ -29,7 +29,8 @@
   team request, so the other machine could pull the sim port and the edit-mode tests) brought
   GitHub up through `affecef` (the shared parity suite); see `git log --oneline -6`. Pre-push
   gate for future work: `-warnaserror` build clean, both CI gates `RESULT: PASS`, `tools/parity`
-  `PARITY: PASS`, and `tools/presentation-check` build clean. After a push, update this bullet
+  `PARITY: PASS`, `tools/presentation-check` build clean, and `tools/editmode-check` build clean.
+  After a push, update this bullet
   with the new sync point.
 - **Unity migration (in progress — phase 1 committed `8e670b9`):** the deterministic simulation
   is ported into `unity/` and byte-verified against this repo by `tools/parity`. See "Migration
@@ -120,7 +121,8 @@ behaviour questions.
   Both test files were compile-checked and dry-run outside the editor (stub NUnit + UnityEngine,
   C# 9, `-warnaserror`) and the console harness passes, but no real Unity editor has compiled
   them yet — the first editor open is still the next milestone. Commit the `.meta` files Unity
-  generates for `unity/Assets/Tests/EditMode/`.
+  generates for `unity/Assets/Tests/EditMode/`. The compile check is now a committed, repeatable
+  gate: `tools/editmode-check` (see below).
 - **Presentation bridge done:** `unity/Assets/Scripts/Presentation/MatchDriver.cs` drives
   `Simulation.Update(InputFrame, dt)` at a fixed 1/60s accumulator, adapts legacy Unity input
   (mouse, keyboard axes, one-shot flags) into `InputFrame`, and syncs `PlayerBody` (feet position
@@ -189,6 +191,19 @@ dotnet build tools/presentation-check/PresentationCheck.csproj --nologo -warnase
 dotnet run   --project tools/presentation-check/PresentationCheck.csproj --no-build
 ```
 
+The edit-mode test assembly has its own gate too — `tools/editmode-check` compiles the
+engine-free sim sources **plus** `unity/Assets/Tests/EditMode/**` against minimal
+NUnit.Framework + UnityEngine stubs (`UnityTestStubs.cs`), mirroring the `HGO.Sim.Tests`
+assembly layout (references `HGO.Sim`, `UnityEngine.TestRunner`, `nunit.framework.dll`; editor
+platform only; `UNITY_INCLUDE_TESTS`). It proves the parity tests still compile against the
+sim's public API without an editor — actually *running* them still needs the Unity Test
+Runner. The exe prints `EDITMODE: PASS`:
+
+```bash
+dotnet build tools/editmode-check/EditModeCheck.csproj --nologo -warnaserror
+dotnet run   --project tools/editmode-check/EditModeCheck.csproj --no-build
+```
+
 ### Capturing screenshots (the precision workflow)
 
 ```bash
@@ -236,7 +251,8 @@ Quick sanity check — peaks should sit roughly 0.2–0.8, never 0 (silence) or 
 
 Push when the team asks or when a release / verified milestone is ready — **the pre-push gate is
 the verified state above:** `-warnaserror` build clean, both CI gates `RESULT: PASS`,
-`tools/parity` `PARITY: PASS`, and `tools/presentation-check` build clean. When you push, update
+`tools/parity` `PARITY: PASS`, `tools/presentation-check` build clean, and
+`tools/editmode-check` build clean. When you push, update
 the "Push policy" bullet under "Where the project stands" with the new `origin/main` sync point so
 the next session knows whether GitHub is current.
 
@@ -275,6 +291,7 @@ the next session knows whether GitHub is current.
 | Parity suite (shared) + Unity edit-mode tests | `unity/Assets/Tests/EditMode/` (`ParityChecks.cs`, `ParityTests.cs`, `HGO.Sim.Tests.asmdef`) |
 | Parity console harness + golden reports | `tools/parity/` (`Parity.csproj`, thin `Program.cs`, `goldens/`) |
 | Presentation compile gate (editor-free) | `tools/presentation-check/` (`PresentationCheck.csproj`, `UnityStubs.cs`, thin `Program.cs`) |
+| Edit-mode test compile gate (editor-free) | `tools/editmode-check/` (`EditModeCheck.csproj`, `UnityTestStubs.cs`, thin `Program.cs`) |
 | Unity project skeleton | `unity/` (`ProjectVersion.txt`, `Packages/manifest.json`, `HGO.Sim.asmdef`) |
 | Existing docs | `docs/GUIDE.md`, `docs/BUILDING.md`, `docs/ARCHITECTURE.md`, `docs/ROADMAP.md` |
 
@@ -324,6 +341,12 @@ the next session knows whether GitHub is current.
      diverge where it is purely cosmetic. Every presentation change goes through
      `tools/presentation-check` (build clean) and, when a new Unity API is touched, through an
      update to `UnityStubs.cs`.
+- **`tools/editmode-check` is the same idea for the test assembly** — `UnityTestStubs.cs` models
+  only `NUnit.Framework` (`[Test]`, `Assert.Fail`, `TestContext.Progress`) and
+  `UnityEngine.Application.dataPath`, so extending the edit-mode tests with new NUnit or Unity
+  APIs means extending the stub. Note `dataPath` returns the literal `"Assets"` (relative),
+  which is fine for a compile-only gate; the real path only matters when tests run in the
+  editor.
 - **Bacon-hand assets** (`hands/source/baconhand_smg.fbx`) were reviewed and deliberately left
   unused — the rigs already ship gloved arms. Swap them in only if the look is wanted.
 - **Sniper ADS** does not exist (model stows, scope overlay takes over — verified clean). Adding

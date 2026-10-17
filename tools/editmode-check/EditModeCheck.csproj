@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Compile gate for the Unity edit-mode test assembly (HGO.Sim.Tests:
+    ParityChecks.cs + ParityTests.cs). It compiles the engine-free sim sources plus
+    the edit-mode test sources against minimal NUnit.Framework and UnityEngine stubs,
+    matching the Unity assembly layout: HGO.Sim.Tests references HGO.Sim,
+    UnityEngine.TestRunner and nunit.framework.dll. A clean -warnaserror build is the
+    gate; the executable prints a marker so CI can key off it. This verifies the
+    test code compiles headlessly; actually running it still needs the Unity Editor
+    Test Runner (see HANDOFF.md).
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <LangVersion>9.0</LangVersion>
+    <AssemblyName>EditModeCheck</AssemblyName>
+    <RootNamespace>HoodGlobalOffensive.EditModeCheck</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="Program.cs" />
+    <Compile Include="UnityTestStubs.cs" />
+    <Compile Include="..\..\unity\Assets\Scripts\Sim\**\*.cs" />
+    <Compile Include="..\..\unity\Assets\Tests\EditMode\**\*.cs" />
+  </ItemGroup>
+
+</Project>

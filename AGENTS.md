@@ -12,7 +12,8 @@ Quick reference:
   the code map, and the open items — so the next session (or a friend on another machine) can
   continue from a fresh `git pull` alone, and commit the update with the task.
 - **Pre-push gate:** `-warnaserror` build clean, both CI gates `RESULT: PASS`, `tools/parity`
-  `PARITY: PASS`, and `tools/presentation-check` build clean. Push when the team asks or the work
+  `PARITY: PASS`, `tools/presentation-check` build clean, and `tools/editmode-check` build clean.
+  Push when the team asks or the work
   is production-ready, and update the push-policy bullet in HANDOFF.md with the new `origin/main`
   sync point.
 - Build must stay clean: `dotnet build --nologo -warnaserror`
@@ -25,7 +26,10 @@ Quick reference:
 - The Unity presentation layer has an editor-free compile gate: build
   `tools/presentation-check/PresentationCheck.csproj` clean with `-warnaserror`. It compiles
   `unity/Assets/Scripts/Presentation/**` against `HGO.Sim` + `UnityStubs.cs`; extend the stub when
-  new Unity APIs are used. Keep it C# 9-compatible.
+  new Unity APIs are used. Keep it C# 9-compatible. The edit-mode test assembly has the analogous
+  gate: build `tools/editmode-check/EditModeCheck.csproj` clean with `-warnaserror`; it compiles
+  `unity/Assets/Tests/EditMode/**` against `HGO.Sim` + `UnityTestStubs.cs` (stub NUnit +
+  `Application.dataPath`).
 - Screenshot capture needs a real GPU and is deterministic per map/seed (`--screenshot`,
   `--weapon`, `--zoom`, `--anim`).
 - `--sfx-dump <dir>` writes every synthesised sound cue to WAV (headless machines have no audio
