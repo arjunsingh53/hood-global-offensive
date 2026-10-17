@@ -29,6 +29,7 @@ namespace HoodGlobalOffensive.Presentation
 
         const float TickDt = 1f / 60f;
         float _accumulator;
+        Camera? _camera;
 
         bool _firePressed;
         bool _zoomPressed;
@@ -159,6 +160,9 @@ namespace HoodGlobalOffensive.Presentation
             {
                 PlayerCamera.position = feet + Vector3.up * p.EyeHeight;
                 PlayerCamera.rotation = Quaternion.LookRotation(aim, Vector3.up);
+                // The sim owns the FOV (weapon zoom lerps CurrentFov).
+                if (_camera == null) _camera = PlayerCamera.GetComponent<Camera>();
+                if (_camera != null) _camera.fieldOfView = p.CurrentFov;
             }
         }
     }

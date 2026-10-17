@@ -16,8 +16,16 @@ namespace HoodGlobalOffensive.PresentationCheck
             // compiling at all is the check. No engine is present to run them.
             Type driver = typeof(MatchDriver);
             Type audio = typeof(SimAudioPlayer);
+            Type map = typeof(MapBlockout);
+            Type actors = typeof(ActorViews);
+            Type viewmodel = typeof(ViewModelSync);
+            Type hud = typeof(HudSync);
             Console.WriteLine($"MatchDriver type resolved: {driver.FullName}");
             Console.WriteLine($"SimAudioPlayer type resolved: {audio.FullName}");
+            Console.WriteLine($"MapBlockout type resolved: {map.FullName}");
+            Console.WriteLine($"ActorViews type resolved: {actors.FullName}");
+            Console.WriteLine($"ViewModelSync type resolved: {viewmodel.FullName}");
+            Console.WriteLine($"HudSync type resolved: {hud.FullName}");
             Console.WriteLine("---------------------------------");
             Console.WriteLine("PRESENTATION: PASS");
             return 0;

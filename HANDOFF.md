@@ -34,8 +34,9 @@
 - **Push policy:** `origin/main` is synced with `main` through `acd6652` ("Record the migration
   sync push in the handoff", 2026-10-16, at team request so the other machine could pull the sim
   port and the edit-mode tests). The follow-up migration commits (presentation bridge and its
-  compile gate, edit-mode gate, audio synthesis port, `AudioMix` routing port) are **local only —
-  5 commits ahead of `origin/main`** — keep them local until the team asks for another push.
+  compile gate, edit-mode gate, audio synthesis port, `AudioMix` routing port, audio playback
+  bridge, first presentation-blockout pass) are **local only —
+  6 commits ahead of `origin/main`** — keep them local until the team asks for another push.
   Pre-push gate for future work: `-warnaserror` build clean, both CI gates `RESULT: PASS`, `tools/parity`
   `PARITY: PASS`, `tools/presentation-check` build clean, and `tools/editmode-check` build clean.
   After a push, update this bullet with the new sync point.
@@ -178,8 +179,31 @@ behaviour questions.
   if the inspector field is empty) and drains `Sim.Sounds` after **each** fixed sim step, because the
   sim clears its sound list at the start of the next `Update`. Compile-verified editor-free by
   `tools/presentation-check`; actual output needs a device.
-  **Not yet ported:** rendering/map meshes, HUD/menus, settings, screenshot tooling, bot view
-  prefabs. The
+  **First presentation pass ported (blockout quality):** four more `MonoBehaviour`s live next to
+  the bridge, all compile-verified editor-free by the same gate:
+  - `MapBlockout.cs` — in `Start` builds one scaled, brush-tinted cube per `Sim.Map.Brushes`
+    entry under an auto-created root (walkable world without a mesh pass).
+  - `ActorViews.cs` — in `LateUpdate` keeps one yaw-facing capsule per non-player actor
+    (red/cyan by team, removed on death); the local player is skipped.
+  - `ViewModelSync.cs` — ports the camera-local offset/rotation composition of the reference
+    `Renderer.DrawViewModel` (hip pose table, sway, bob, land dip, reload/deploy dip, view kick,
+    both view-model springs, hip yaw with the iron-sight lerp and the scope stow rule) onto a
+    camera-child `ViewModelRoot`. Stows for magnified optics at `ZoomBlend > 0.70`. The mesh
+    itself is assigned in the editor; per-art offsets are not ported (see the gotcha about
+    rotation-sign verification).
+  - `HudSync.cs` — code-built uGUI blockout of the reference match HUD: health card
+    (value/label/segment fill), ammo card (weapon, mag `00`, reserve `INF`), match timer,
+    score line, kill feed (6 lines, 6.5 s life), centre crosshair, hitmarker (0.12 s life,
+    kill/headshot tint), damage flash + rotating directional arrow, low-health trauma vignette,
+    respawn notice and the match-result banner. Uses `UnityEngine.UI` (uGUI is already in the
+    package manifest; TextMeshPro is NOT — don't add a TMP HUD here casually).
+  `MatchDriver.SyncView` also now pins `PlayerCamera.fieldOfView` to `Sim.Player.CurrentFov`.
+  Wiring: attach `HudSync`/`ActorViews`/`MapBlockout`/`ViewModelSync` to the same GameObject as
+  `MatchDriver` (they self-locate it) and assign `ViewModelRoot` (a camera-local placeholder
+  mesh) to `ViewModelSync`; everything else auto-builds.
+  **Not yet ported:** real map meshes (a primitive blockout exists), HUD/menus (the match HUD
+  has a code-built uGUI blockout; menus are not started), settings, screenshot tooling, real bot
+  meshes. The
   Unity project itself is a skeleton: editor version
   `6000.3.26f1` (`unity/ProjectSettings/ProjectVersion.txt`), a minimal package manifest (test
   framework + uGUI), the `HGO.Sim` asmdef and the new `HGO.Presentation` asmdef. **No Unity
@@ -340,6 +364,7 @@ the next session knows whether GitHub is current.
 | Unity audio synthesis + mix routing port, cue manifest (engine-free) | `unity/Assets/Scripts/Sim/Audio/` (`WavGen.cs`, `AudioCatalog.cs`, `AudioMix.cs`) |
 | Sim→Unity bridge: fixed-tick `Simulation.Update`, `InputFrame` adapter, body/camera sync | `unity/Assets/Scripts/Presentation/MatchDriver.cs` + `HGO.Presentation.asmdef` |
 | Unity audio playback: PCM→`AudioClip` bank, voice pool, drains `Sim.Sounds` via `AudioMix.Resolve` | `unity/Assets/Scripts/Presentation/SimAudioPlayer.cs` |
+| Unity blockout pass: brush cubes, bot capsules, sim-driven view-model, code-built uGUI HUD | `unity/Assets/Scripts/Presentation/` (`MapBlockout.cs`, `ActorViews.cs`, `ViewModelSync.cs`, `HudSync.cs`) |
 | Parity suite (shared) + Unity edit-mode tests | `unity/Assets/Tests/EditMode/` (`ParityChecks.cs`, `ParityTests.cs`, `HGO.Sim.Tests.asmdef`) |
 | Parity console harness + golden reports | `tools/parity/` (`Parity.csproj`, thin `Program.cs`, `goldens/`) |
 | Presentation compile gate (editor-free) | `tools/presentation-check/` (`PresentationCheck.csproj`, `UnityStubs.cs`, thin `Program.cs`) |
@@ -381,6 +406,17 @@ the next session knows whether GitHub is current.
   `unity/Assets/Scripts/Presentation/`.
 - A menu row added to the main menu will re-break the footer overlap unless the pitch math above
   is re-checked.
+- **`UnityStubs.cs` now models the uGUI slice too** (Color/Material/Renderer/Camera/RectTransform/
+  Canvas/CanvasScaler/Text/Image/TextAnchor/Resource fonts...). It is compile-only: getters return
+  stubs and layout does nothing, so HudSync's rect math cannot be regression-tested here — verify
+  placement visually at the first editor run (it targets a 1920×1080 CanvasScaler reference).
+- **`ViewModelSync` rotation signs are unverified** — raylib rotates right-handed, Unity
+  left-handed; each flourish/spring Euler component was negated port-side. If the first editor
+  capture shows the flourish leaning the wrong way, flip the sign on the offending
+  `Quaternion.Euler` axis in `FlourishRotation`, not the sim.
+- **`ActorViews`/`MapBlockout`/`HudSync` attach to the `MatchDriver` GameObject** — they resolve it
+  in `Awake` / `Start` (`MapBlockout` waits for `Start` because `MatchDriver.Awake` creates the
+  Simulation). `enabled` self-disables with a warning if the driver is missing.
 
 ## Open items / sensible next steps
 
@@ -396,13 +432,18 @@ the next session knows whether GitHub is current.
      `LookGain` so mouse counts match the raylib feel (Unity default axes are not 1:1 counts).
      Audio needs no wiring: `SimAudioPlayer` is auto-added to the `MatchDriver` GameObject and the
      `Main Camera` already carries Unity's default `AudioListener`.
-  4. Rebuild presentation (rendering/map meshes, HUD, menus) against the
-     reference — gameplay behaviour is already pinned by the parity goldens, so the view layer is
-     free to diverge where it is purely cosmetic. Audio synthesis, `AudioMix` routing and the
-     `SimAudioPlayer` playback bridge are already ported (`Sim/Audio/` + `Presentation/`), so audio
-     is wired end to end bar a device to hear it. Every presentation change goes through
-     `tools/presentation-check`
-     (build clean) and, when a new Unity API is touched, through an update to `UnityStubs.cs`.
+   4. Rebuild presentation (rendering/map meshes, HUD, menus) against the
+      reference — gameplay behaviour is already pinned by the parity goldens, so the view layer is
+      free to diverge where it is purely cosmetic. A first presentation pass now exists as a
+      blockout (`MapBlockout` brush cubes, `ActorViews` capsule bots, `ViewModelSync` view-model
+      dynamics, `HudSync` code-built uGUI HUD) — see the migration-state bullet; editor wiring is
+      one GameObject + one viewmodel placeholder. What remains above blockout: real map meshes,
+      bot/muzzle/tracer VFX, menus, settings, screenshot tooling, per-art viewmodel calibration.
+      Audio synthesis, `AudioMix` routing and the
+      `SimAudioPlayer` playback bridge are already ported (`Sim/Audio/` + `Presentation/`), so audio
+      is wired end to end bar a device to hear it. Every presentation change goes through
+      `tools/presentation-check`
+      (build clean) and, when a new Unity API is touched, through an update to `UnityStubs.cs`.
 - **`tools/editmode-check` is the same idea for the test assembly** — `UnityTestStubs.cs` models
   only `NUnit.Framework` (`[Test]`, `Assert.Fail`, `TestContext.Progress`) and
   `UnityEngine.Application.dataPath`, so extending the edit-mode tests with new NUnit or Unity

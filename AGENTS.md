@@ -29,8 +29,9 @@ Quick reference:
   `--sfx-dump` run plus SHA-256 hashing, nothing else.
 - The Unity presentation layer has an editor-free compile gate: build
   `tools/presentation-check/PresentationCheck.csproj` clean with `-warnaserror`. It compiles
-  `unity/Assets/Scripts/Presentation/**` (the `MatchDriver` scene bridge and the `SimAudioPlayer`
-  audio bank) against `HGO.Sim` + `UnityStubs.cs`; extend the stub when new Unity APIs are used.
+  `unity/Assets/Scripts/Presentation/**` (the `MatchDriver` scene bridge, the `SimAudioPlayer`
+  audio bank, and the blockout pass: `MapBlockout`, `ActorViews`, `ViewModelSync`, `HudSync`)
+  against `HGO.Sim` + `UnityStubs.cs`; extend the stub when new Unity APIs are used.
   Keep it C# 9-compatible. The edit-mode test assembly has the analogous
   gate: build `tools/editmode-check/EditModeCheck.csproj` clean with `-warnaserror`; it compiles
   `unity/Assets/Tests/EditMode/**` against `HGO.Sim` + `UnityTestStubs.cs` (stub NUnit +
