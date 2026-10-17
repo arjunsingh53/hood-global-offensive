@@ -31,7 +31,8 @@ Quick reference:
   `tools/presentation-check/PresentationCheck.csproj` clean with `-warnaserror`. It compiles
   `unity/Assets/Scripts/Presentation/**` (the `MatchDriver` scene bridge, the `SimAudioPlayer`
   audio bank, and the blockout pass: `MapBlockout`, `ActorViews`, `ViewModelSync`, `HudSync`,
-  `MenuSync`) against `HGO.Sim` + `UnityStubs.cs`; extend the stub when new Unity APIs are used.
+  `MenuSync`, `EffectsSync`) against `HGO.Sim` + `UnityStubs.cs`; extend the stub when new Unity
+  APIs are used.
   Keep it C# 9-compatible. The edit-mode test assembly has the analogous
   gate: build `tools/editmode-check/EditModeCheck.csproj` clean with `-warnaserror`; it compiles
   `unity/Assets/Tests/EditMode/**` against `HGO.Sim` + `UnityTestStubs.cs` (stub NUnit +

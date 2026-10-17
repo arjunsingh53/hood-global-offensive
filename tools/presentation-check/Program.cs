@@ -21,6 +21,7 @@ namespace HoodGlobalOffensive.PresentationCheck
             Type viewmodel = typeof(ViewModelSync);
             Type hud = typeof(HudSync);
             Type menu = typeof(MenuSync);
+            Type effects = typeof(EffectsSync);
             Console.WriteLine($"MatchDriver type resolved: {driver.FullName}");
             Console.WriteLine($"SimAudioPlayer type resolved: {audio.FullName}");
             Console.WriteLine($"MapBlockout type resolved: {map.FullName}");
@@ -28,6 +29,7 @@ namespace HoodGlobalOffensive.PresentationCheck
             Console.WriteLine($"ViewModelSync type resolved: {viewmodel.FullName}");
             Console.WriteLine($"HudSync type resolved: {hud.FullName}");
             Console.WriteLine($"MenuSync type resolved: {menu.FullName}");
+            Console.WriteLine($"EffectsSync type resolved: {effects.FullName}");
             Console.WriteLine("---------------------------------");
             Console.WriteLine("PRESENTATION: PASS");
             return 0;

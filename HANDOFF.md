@@ -20,8 +20,10 @@
   handoff-per-task rule (`3ebec29`), the push policy (`a5ebde6`), the shared parity suite with
   Unity edit-mode tests (`affecef`), the sim-to-Unity presentation bridge and its compile gate
   (`ad97fb2`, `f3d51e8`), the edit-mode compile gate (`14144b3`), the procedural audio synthesis
-  port (`8ebbce1`), the `AudioMix` routing port, and the audio playback bridge
-  (`unity/Assets/Scripts/Presentation/SimAudioPlayer.cs`). The GitHub release asset for `v0.2.2` was
+  port (`8ebbce1`), the `AudioMix` routing port, the audio playback bridge
+  (`unity/Assets/Scripts/Presentation/SimAudioPlayer.cs`), the first presentation-blockout pass
+  (`MapBlockout` etc.), the code-built front end (`MenuSync`), the Unity YAML `.gitattributes`
+  prep, and the combat-effects blockout (`EffectsSync`). The GitHub release asset for `v0.2.2` was
   rebuilt in place (`gh release upload --clobber`) so the downloadable exe includes the menu fix.
   Run `git log --oneline -5` for exact hashes.
 - **Verified state:** `-warnaserror` build clean; both headless CI gates print `RESULT: PASS`;
@@ -35,8 +37,9 @@
   sync push in the handoff", 2026-10-16, at team request so the other machine could pull the sim
   port and the edit-mode tests). The follow-up migration commits (presentation bridge and its
   compile gate, edit-mode gate, audio synthesis port, `AudioMix` routing port, audio playback
-  bridge, first presentation-blockout pass) are **local only —
-  6 commits ahead of `origin/main`** — keep them local until the team asks for another push.
+  bridge, first presentation-blockout pass, the code-built front end, the Unity YAML
+  `.gitattributes` prep, combat-effects blockout) are **local only —
+  10 commits ahead of `origin/main`** — keep them local until the team asks for another push.
   Pre-push gate for future work: `-warnaserror` build clean, both CI gates `RESULT: PASS`, `tools/parity`
   `PARITY: PASS`, `tools/presentation-check` build clean, and `tools/editmode-check` build clean.
   After a push, update this bullet with the new sync point.
@@ -208,12 +211,26 @@ behaviour questions.
     `EventSystem`/`Button` wiring. Settings: look sensitivity (`MatchDriver.LookGain`) and
     invert-Y (`MatchDriver.InvertLookY`), persisted via `PlayerPrefs`.
   `MatchDriver.SyncView` also now pins `PlayerCamera.fieldOfView` to `Sim.Player.CurrentFov`.
-  Wiring: attach `MenuSync`/`HudSync`/`ActorViews`/`MapBlockout`/`ViewModelSync` to the same
+  **Combat-effects blockout ported:** `EffectsSync.cs` pools primitive stand-ins for the sim's
+  effect lists, synced in `LateUpdate` (the sim owns every lifetime — it ages and prunes the
+  lists inside `Simulation.Update`, so this view only reads): tracers as stretched cubes along
+  `From`→`To` with the reference's 0.08 minimum width; impact debris as cubes and blood mist as
+  spheres using the reference's life-driven size curves; blood droplets as cubes; surface/blood
+  decals as cubes flattened along the dominant normal axis exactly like `Renderer.DrawDecalList`.
+  Pools grow lazily to the `Cfg` caps (240 particles, 72 mists, 96 droplets, 112 impact decals,
+  80 blood splats). `ViewModelSync` also gained the blockout muzzle flash: a white-hot sphere at
+  the reference's box-weapon bore estimate (`(-1, bore, -Forward + 2)`, added to its pose table),
+  radius pulsing with `Player.MuzzleFlash` over its 0.045 s life, suppressed for melee and hidden
+  with the model. Opaque primitive materials cannot fade like the reference's alpha draws, so the
+  scale curves carry the life cue and tracers/decals simply vanish when pruned; the amber flame
+  lobes wait for the mesh pass. Compile-verified editor-free by `tools/presentation-check`.
+  Wiring: attach `MenuSync`/`HudSync`/`ActorViews`/`MapBlockout`/`ViewModelSync`/`EffectsSync` to the same
   GameObject as `MatchDriver` (they self-locate it) and assign `ViewModelRoot` (a camera-local
   placeholder mesh) to `ViewModelSync`; everything else auto-builds. `MenuSync` is optional —
   without it the driver runs unpaused from frame one with the cursor locked, as before.
-  **Not yet ported:** real map meshes (a primitive blockout exists), bot/muzzle/tracer VFX,
-  real bot meshes, screenshot tooling, per-art view-model calibration. The menu stack is a
+  **Not yet ported:** real map meshes and bot meshes (primitive blockouts exist), VFX polish
+  (transparent/additive materials, muzzle flame lobes, floating damage numbers), screenshot
+  tooling, per-art view-model calibration. The menu stack is a
   first pass (`MenuSync`): main/pause/settings/match-over are covered; a real options screen
   (crosshair, audio, keybinds), a map/server picker and a styled reference-matched skin are
   still blockout quality. The
@@ -377,7 +394,7 @@ the next session knows whether GitHub is current.
 | Unity audio synthesis + mix routing port, cue manifest (engine-free) | `unity/Assets/Scripts/Sim/Audio/` (`WavGen.cs`, `AudioCatalog.cs`, `AudioMix.cs`) |
 | Sim→Unity bridge: fixed-tick `Simulation.Update`, `InputFrame` adapter, body/camera sync | `unity/Assets/Scripts/Presentation/MatchDriver.cs` + `HGO.Presentation.asmdef` |
 | Unity audio playback: PCM→`AudioClip` bank, voice pool, drains `Sim.Sounds` via `AudioMix.Resolve` | `unity/Assets/Scripts/Presentation/SimAudioPlayer.cs` |
-| Unity blockout pass: brush cubes, bot capsules, sim-driven view-model, code-built uGUI HUD + menu stack | `unity/Assets/Scripts/Presentation/` (`MapBlockout.cs`, `ActorViews.cs`, `ViewModelSync.cs`, `HudSync.cs`, `MenuSync.cs`) |
+| Unity blockout pass: brush cubes, bot capsules, sim-driven view-model + muzzle flash, code-built uGUI HUD + menu stack, pooled combat effects | `unity/Assets/Scripts/Presentation/` (`MapBlockout.cs`, `ActorViews.cs`, `ViewModelSync.cs`, `HudSync.cs`, `MenuSync.cs`, `EffectsSync.cs`) |
 | Parity suite (shared) + Unity edit-mode tests | `unity/Assets/Tests/EditMode/` (`ParityChecks.cs`, `ParityTests.cs`, `HGO.Sim.Tests.asmdef`) |
 | Parity console harness + golden reports | `tools/parity/` (`Parity.csproj`, thin `Program.cs`, `goldens/`) |
 | Presentation compile gate (editor-free) | `tools/presentation-check/` (`PresentationCheck.csproj`, `UnityStubs.cs`, thin `Program.cs`) |
@@ -459,14 +476,16 @@ the next session knows whether GitHub is current.
       driver runs unpaused with the cursor locked without it). Audio needs no wiring:
       `SimAudioPlayer` is auto-added to the `MatchDriver` GameObject and the
       `Main Camera` already carries Unity's default `AudioListener`.
-   4. Rebuild presentation (rendering/map meshes, HUD, menus) against the
-      reference — gameplay behaviour is already pinned by the parity goldens, so the view layer is
-      free to diverge where it is purely cosmetic. A first presentation pass now exists as a
-      blockout (`MapBlockout` brush cubes, `ActorViews` capsule bots, `ViewModelSync` view-model
-      dynamics, `HudSync` code-built uGUI HUD, `MenuSync` code-built menu stack) — see the
-      migration-state bullet; editor wiring is one GameObject + one viewmodel placeholder. What
-      remains above blockout: real map meshes, bot/muzzle/tracer VFX, a styled options/settings
-      screen and match-setup picker, screenshot tooling, per-art viewmodel calibration.
+  4. Rebuild presentation (rendering/map meshes, HUD, menus) against the
+     reference — gameplay behaviour is already pinned by the parity goldens, so the view layer is
+     free to diverge where it is purely cosmetic. A first presentation pass now exists as a
+     blockout (`MapBlockout` brush cubes, `ActorViews` capsule bots, `ViewModelSync` view-model
+     dynamics + muzzle flash, `HudSync` code-built uGUI HUD, `MenuSync` code-built menu stack,
+     `EffectsSync` tracers/particles/decals) — see the migration-state bullet; editor wiring is
+     one GameObject + one viewmodel placeholder. What remains above blockout: real map meshes
+     and bot meshes, VFX polish (transparent/additive materials, muzzle flame lobes, floating
+     damage numbers), a styled options/settings screen and match-setup picker, screenshot
+     tooling, per-art viewmodel calibration.
       Audio synthesis, `AudioMix` routing and the
       `SimAudioPlayer` playback bridge are already ported (`Sim/Audio/` + `Presentation/`), so audio
       is wired end to end bar a device to hear it. Every presentation change goes through

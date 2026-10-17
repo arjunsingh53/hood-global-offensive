@@ -16,11 +16,13 @@ namespace HoodGlobalOffensive.Presentation
     /// simulation, so parity stays intact — springs are ticked by the sim itself
     /// inside <c>Simulation.Update</c>.
     ///
-    /// Mesh-specific placement (per-weapon art offsets, iron-sight targets,
-    /// muzzle flash anchors) is intentionally NOT ported yet: people assign the
-    /// rig glb's to <see cref="ViewModelRoot"/> in the editor and calibrate
-    /// against captures, like the reference did.
-    /// </summary>
+        /// Per-art placement (per-weapon art offsets, iron-sight targets, real
+        /// muzzle anchors) is intentionally NOT ported yet: people assign the rig
+        /// glb's to <see cref="ViewModelRoot"/> in the editor and calibrate against
+        /// captures, like the reference did. The blockout muzzle flash hangs off the
+        /// reference's box-weapon bore estimate until a mesh pass moves it onto the
+        /// real barrel.
+        /// </summary>
     public sealed class ViewModelSync : MonoBehaviour
     {
         [Header("Scene wiring")]
@@ -35,6 +37,7 @@ namespace HoodGlobalOffensive.Presentation
         public float ModelScale = 1f;
 
         private MatchDriver? _driver;
+        private GameObject? _muzzleFlash;
 
         void Awake()
         {
@@ -92,6 +95,41 @@ namespace HoodGlobalOffensive.Presentation
             ViewModelRoot.localScale = new Vector3(
                 pose.Scale * ModelScale, pose.Scale * ModelScale, pose.Scale * ModelScale);
             ViewModelRoot.localRotation = FlourishRotation(p, reloadDip, ironSight);
+            MuzzleFlash(p, def, pose);
+        }
+
+        /// <summary>
+        /// Blockout muzzle flash, hung on the reference's box-weapon bore
+        /// estimate (<c>(-1, bore, -Forward + 2)</c> in the view basis). The
+        /// radius pulses with <c>Player.MuzzleFlash</c> over its 0.045 s life,
+        /// like <c>Renderer.DrawMuzzleFlash</c>; the reference's amber flame
+        /// lobes wait for the mesh pass that also moves the anchor onto the real
+        /// barrel.
+        /// </summary>
+        void MuzzleFlash(Player p, WeaponDef def, in ViewModelPose pose)
+        {
+            float pulse = def.Class == "Melee" ? 0f : U.Clamp01(p.MuzzleFlash / 0.045f);
+
+            if (_muzzleFlash == null)
+            {
+                GameObject flash = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+                flash.name = "MuzzleFlash";
+                flash.transform.SetParent(ViewModelRoot);
+                Renderer meshRenderer = flash.GetComponent<Renderer>();
+                if (meshRenderer != null && meshRenderer.material != null)
+                {
+                    meshRenderer.material.color = new Color(1.00f, 0.97f, 0.87f);
+                }
+                _muzzleFlash = flash;
+            }
+
+            _muzzleFlash.SetActive(pulse > 0f);
+            if (pulse <= 0f) return;
+
+            _muzzleFlash.transform.localPosition =
+                FromViewBasis(new Vector3(-1f, pose.Bore, -pose.Forward + 2f));
+            float radius = 0.75f + pulse * 1.20f;
+            _muzzleFlash.transform.localScale = new Vector3(radius * 2f, radius * 2f, radius * 2f);
         }
 
         void Show(bool visible)
@@ -164,25 +202,28 @@ namespace HoodGlobalOffensive.Presentation
         /// <summary>Per-class hip pose table (reference <c>PoseFor</c>/<c>AnchorFor</c>).</summary>
         static ViewModelPose PoseFor(WeaponDef def) => def.Class switch
         {
-            "Melee" => new ViewModelPose(27f, 0f, 1.10f),
-            "Pistol" => new ViewModelPose(25f, 2f, 1.20f),
-            "SMG" => new ViewModelPose(40f, 3f, 1.10f),
-            "Rifle" => new ViewModelPose(50f, 8f, 1.05f),
-            "Shotgun" => new ViewModelPose(51f, 4f, 1.05f),
-            "Sniper" => new ViewModelPose(64f, 11f, 1.00f),
-            _ => new ViewModelPose(30f, 6f, 1.15f),
+            "Melee" => new ViewModelPose(27f, 0f, -1f, 1.10f),
+            "Pistol" => new ViewModelPose(25f, 2f, -1f, 1.20f),
+            "SMG" => new ViewModelPose(40f, 3f, -1f, 1.10f),
+            "Rifle" => new ViewModelPose(50f, 8f, 1f, 1.05f),
+            "Shotgun" => new ViewModelPose(51f, 4f, 1f, 1.05f),
+            "Sniper" => new ViewModelPose(64f, 11f, 1f, 1.00f),
+            _ => new ViewModelPose(30f, 6f, 0f, 1.15f),
         };
 
         private readonly struct ViewModelPose
         {
             public readonly float Forward;
             public readonly float Back;
+            /// <summary>Muzzle-height estimate; only the blockout muzzle flash reads it.</summary>
+            public readonly float Bore;
             public readonly float Scale;
 
-            public ViewModelPose(float forward, float back, float scale)
+            public ViewModelPose(float forward, float back, float bore, float scale)
             {
                 Forward = forward;
                 Back = back;
+                Bore = bore;
                 Scale = scale;
             }
         }
