@@ -20,6 +20,7 @@ namespace HoodGlobalOffensive.Presentation
 
         [Header("Input tuning")]
         public float LookGain = 1f;
+        public bool InvertLookY = false;
 
         [Header("Audio")]
         [Tooltip("Created on this GameObject in Awake when left empty.")]
@@ -48,6 +49,19 @@ namespace HoodGlobalOffensive.Presentation
             Sim = new Simulation(BotCount, Skill, Seed, mapName: MapName);
             if (Audio == null) Audio = gameObject.AddComponent<SimAudioPlayer>();
             Cursor.lockState = CursorLockMode.Locked;
+            SyncView();
+        }
+
+        /// <summary>
+        /// Rebuilds the Simulation from the current inspector setup (same map, skill,
+        /// bot count and seed). Used by <see cref="MenuSync"/> to start a fresh match
+        /// from PLAY / RESTART; the blockout and actor views read the new instance on
+        /// their next frame, so nothing else needs rebuilding here.
+        /// </summary>
+        public void Restart()
+        {
+            Sim = new Simulation(BotCount, Skill, Seed, mapName: MapName);
+            _accumulator = 0f;
             SyncView();
         }
 
@@ -101,10 +115,12 @@ namespace HoodGlobalOffensive.Presentation
                 Input.GetAxisRaw("Vertical"));
             // Sim expects raylib GetMouseDelta counts: +X = right, +Y = down
             // (Player.cs subtracts Look, so +Y pitches down). Unity's "Mouse Y"
-            // axis is +Y = up, so negate it to keep vertical look non-inverted.
+            // axis is +Y = up, so negate it to keep vertical look non-inverted;
+            // InvertLookY flips that back for players who want inverted pitch.
+            float lookYSign = InvertLookY ? 1f : -1f;
             frame.Look = new System.Numerics.Vector2(
                 Input.GetAxisRaw("Mouse X") * LookGain,
-                -Input.GetAxisRaw("Mouse Y") * LookGain);
+                lookYSign * Input.GetAxisRaw("Mouse Y") * LookGain);
             frame.Jump = Input.GetButton("Jump");
             frame.Crouch = Input.GetKey(KeyCode.LeftControl);
             frame.FireDown = Input.GetMouseButton(0);

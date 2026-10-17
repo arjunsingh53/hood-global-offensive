@@ -149,6 +149,7 @@ namespace UnityEngine
     {
         public RenderMode renderMode { get; set; }
         public Camera worldCamera { get; set; }
+        public int sortingOrder { get; set; }
     }
 
     public enum RenderMode
@@ -264,6 +265,22 @@ namespace UnityEngine
     public static class Time
     {
         public static float deltaTime => 0f;
+        public static float timeScale { get; set; } = 1f;
+    }
+
+    public static class PlayerPrefs
+    {
+        public static float GetFloat(string key, float defaultValue) => defaultValue;
+        public static void SetFloat(string key, float value) { }
+        public static int GetInt(string key, int defaultValue) => defaultValue;
+        public static void SetInt(string key, int value) { }
+        public static bool HasKey(string key) => false;
+        public static void Save() { }
+    }
+
+    public static class Application
+    {
+        public static void Quit() { }
     }
 
     public enum KeyCode
@@ -279,6 +296,14 @@ namespace UnityEngine
         V,
         F,
         LeftControl,
+        Escape,
+        Return,
+        Space,
+        Tab,
+        UpArrow,
+        DownArrow,
+        LeftArrow,
+        RightArrow,
     }
 
     public static class Input
@@ -295,6 +320,8 @@ namespace UnityEngine
     public static class Mathf
     {
         public static float Min(float a, float b) => a < b ? a : b;
+        public static float Clamp(float value, float min, float max) =>
+            value < min ? min : (value > max ? max : value);
         public static float Deg2Rad => 0.017453292519943295f;
     }
 }

@@ -179,7 +179,7 @@ behaviour questions.
   if the inspector field is empty) and drains `Sim.Sounds` after **each** fixed sim step, because the
   sim clears its sound list at the start of the next `Update`. Compile-verified editor-free by
   `tools/presentation-check`; actual output needs a device.
-  **First presentation pass ported (blockout quality):** four more `MonoBehaviour`s live next to
+  **First presentation pass ported (blockout quality):** five more `MonoBehaviour`s live next to
   the bridge, all compile-verified editor-free by the same gate:
   - `MapBlockout.cs` — in `Start` builds one scaled, brush-tinted cube per `Sim.Map.Brushes`
     entry under an auto-created root (walkable world without a mesh pass).
@@ -197,13 +197,26 @@ behaviour questions.
     kill/headshot tint), damage flash + rotating directional arrow, low-health trauma vignette,
     respawn notice and the match-result banner. Uses `UnityEngine.UI` (uGUI is already in the
     package manifest; TextMeshPro is NOT — don't add a TMP HUD here casually).
+  - `MenuSync.cs` — code-built uGUI front end and game-flow owner (main / pause / settings /
+    match-over). It never changes sim rules: leaving the Playing screen disables the
+    `MatchDriver` (stopping the fixed tick), unlocks the cursor and zeroes `Time.timeScale`;
+    entering it re-enables the driver, locks the cursor and restores time. `PLAY`/`RESTART`/
+    `PLAY AGAIN` call `MatchDriver.Restart()` (fresh `Simulation`, same setup). Also owns the
+    cursor — the driver still locks it in its `Awake`, but `MenuSync` applies menu state in
+    `Start` (after every `Awake`), so the main menu wins. Keyboard-driven (Up/Down to move,
+    Enter to select, Esc to pause/back, Left/Right to adjust) so it needs no
+    `EventSystem`/`Button` wiring. Settings: look sensitivity (`MatchDriver.LookGain`) and
+    invert-Y (`MatchDriver.InvertLookY`), persisted via `PlayerPrefs`.
   `MatchDriver.SyncView` also now pins `PlayerCamera.fieldOfView` to `Sim.Player.CurrentFov`.
-  Wiring: attach `HudSync`/`ActorViews`/`MapBlockout`/`ViewModelSync` to the same GameObject as
-  `MatchDriver` (they self-locate it) and assign `ViewModelRoot` (a camera-local placeholder
-  mesh) to `ViewModelSync`; everything else auto-builds.
-  **Not yet ported:** real map meshes (a primitive blockout exists), HUD/menus (the match HUD
-  has a code-built uGUI blockout; menus are not started), settings, screenshot tooling, real bot
-  meshes. The
+  Wiring: attach `MenuSync`/`HudSync`/`ActorViews`/`MapBlockout`/`ViewModelSync` to the same
+  GameObject as `MatchDriver` (they self-locate it) and assign `ViewModelRoot` (a camera-local
+  placeholder mesh) to `ViewModelSync`; everything else auto-builds. `MenuSync` is optional —
+  without it the driver runs unpaused from frame one with the cursor locked, as before.
+  **Not yet ported:** real map meshes (a primitive blockout exists), bot/muzzle/tracer VFX,
+  real bot meshes, screenshot tooling, per-art view-model calibration. The menu stack is a
+  first pass (`MenuSync`): main/pause/settings/match-over are covered; a real options screen
+  (crosshair, audio, keybinds), a map/server picker and a styled reference-matched skin are
+  still blockout quality. The
   Unity project itself is a skeleton: editor version
   `6000.3.26f1` (`unity/ProjectSettings/ProjectVersion.txt`), a minimal package manifest (test
   framework + uGUI), the `HGO.Sim` asmdef and the new `HGO.Presentation` asmdef. **No Unity
@@ -364,7 +377,7 @@ the next session knows whether GitHub is current.
 | Unity audio synthesis + mix routing port, cue manifest (engine-free) | `unity/Assets/Scripts/Sim/Audio/` (`WavGen.cs`, `AudioCatalog.cs`, `AudioMix.cs`) |
 | Sim→Unity bridge: fixed-tick `Simulation.Update`, `InputFrame` adapter, body/camera sync | `unity/Assets/Scripts/Presentation/MatchDriver.cs` + `HGO.Presentation.asmdef` |
 | Unity audio playback: PCM→`AudioClip` bank, voice pool, drains `Sim.Sounds` via `AudioMix.Resolve` | `unity/Assets/Scripts/Presentation/SimAudioPlayer.cs` |
-| Unity blockout pass: brush cubes, bot capsules, sim-driven view-model, code-built uGUI HUD | `unity/Assets/Scripts/Presentation/` (`MapBlockout.cs`, `ActorViews.cs`, `ViewModelSync.cs`, `HudSync.cs`) |
+| Unity blockout pass: brush cubes, bot capsules, sim-driven view-model, code-built uGUI HUD + menu stack | `unity/Assets/Scripts/Presentation/` (`MapBlockout.cs`, `ActorViews.cs`, `ViewModelSync.cs`, `HudSync.cs`, `MenuSync.cs`) |
 | Parity suite (shared) + Unity edit-mode tests | `unity/Assets/Tests/EditMode/` (`ParityChecks.cs`, `ParityTests.cs`, `HGO.Sim.Tests.asmdef`) |
 | Parity console harness + golden reports | `tools/parity/` (`Parity.csproj`, thin `Program.cs`, `goldens/`) |
 | Presentation compile gate (editor-free) | `tools/presentation-check/` (`PresentationCheck.csproj`, `UnityStubs.cs`, thin `Program.cs`) |
@@ -417,6 +430,14 @@ the next session knows whether GitHub is current.
 - **`ActorViews`/`MapBlockout`/`HudSync` attach to the `MatchDriver` GameObject** — they resolve it
   in `Awake` / `Start` (`MapBlockout` waits for `Start` because `MatchDriver.Awake` creates the
   Simulation). `enabled` self-disables with a warning if the driver is missing.
+- **`MenuSync` owns game flow, cursor and `Time.timeScale`** — it disables the `MatchDriver`
+  component (not `gameObject`) outside the Playing screen, so the fixed tick, input capture and
+  audio drain all stop while a menu is up. The driver still locks the cursor in its own `Awake`,
+  but `MenuSync` applies menu state in `Start` and wins; don't move that to `Awake` (component
+  `Awake` order on one GameObject is undefined). `MenuSync.Restart()` recreates the `Simulation`
+  with the same inspector setup — the blockout is not rebuilt because the map layout is
+  deterministic per `MapName`, so changing bot count / map / seed requires re-entering Play Mode
+  or a future setup screen, not the in-match RESTART.
 
 ## Open items / sensible next steps
 
@@ -427,18 +448,21 @@ the next session knows whether GitHub is current.
      `HGO.Sim.Tests`) in the editor's Test Runner — they already reuse `tools/parity/goldens/`;
      until the editor is part of CI the console harness remains the automated gate. Commit the
      `.meta` files Unity generates.
-  3. Wire the Unity scene: empty `PlayerBody` GameObject with `MatchDriver`, separate unparented
-     `Main Camera` assigned to `MatchDriver.PlayerCamera` (the driver sets its world pose). Tune
-     `LookGain` so mouse counts match the raylib feel (Unity default axes are not 1:1 counts).
-     Audio needs no wiring: `SimAudioPlayer` is auto-added to the `MatchDriver` GameObject and the
-     `Main Camera` already carries Unity's default `AudioListener`.
+   3. Wire the Unity scene: empty `PlayerBody` GameObject with `MatchDriver`, separate unparented
+      `Main Camera` assigned to `MatchDriver.PlayerCamera` (the driver sets its world pose). Tune
+      `LookGain` so mouse counts match the raylib feel (Unity default axes are not 1:1 counts).
+      Add `MenuSync` to the same GameObject for the main/pause/settings front end (optional: the
+      driver runs unpaused with the cursor locked without it). Audio needs no wiring:
+      `SimAudioPlayer` is auto-added to the `MatchDriver` GameObject and the
+      `Main Camera` already carries Unity's default `AudioListener`.
    4. Rebuild presentation (rendering/map meshes, HUD, menus) against the
       reference — gameplay behaviour is already pinned by the parity goldens, so the view layer is
       free to diverge where it is purely cosmetic. A first presentation pass now exists as a
       blockout (`MapBlockout` brush cubes, `ActorViews` capsule bots, `ViewModelSync` view-model
-      dynamics, `HudSync` code-built uGUI HUD) — see the migration-state bullet; editor wiring is
-      one GameObject + one viewmodel placeholder. What remains above blockout: real map meshes,
-      bot/muzzle/tracer VFX, menus, settings, screenshot tooling, per-art viewmodel calibration.
+      dynamics, `HudSync` code-built uGUI HUD, `MenuSync` code-built menu stack) — see the
+      migration-state bullet; editor wiring is one GameObject + one viewmodel placeholder. What
+      remains above blockout: real map meshes, bot/muzzle/tracer VFX, a styled options/settings
+      screen and match-setup picker, screenshot tooling, per-art viewmodel calibration.
       Audio synthesis, `AudioMix` routing and the
       `SimAudioPlayer` playback bridge are already ported (`Sim/Audio/` + `Presentation/`), so audio
       is wired end to end bar a device to hear it. Every presentation change goes through
