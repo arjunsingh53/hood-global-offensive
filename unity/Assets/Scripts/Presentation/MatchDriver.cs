@@ -21,6 +21,10 @@ namespace HoodGlobalOffensive.Presentation
         [Header("Input tuning")]
         public float LookGain = 1f;
 
+        [Header("Audio")]
+        [Tooltip("Created on this GameObject in Awake when left empty.")]
+        public SimAudioPlayer Audio;
+
         public Simulation Sim { get; private set; }
 
         const float TickDt = 1f / 60f;
@@ -41,6 +45,7 @@ namespace HoodGlobalOffensive.Presentation
         void Awake()
         {
             Sim = new Simulation(BotCount, Skill, Seed, mapName: MapName);
+            if (Audio == null) Audio = gameObject.AddComponent<SimAudioPlayer>();
             Cursor.lockState = CursorLockMode.Locked;
             SyncView();
         }
@@ -54,6 +59,9 @@ namespace HoodGlobalOffensive.Presentation
             while (_accumulator >= TickDt)
             {
                 Sim.Update(BuildInput(), TickDt);
+                // Drain per fixed step: the sim clears Sounds at the start of the
+                // next Update, so batching across steps would drop cue bursts.
+                if (Audio != null) Audio.PlaySimulationSounds(Sim);
                 _accumulator -= TickDt;
                 stepped = true;
             }

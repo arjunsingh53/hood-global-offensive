@@ -20,7 +20,8 @@
   handoff-per-task rule (`3ebec29`), the push policy (`a5ebde6`), the shared parity suite with
   Unity edit-mode tests (`affecef`), the sim-to-Unity presentation bridge and its compile gate
   (`ad97fb2`, `f3d51e8`), the edit-mode compile gate (`14144b3`), the procedural audio synthesis
-  port (`8ebbce1`) and the `AudioMix` routing port. The GitHub release asset for `v0.2.2` was
+  port (`8ebbce1`), the `AudioMix` routing port, and the audio playback bridge
+  (`unity/Assets/Scripts/Presentation/SimAudioPlayer.cs`). The GitHub release asset for `v0.2.2` was
   rebuilt in place (`gh release upload --clobber`) so the downloadable exe includes the menu fix.
   Run `git log --oneline -5` for exact hashes.
 - **Verified state:** `-warnaserror` build clean; both headless CI gates print `RESULT: PASS`;
@@ -122,8 +123,10 @@ behaviour questions.
   no audio device, editor or `.NET` asset file is involved in the synthesis itself. Byte-parity
   is enforced by the shared suite against `tools/parity/goldens/audio-hashes.txt` (one SHA-256
   per cue, captured from the reference dump; regenerate only from a reference `--sfx-dump` run
-  when a cue's recipe changes deliberately). **Not ported:** playback/output — wrapping these
-  PCM buffers in Unity `AudioClip`s / `AudioSource` voices needs the editor.
+  when a cue's recipe changes deliberately). **Playback is now ported too:** the presentation
+  layer's `SimAudioPlayer` (see the bridge bullet below) wraps these PCM buffers in `AudioClip`s
+  and drains the sim's sound events — the wrap/build-voices step is compile-gated editor-free, the
+  actual output only needs a running device.
 - **AudioMix routing ported (engine-free):** `unity/Assets/Scripts/Sim/Audio/AudioMix.cs` is the
   mechanical port of `src/Audio/AudioMix.cs` (namespace `HoodGlobalOffensive.Audio`):
   `SoundSpectrumProfile` (FullRange/Distant/Occluded), the `SoundPlayback` result struct, the
@@ -162,8 +165,21 @@ behaviour questions.
   view looks inverted. The bridge is now **compile-verified editor-free** by
   `tools/presentation-check` (a clean `-warnaserror` build there proves `MatchDriver.cs` still
   type-checks against `HGO.Sim`'s public API through a stub engine — it does not run the bridge).
-  **Not yet ported:** rendering/map meshes, HUD/menus, settings, audio playback (synthesis and
-  routing are done — see the audio bullet above), screenshot tooling, bot view prefabs. The
+  **Audio playback ported:** `unity/Assets/Scripts/Presentation/SimAudioPlayer.cs` is a
+  `MonoBehaviour` that, on `Awake`, wraps every `AudioCatalog.Cues()` WAV (canonical 44-byte-header
+  mono PCM16 — header parsed and validated, resampled to `AudioClip.Create` + `SetData`) in an
+  `AudioClip`, keyed by the runtime cue name the sim emits (`rifle_ak-distant.wav` → `rifle_ak.distant`,
+  `step-floor.wav` → `step.floor`). It owns a round-robin pool of `AudioSource` voices (replacing the
+  reference's 3-voices-per-cue) and exposes `Play(name, volume, pitch, pan)` plus
+  `PlaySimulationSounds(Simulation)` — the latter resolves each `SoundEvent` through
+  `AudioMix.Resolve` (listener position/yaw, map occlusion, trauma), applies the same
+  0.012 volume floor and 0.3–3 pitch / 0–1 pan clamps, and the same distant/occluded/`step` cue
+  fallback as the reference `AudioBank`. `MatchDriver` owns one on its own GameObject (auto-created
+  if the inspector field is empty) and drains `Sim.Sounds` after **each** fixed sim step, because the
+  sim clears its sound list at the start of the next `Update`. Compile-verified editor-free by
+  `tools/presentation-check`; actual output needs a device.
+  **Not yet ported:** rendering/map meshes, HUD/menus, settings, screenshot tooling, bot view
+  prefabs. The
   Unity project itself is a skeleton: editor version
   `6000.3.26f1` (`unity/ProjectSettings/ProjectVersion.txt`), a minimal package manifest (test
   framework + uGUI), the `HGO.Sim` asmdef and the new `HGO.Presentation` asmdef. **No Unity
@@ -215,8 +231,9 @@ dotnet run   --project tools/parity/Parity.csproj --no-build   # must end in PAR
 
 The presentation layer has its own gate — `tools/presentation-check` compiles the engine-free sim
 sources **plus** `unity/Assets/Scripts/Presentation/**` against a minimal UnityEngine stub
-(`UnityStubs.cs`) mirroring the Unity assembly layout (`HGO.Presentation` → `HGO.Sim`), so
-`MatchDriver.cs` cannot rot against the sim's public API without a real editor. The clean
+(`UnityStubs.cs`, which now also stands in for `Object`/`GameObject`/`AudioClip`/`AudioSource`)
+mirroring the Unity assembly layout (`HGO.Presentation` → `HGO.Sim`), so `MatchDriver.cs` and
+`SimAudioPlayer.cs` cannot rot against the sim's public API without a real editor. The clean
 `-warnaserror` build is the gate; the exe prints `PRESENTATION: PASS` for CI logs:
 
 ```bash
@@ -322,6 +339,7 @@ the next session knows whether GitHub is current.
 | Unity sim port (mirrors `src/`, engine-free) | `unity/Assets/Scripts/Sim/` |
 | Unity audio synthesis + mix routing port, cue manifest (engine-free) | `unity/Assets/Scripts/Sim/Audio/` (`WavGen.cs`, `AudioCatalog.cs`, `AudioMix.cs`) |
 | Sim→Unity bridge: fixed-tick `Simulation.Update`, `InputFrame` adapter, body/camera sync | `unity/Assets/Scripts/Presentation/MatchDriver.cs` + `HGO.Presentation.asmdef` |
+| Unity audio playback: PCM→`AudioClip` bank, voice pool, drains `Sim.Sounds` via `AudioMix.Resolve` | `unity/Assets/Scripts/Presentation/SimAudioPlayer.cs` |
 | Parity suite (shared) + Unity edit-mode tests | `unity/Assets/Tests/EditMode/` (`ParityChecks.cs`, `ParityTests.cs`, `HGO.Sim.Tests.asmdef`) |
 | Parity console harness + golden reports | `tools/parity/` (`Parity.csproj`, thin `Program.cs`, `goldens/`) |
 | Presentation compile gate (editor-free) | `tools/presentation-check/` (`PresentationCheck.csproj`, `UnityStubs.cs`, thin `Program.cs`) |
@@ -355,10 +373,12 @@ the next session knows whether GitHub is current.
   `tools/parity` and, once the editor exists, the edit-mode tests. Unity generates `.meta` files
   for `unity/Assets/Tests/EditMode/` on first open — commit them with the next editor change.
 - **`tools/presentation-check` is a compile gate, not a runtime** — `UnityStubs.cs` models only the
-  Unity members the presentation layer uses, so adding a new Unity API call to `MatchDriver.cs`
-  (or new presentation files) means extending the stub. `CS8618` is suppressed there because Unity
-  wires `[Header]` fields in the inspector and does not enable nullable; keep every other warning
-  an error. Run the gate after any change under `unity/Assets/Scripts/Presentation/`.
+  Unity members the presentation layer uses (`Object`/`GameObject`/`Component`, `AudioClip`,
+  `AudioSource`, plus the transform/input/math types), so adding a new Unity API call to
+  `MatchDriver.cs` or `SimAudioPlayer.cs` (or new presentation files) means extending the stub.
+  `CS8618` is suppressed there because Unity wires `[Header]` fields in the inspector and does not
+  enable nullable; keep every other warning an error. Run the gate after any change under
+  `unity/Assets/Scripts/Presentation/`.
 - A menu row added to the main menu will re-break the footer overlap unless the pitch math above
   is re-checked.
 
@@ -374,12 +394,14 @@ the next session knows whether GitHub is current.
   3. Wire the Unity scene: empty `PlayerBody` GameObject with `MatchDriver`, separate unparented
      `Main Camera` assigned to `MatchDriver.PlayerCamera` (the driver sets its world pose). Tune
      `LookGain` so mouse counts match the raylib feel (Unity default axes are not 1:1 counts).
-  4. Rebuild presentation (rendering/map meshes, HUD, menus, audio playback) against the
+     Audio needs no wiring: `SimAudioPlayer` is auto-added to the `MatchDriver` GameObject and the
+     `Main Camera` already carries Unity's default `AudioListener`.
+  4. Rebuild presentation (rendering/map meshes, HUD, menus) against the
      reference — gameplay behaviour is already pinned by the parity goldens, so the view layer is
-     free to diverge where it is purely cosmetic. Audio synthesis and `AudioMix` routing are
-     already ported and verified (`Sim/Audio/`), so this is wrapping the generated WAV bytes in
-     `AudioClip.Create` + `AudioSource` voices and feeding routed events through
-     `AudioMix.Resolve`. Every presentation change goes through `tools/presentation-check`
+     free to diverge where it is purely cosmetic. Audio synthesis, `AudioMix` routing and the
+     `SimAudioPlayer` playback bridge are already ported (`Sim/Audio/` + `Presentation/`), so audio
+     is wired end to end bar a device to hear it. Every presentation change goes through
+     `tools/presentation-check`
      (build clean) and, when a new Unity API is touched, through an update to `UnityStubs.cs`.
 - **`tools/editmode-check` is the same idea for the test assembly** — `UnityTestStubs.cs` models
   only `NUnit.Framework` (`[Test]`, `Assert.Fail`, `TestContext.Progress`) and

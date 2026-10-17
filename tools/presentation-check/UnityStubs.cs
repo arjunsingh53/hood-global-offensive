@@ -14,6 +14,12 @@ namespace UnityEngine
         public HeaderAttribute(string header) { }
     }
 
+    [AttributeUsage(AttributeTargets.Field)]
+    public sealed class TooltipAttribute : Attribute
+    {
+        public TooltipAttribute(string tooltip) { }
+    }
+
     public struct Vector2
     {
         public float x;
@@ -60,14 +66,46 @@ namespace UnityEngine
         public Quaternion rotation { get; set; }
     }
 
-    public class Component
+    public class Object
+    {
+        public static void Destroy(Object obj) { }
+    }
+
+    public class GameObject : Object
+    {
+        public GameObject() { }
+        public GameObject(string name) { }
+
+        public T AddComponent<T>() where T : Component, new() => new T();
+    }
+
+    public class Component : Object
     {
         public Transform transform { get; set; } = new Transform();
+        public GameObject gameObject { get; set; } = new GameObject();
     }
 
     public class Behaviour : Component { }
 
     public class MonoBehaviour : Behaviour { }
+
+    public class AudioClip : Object
+    {
+        public static AudioClip Create(string name, int lengthSamples, int channels, int frequency, bool stream)
+            => new AudioClip();
+        public bool SetData(float[] data, int offsetSamples) => true;
+    }
+
+    public class AudioSource : Behaviour
+    {
+        public AudioClip clip { get; set; }
+        public float volume { get; set; }
+        public float pitch { get; set; } = 1f;
+        public float panStereo { get; set; }
+        public float spatialBlend { get; set; }
+        public bool playOnAwake { get; set; } = true;
+        public void Play() { }
+    }
 
     public enum CursorLockMode
     {
