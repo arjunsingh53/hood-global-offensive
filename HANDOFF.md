@@ -44,8 +44,9 @@
   bridge, first presentation-blockout pass, the code-built front end, the Unity YAML
   `.gitattributes` prep, combat-effects blockout, the HUD floating damage numbers, the crosshair
   options port, the camera-feedback levels, the main-menu match-setup rows, the upgrade-cabinet
-  overlay, the Tab scoreboard + pause/match-over parity fixes, the scenic menu backdrop) are
-  **local only — 17 commits ahead of `origin/main`** — keep them local until the team asks
+  overlay, the Tab scoreboard + pause/match-over parity fixes, the scenic menu backdrop, the
+  scope/hook/vitals HUD pass) are
+  **local only — 18 commits ahead of `origin/main`** — keep them local until the team asks
   for another push.
   Pre-push gate for future work: `-warnaserror` build clean, both CI gates `RESULT: PASS`, `tools/parity`
   `PARITY: PASS`, `tools/presentation-check` build clean, and `tools/editmode-check` build clean.
@@ -229,6 +230,17 @@ behaviour questions.
     is disabled outside Playing). While the match-over screen is up, `MenuSync` sets
     `HudSync.ForceScoreboard` so the same board shows there like the reference — one documented
     divergence: the Unity board sits under the menu backdrop instead of above it.
+    **Centre-zone pass ported:** the cosmetic scope overlay (radius-540 circular mask, cross
+    lines, 40-segment inner ring, centre dot; one `CanvasGroup` fades the whole picture over
+    `ZoomBlend` 0.25→1; mask hole approximated with 36 strips per side that never over-mask
+    into the circle), hook status squares (Q/E light gold while the hook is attached), the
+    station prompt (`[ E ]  UPGRADE CABINET` + live kill-points line while in range), the
+    vitals build row (HP/DMG/SPD/JMP pips with live levels from `Simulation.UpgradeLevel`)
+    and the COMBAT READY / CRITICAL status word, plus the reference peripheral fade
+    (`Hud.PeripheralHudOpacity`: peripheral anchors drop to 0.38 opacity behind a real scope
+    or calibrated sight picture; reticle, hitmarker and scope mask never fade). Still blockout:
+    the radar, the compass tape / top-bar restyle, weapon-readout detail lines, the
+    arena-panel card skin, and the peripheral-fringe/trauma-mark vignette extras.
   - `MenuSync.cs` — code-built uGUI front end and game-flow owner (main / pause / settings /
     crosshair options / match-over). It never changes sim rules: leaving the Playing screen
     disables the

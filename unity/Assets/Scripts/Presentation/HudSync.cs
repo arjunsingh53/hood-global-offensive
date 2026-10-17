@@ -12,11 +12,14 @@ namespace HoodGlobalOffensive.Presentation
     /// <summary>
     /// First-pass uGUI HUD driven entirely by sim state — no editor wiring needed:
     /// the canvas, scaler and every element are built in code. It mirrors the
-    /// reference HUD's information layer (health card, ammo card, timer, score,
-    /// kill feed, hitmarker, damage flash + directional indicator, low-health
-    /// vignette, match-over banner) as one blockout; per-part colours follow the
-    /// reference palette where the values were already captured.
-    /// Read-only view: it never writes to the simulation.
+    /// reference HUD's information layer (health card with build pips, ammo card,
+    /// timer, score, kill feed, hitmarker, hook status squares, station prompt,
+    /// damage flash + directional indicator, low-health vignette, scope overlay,
+    /// match-over banner, Tab scoreboard) as one blockout; per-part colours follow
+    /// the reference palette where the values were already captured. The peripheral
+    /// anchors fade to 0.38 opacity behind a real scope / calibrated sight picture
+    /// (reference Hud.PeripheralHudOpacity); the reticle, hitmarker and scope mask
+    /// are never faded. Read-only view: it never writes to the simulation.
     /// </summary>
     public sealed class HudSync : MonoBehaviour
     {
@@ -55,12 +58,27 @@ namespace HoodGlobalOffensive.Presentation
         Image _traumaOverlay;
         RectTransform _damageWheel;
         Text[] _killFeed;
+        Text? _healthStatus;
+        Text? _buildCaption;
+        readonly Text?[] _pipLabels = new Text?[4];
+        readonly Image?[] _pipBoxes = new Image?[4];
+        readonly Text?[] _pipValues = new Text?[4];
+        HookSquare? _hookLeft;
+        HookSquare? _hookRight;
+        Text? _stationTitle;
+        Text? _stationSub;
+        ScopeOverlay? _scope;
         GameObject? _scoreboard;
         RectTransform? _scoreboardRect;
         Text? _scoreTitle;
         Text? _scoreFirstTo;
         Text? _scoreFooter;
         readonly List<ScoreRow> _scoreRows = new();
+
+        static readonly UpgradeStat[] BuildStats =
+        {
+            UpgradeStat.Health, UpgradeStat.Damage, UpgradeStat.Speed, UpgradeStat.Jump,
+        };
 
         sealed class ScoreRow
         {
@@ -71,6 +89,139 @@ namespace HoodGlobalOffensive.Presentation
             public Text Deaths = null!;
             public Text Kd = null!;
             public Text Pts = null!;
+        }
+
+        /// <summary>
+        /// Quiet dual-hook readout under the reticle (reference
+        /// <c>Hud.DrawHookStatus</c>): Q and E squares light gold while that hook is
+        /// attached to a surface.
+        /// </summary>
+        sealed class HookSquare
+        {
+            public GameObject Root = null!;
+            public Image Border = null!;
+            public Image Fill = null!;
+            public Text Key = null!;
+
+            public void Set(bool attached, float opacity)
+            {
+                Color border = attached
+                    ? Gold
+                    : new Color(236f / 255f, 240f / 255f, 244f / 255f, 92f / 255f);
+                Color fill = attached
+                    ? new Color(Gold.r, Gold.g, Gold.b, 52f / 255f)
+                    : new Color(5f / 255f, 8f / 255f, 13f / 255f, 130f / 255f);
+                Border.color = Fade(border, opacity);
+                Fill.color = Fade(fill, opacity);
+                Key.color = Fade(attached ? Gold : Faint, opacity);
+            }
+        }
+
+        /// <summary>
+        /// The cosmetic scope picture (reference <c>Hud.DrawScopeOverlay</c>): full
+        /// screen black with a 540-unit circular hole, thin cross lines, a faint
+        /// inner ring and a centre dot, all fading in with the zoom blend. One
+        /// canvas group drives the whole fade. The mask hole is approximated with
+        /// 36 horizontal strips per side, which never over-mask into the circle.
+        /// </summary>
+        sealed class ScopeOverlay
+        {
+            public GameObject Root = null!;
+            CanvasGroup Group = null!;
+
+            public void Set(Player p)
+            {
+                bool visible = p.Alive && p.Current.Def.HasScope && p.ZoomBlend >= 0.25f;
+                float t = U.Clamp01((p.ZoomBlend - 0.25f) / 0.75f);
+                if (!visible || t <= 0.001f)
+                {
+                    if (Root.activeSelf) Root.SetActive(false);
+                    return;
+                }
+                Root.SetActive(true);
+                Group.alpha = t;
+            }
+
+            public static ScopeOverlay Create(Transform parent)
+            {
+                GameObject root = new GameObject("Scope Overlay");
+                root.AddComponent<CanvasRenderer>();
+                RectTransform rect = root.AddComponent<RectTransform>();
+                rect.anchorMin = new Vector2(0.5f, 0.5f);
+                rect.anchorMax = new Vector2(0.5f, 0.5f);
+                rect.pivot = new Vector2(0.5f, 0.5f);
+                rect.anchoredPosition = Vector2.zero;
+                rect.sizeDelta = Vector2.zero;
+                root.transform.SetParent(parent);
+
+                ScopeOverlay overlay = new ScopeOverlay
+                {
+                    Root = root,
+                    Group = root.AddComponent<CanvasGroup>(),
+                };
+
+                Color mask = new Color(0f, 0f, 0f, 230f / 255f);
+                const float radius = 540f;
+                const float halfWidth = 960f;
+                const float stripHeight = 30f;
+                for (int i = 0; i < 36; i++)
+                {
+                    float yA = -radius + i * stripHeight;
+                    float yB = yA + stripHeight;
+                    float dy = MathF.Max(MathF.Abs(yA), MathF.Abs(yB));
+                    float dx = MathF.Sqrt(MathF.Max(0f, radius * radius - dy * dy));
+                    float width = halfWidth - dx;
+                    if (width <= 0.5f) continue;
+                    float yCenter = (yA + yB) * 0.5f;
+                    Rect(root.transform, $"Mask L{i}",
+                        new Vector2(-(halfWidth + dx) * 0.5f, yCenter),
+                        new Vector2(width, stripHeight + 0.5f), 0f, mask);
+                    Rect(root.transform, $"Mask R{i}",
+                        new Vector2((halfWidth + dx) * 0.5f, yCenter),
+                        new Vector2(width, stripHeight + 0.5f), 0f, mask);
+                }
+
+                Color line = new Color(20f / 255f, 20f / 255f, 20f / 255f, 220f / 255f);
+                Rect(root.transform, "Line H", Vector2.zero, new Vector2(1920f, 3f), 0f, line);
+                Rect(root.transform, "Line V", Vector2.zero, new Vector2(3f, 1080f), 0f, line);
+
+                const float ringRadius = 335f;
+                const int ringSegments = 40;
+                float segmentLength = 2f * MathF.PI * ringRadius / ringSegments + 2f;
+                Color ring = new Color(30f / 255f, 30f / 255f, 30f / 255f, 140f / 255f);
+                for (int i = 0; i < ringSegments; i++)
+                {
+                    float angle = i * (360f / ringSegments);
+                    float radians = angle * MathF.PI / 180f;
+                    Rect(root.transform, $"Ring {i}",
+                        new Vector2(MathF.Cos(radians) * ringRadius, MathF.Sin(radians) * ringRadius),
+                        new Vector2(3f, segmentLength), angle + 90f, ring);
+                }
+
+                Rect(root.transform, "Dot", Vector2.zero, new Vector2(5f, 5f), 0f,
+                    new Color(240f / 255f, 240f / 255f, 240f / 255f, 230f / 255f));
+
+                root.SetActive(false);
+                return overlay;
+            }
+
+            static Image Rect(Transform parent, string name, Vector2 position, Vector2 size,
+                float rotation, Color color)
+            {
+                GameObject go = new GameObject(name);
+                go.AddComponent<CanvasRenderer>();
+                RectTransform rect = go.AddComponent<RectTransform>();
+                rect.anchorMin = new Vector2(0.5f, 0.5f);
+                rect.anchorMax = new Vector2(0.5f, 0.5f);
+                rect.pivot = new Vector2(0.5f, 0.5f);
+                rect.anchoredPosition = position;
+                rect.sizeDelta = size;
+                rect.localRotation = Quaternion.Euler(0f, 0f, rotation);
+                go.transform.SetParent(parent);
+                Image image = go.AddComponent<Image>();
+                image.color = color;
+                return image;
+            }
         }
 
         Camera? _camera;
@@ -124,34 +275,66 @@ namespace HoodGlobalOffensive.Presentation
             Weapon weapon = p.Current;
             WeaponDef def = weapon.Def;
 
+            // The peripheral anchors fade behind a real scope / calibrated sight
+            // picture (reference Hud.PeripheralHudOpacity). Centre elements
+            // (reticle, hitmarker, scope overlay) are never faded.
+            float op = PeripheralOpacity(def, p.ZoomBlend);
+
             // Health card --------------------------------------------------
             float health = U.Clamp01(p.Health / p.MaxHealth);
             bool lowHealth = p.Health < Cfg.LowHealthTraumaThreshold;
             Color healthColor = lowHealth ? Danger : (health > 0.6f ? Ink : Amber);
             _healthValue.text = $"{MathF.Ceiling(p.Health):0}";
-            _healthValue.color = healthColor;
-            _healthLabel.color = lowHealth ? Danger : Dim;
+            _healthValue.color = Fade(healthColor, op);
+            _healthLabel.color = Fade(lowHealth ? Danger : Dim, op);
+            if (_healthStatus != null)
+            {
+                _healthStatus.text = lowHealth ? "CRITICAL" : "COMBAT READY";
+                _healthStatus.color = Fade(lowHealth ? Danger : Good, op);
+            }
             float fillWidth = _healthTrack.rectTransform.sizeDelta.x * health;
             _healthFill.rectTransform.sizeDelta =
                 new Vector2(fillWidth, _healthFill.rectTransform.sizeDelta.y);
-            _healthFill.color = lowHealth ? Danger : Good;
+            _healthFill.color = Fade(lowHealth ? Danger : Good, op);
+            _healthTrack.color = Fade(new Color(1f, 1f, 1f, 0.10f), op);
+
+            // Build pips (reference DrawVitals upgrade row) -----------------
+            if (_buildCaption != null) _buildCaption.color = Fade(Faint, op);
+            for (int i = 0; i < BuildStats.Length; i++)
+            {
+                int level = Simulation.UpgradeLevel(p, BuildStats[i]);
+                Image? box = _pipBoxes[i];
+                Text? value = _pipValues[i];
+                Text? pipLabel = _pipLabels[i];
+                if (box == null || value == null || pipLabel == null) continue;
+                box.color = level > 0
+                    ? Fade(new Color(Gold.r, Gold.g, Gold.b, 1f), op)
+                    : Fade(new Color(1f, 1f, 1f, 30f / 255f), op);
+                value.text = level > 0 ? $"{level}" : "";
+                value.color = Fade(Dim, op);
+                pipLabel.color = Fade(Faint, op);
+            }
 
             // Ammo card ----------------------------------------------------
             string mag = def.UsesAmmo ? weapon.Mag.ToString("00") : "--";
             _ammoMag.text = mag;
-            _ammoMag.color = def.UsesAmmo && weapon.Mag == 0 ? Danger : Ink;
+            _ammoMag.color = Fade(def.UsesAmmo && weapon.Mag == 0 ? Danger : Ink, op);
             _ammoWeapon.text = def.Name.ToUpperInvariant();
+            _ammoWeapon.color = Fade(Dim, op);
             _ammoReserve.text = def.UsesAmmo
                 ? (def.InfiniteReserve ? "RESERVE INF" : $"RESERVE {weapon.Reserve}")
                 : "MELEE";
+            _ammoReserve.color = Fade(Dim, op);
 
             // Timer / match state ------------------------------------------
             _timer.text = sim.MatchOver ? "" : FormatClock(sim.TimeLeft);
+            _timer.color = Fade(Ink, op);
             _matchResult.gameObject.SetActive(sim.MatchOver);
             _matchResult.text = sim.MatchResult;
 
             // Score --------------------------------------------------------
             _score.text = $"K {p.Kills}   D {p.Deaths}   PTS {p.KillPoints}   #{sim.PlayerRank() + 1}";
+            _score.color = Fade(Ink, op);
 
             // Kill feed (newest first, 6.5 s life like the reference) -------
             int line = 0;
@@ -166,7 +349,7 @@ namespace HoodGlobalOffensive.Presentation
                 row.gameObject.SetActive(true);
                 row.text = $"{entry.Killer}  [{weaponName}]  {entry.Victim}";
                 Color baseColor = entry.KillerIsPlayer ? Gold : Ink;
-                row.color = new Color(baseColor.r, baseColor.g, baseColor.b, alpha);
+                row.color = Fade(new Color(baseColor.r, baseColor.g, baseColor.b, alpha), op);
             }
             for (; line < FeedLines; line++)
             {
@@ -217,6 +400,38 @@ namespace HoodGlobalOffensive.Presentation
 
             // Crosshair -----------------------------------------------------
             SyncCrosshair(p, def);
+
+            // Hook status / station prompt / scope (reference centre zone) --
+            bool alive = p.Alive;
+            if (_hookLeft != null && _hookRight != null)
+            {
+                _hookLeft.Root.SetActive(alive);
+                _hookRight.Root.SetActive(alive);
+                if (alive)
+                {
+                    _hookLeft.Set(p.HookLeft.Attached, op);
+                    _hookRight.Set(p.HookRight.Attached, op);
+                }
+            }
+
+            bool nearStation = alive && sim.NearbyStation(p) != null;
+            if (_stationTitle != null && _stationSub != null)
+            {
+                bool wasActive = _stationTitle.gameObject.activeSelf;
+                if (wasActive != nearStation)
+                {
+                    _stationTitle.gameObject.SetActive(nearStation);
+                    _stationSub.gameObject.SetActive(nearStation);
+                }
+                if (nearStation)
+                {
+                    _stationTitle.color = Fade(Ink, op);
+                    _stationSub.text = $"{p.KillPoints} KILL POINTS   -   1 POINT PER LEVEL";
+                    _stationSub.color = Fade(Gold, op);
+                }
+            }
+
+            _scope?.Set(p);
 
             // Floating damage numbers --------------------------------------
             SyncDamageNumbers(sim);
@@ -329,6 +544,27 @@ namespace HoodGlobalOffensive.Presentation
             return pool[index];
         }
 
+        HookSquare BuildHookSquare(Transform parent, string name, Vector2 position, string key)
+        {
+            GameObject rootGo = new GameObject(name);
+            rootGo.AddComponent<CanvasRenderer>();
+            rootGo.AddComponent<RectTransform>();
+            rootGo.transform.SetParent(parent);
+            ApplyRect(rootGo, AnchorCenter, position, new Vector2(24f, 24f));
+
+            HookSquare square = new HookSquare();
+            square.Root = rootGo;
+            square.Border = MakeImage(rootGo.transform, "Border", AnchorCenter,
+                Vector2.zero, new Vector2(24f, 24f), new Color(1f, 1f, 1f, 0.36f));
+            square.Fill = MakeImage(rootGo.transform, "Fill", AnchorCenter,
+                Vector2.zero, new Vector2(20f, 20f),
+                new Color(5f / 255f, 8f / 255f, 13f / 255f, 130f / 255f));
+            square.Key = MakeText(rootGo.transform, "Key", AnchorCenter,
+                Vector2.zero, new Vector2(24f, 24f), 15, TextAnchor.MiddleCenter, Faint);
+            square.Key.text = key;
+            return square;
+        }
+
         /// <summary>
         /// Tab-held scoreboard mirroring the reference <c>Screens.DrawScoreboardContent</c>
         /// (1280x720 logical metrics scaled 1.5x onto the 1080p canvas): map header,
@@ -415,6 +651,22 @@ namespace HoodGlobalOffensive.Presentation
             return _camera;
         }
 
+        static Color Fade(Color color, float opacity) =>
+            new Color(color.r, color.g, color.b, color.a * U.Clamp01(opacity));
+
+        /// <summary>
+        /// Local HUD fade behind a real scope / calibrated sight picture (reference
+        /// <c>Hud.PeripheralHudOpacity</c>): the peripheral anchors drop to 0.38
+        /// opacity so the protected centre stays the only combat read. An ordinary
+        /// narrowed FOV never fades the HUD.
+        /// </summary>
+        static float PeripheralOpacity(WeaponDef def, float zoomBlend)
+        {
+            if (!def.HasScope && !def.HasCalibratedIronSights) return 1f;
+            float t = U.Clamp01((zoomBlend - 0.16f) / 0.68f);
+            return U.Lerp(1f, 0.38f, t);
+        }
+
         static string FormatClock(float seconds)
         {
             float clamped = MathF.Max(0f, seconds);
@@ -437,16 +689,42 @@ namespace HoodGlobalOffensive.Presentation
             Transform root = canvasGo.transform;
             _canvasRoot = root;
 
+            // Scope overlay first so its corner masks sit beneath the info cards,
+            // like the reference draw order (peripheral HUD drawn after the scope).
+            _scope = ScopeOverlay.Create(root);
+
             // Health card (bottom-left, mirrors the reference card stack) ----
             _healthValue = MakeText(root, "Health", AnchorBottomLeft,
                 new Vector2(24f, 60f), new Vector2(240f, 60f), 44, TextAnchor.LowerLeft, Ink);
             _healthLabel = MakeText(root, "Health Label", AnchorBottomLeft,
                 new Vector2(26f, 40f), new Vector2(240f, 20f), 10, TextAnchor.LowerLeft, Dim);
             _healthLabel.text = "HEALTH";
+            _healthStatus = MakeText(root, "Health Status", AnchorBottomLeft,
+                new Vector2(74f, 40f), new Vector2(220f, 20f), 10, TextAnchor.LowerLeft, Good);
+            _healthStatus.text = "COMBAT READY";
             _healthTrack = MakeImage(root, "Health Track", AnchorBottomLeft,
                 new Vector2(24f, 18f), new Vector2(180f, 8f), new Color(1f, 1f, 1f, 0.10f));
             _healthFill = MakeImage(root, "Health Fill", AnchorBottomLeft,
                 new Vector2(24f, 18f), new Vector2(180f, 8f), Good);
+
+            // Build pips (reference DrawVitals upgrade row) -------------------
+            _buildCaption = MakeText(root, "Build Caption", AnchorBottomLeft,
+                new Vector2(218f, 62f), new Vector2(60f, 16f), 10, TextAnchor.LowerLeft, Faint);
+            _buildCaption.text = "BUILD";
+            for (int i = 0; i < BuildStats.Length; i++)
+            {
+                float x = 296f + i * 47f;
+                _pipLabels[i] = MakeText(root, $"Pip {i} Label", AnchorBottomLeft,
+                    new Vector2(x, 50f), new Vector2(40f, 14f), 9, TextAnchor.LowerCenter, Faint);
+                _pipBoxes[i] = MakeImage(root, $"Pip {i} Box", AnchorBottomLeft,
+                    new Vector2(x, 36f), new Vector2(12f, 12f), new Color(1f, 1f, 1f, 30f / 255f));
+                _pipValues[i] = MakeText(root, $"Pip {i} Value", AnchorBottomLeft,
+                    new Vector2(x, 20f), new Vector2(40f, 14f), 10, TextAnchor.UpperCenter, Dim);
+            }
+            _pipLabels[0]!.text = "HP";
+            _pipLabels[1]!.text = "DMG";
+            _pipLabels[2]!.text = "SPD";
+            _pipLabels[3]!.text = "JMP";
 
             // Ammo card (bottom-right) --------------------------------------
             _ammoWeapon = MakeText(root, "Ammo Weapon", AnchorBottomRight,
@@ -499,6 +777,19 @@ namespace HoodGlobalOffensive.Presentation
             Text arrow = MakeText(_damageWheel.transform, "Damage Arrow", AnchorCenter,
                 new Vector2(0f, 120f), new Vector2(60f, 40f), 26, TextAnchor.MiddleCenter, Danger);
             arrow.text = "^";
+
+            // Hook status squares (reference DrawHookStatus; 16px at 1.5x) -----
+            _hookLeft = BuildHookSquare(root, "Hook Q", new Vector2(-60f, -51f), "Q");
+            _hookRight = BuildHookSquare(root, "Hook E", new Vector2(36f, -51f), "E");
+
+            // Station prompt (reference DrawStationPrompt) ----------------------
+            _stationTitle = MakeText(root, "Station Title", AnchorCenter,
+                new Vector2(0f, -180f), new Vector2(760f, 30f), 22, TextAnchor.MiddleCenter, Ink);
+            _stationTitle.text = "[ E ]  UPGRADE CABINET";
+            _stationSub = MakeText(root, "Station Sub", AnchorCenter,
+                new Vector2(0f, -212f), new Vector2(760f, 24f), 15, TextAnchor.MiddleCenter, Gold);
+            _stationTitle.gameObject.SetActive(false);
+            _stationSub.gameObject.SetActive(false);
 
             // Death / respawn notice (lower-centre) ---------------------------
             _deathNotice = MakeText(root, "Death Notice", AnchorBottomCenter,

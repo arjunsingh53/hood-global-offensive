@@ -187,6 +187,11 @@ namespace UnityEngine
         public float matchWidthOrHeight { get; set; }
     }
 
+    public class CanvasGroup : Component
+    {
+        public float alpha { get; set; } = 1f;
+    }
+
     public class Font : Object
     {
         public static Font CreateDynamicFontFromOSFont(string fontName, int size) => new Font();
