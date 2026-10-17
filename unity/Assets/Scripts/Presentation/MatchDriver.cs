@@ -22,6 +22,10 @@ namespace HoodGlobalOffensive.Presentation
         public float LookGain = 1f;
         public bool InvertLookY = false;
 
+        [Header("Presentation")]
+        [Tooltip("Scales the render-only FOV feedback kick (MenuSync pushes the user level; 1 = Normal).")]
+        public float FeedbackStrength = 1f;
+
         [Header("Audio")]
         [Tooltip("Created on this GameObject in Awake when left empty.")]
         public SimAudioPlayer Audio;
@@ -176,10 +180,32 @@ namespace HoodGlobalOffensive.Presentation
             {
                 PlayerCamera.position = feet + Vector3.up * p.EyeHeight;
                 PlayerCamera.rotation = Quaternion.LookRotation(aim, Vector3.up);
-                // The sim owns the FOV (weapon zoom lerps CurrentFov).
+                // The sim owns the base FOV (weapon zoom lerps CurrentFov); the
+                // user's feedback level adds the render-only lens kick on top,
+                // exactly like the reference Renderer.BuildCamera. The HUD
+                // crosshair reads this same field of view for its spread gap.
                 if (_camera == null) _camera = PlayerCamera.GetComponent<Camera>();
-                if (_camera != null) _camera.fieldOfView = p.CurrentFov;
+                if (_camera != null) _camera.fieldOfView = p.CurrentFov + FeedbackFovKick(p);
             }
+        }
+
+        /// <summary>
+        /// The world-camera portion of the camera feedback (reference
+        /// <c>Renderer.GetFeedbackFovKick</c>): a small lens response to footsteps,
+        /// landings and incoming damage. Unlike a positional shake, changing FOV keeps
+        /// the same centre ray at every range, so the preference can never introduce
+        /// shot/reticle parallax. Scoping dampens it (FeedbackAdsScale).
+        /// </summary>
+        float FeedbackFovKick(Player p)
+        {
+            float strength = U.Clamp01(FeedbackStrength);
+            if (strength <= 0f) return 0f;
+
+            float adsScale = U.Lerp(1f, Cfg.FeedbackAdsScale, p.ZoomBlend);
+            float scale = strength * adsScale;
+            return (p.FootstepFeedback * Cfg.FeedbackFootstepFovDegrees
+                + p.LandingFeedback * Cfg.FeedbackLandingFovDegrees
+                + p.DamageFeedback * Cfg.FeedbackDamageFovDegrees) * scale;
         }
     }
 }

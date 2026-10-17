@@ -6,12 +6,13 @@ namespace HoodGlobalOffensive.Presentation
 {
     /// <summary>
     /// First-pass front end: a code-built uGUI menu stack (main / pause / settings /
-    /// match-over) that owns game-flow state. It never touches the simulation's rules —
-    /// leaving <see cref="Screen.Playing"/> simply disables the <see cref="MatchDriver"/>
-    /// (the fixed tick stops), releases the cursor and freezes time; entering it
-    /// re-enables the driver, locks the cursor and restores time. Player settings (look
-    /// sensitivity, Y inversion) persist through <c>PlayerPrefs</c> and are pushed onto
-    /// the driver.
+    /// crosshair options / match-over) that owns game-flow state. It never touches the
+    /// simulation's rules — leaving <see cref="Screen.Playing"/> simply disables the
+    /// <see cref="MatchDriver"/> (the fixed tick stops), releases the cursor and freezes
+    /// time; entering it re-enables the driver, locks the cursor and restores time.
+    /// Player settings (look sensitivity, Y inversion, camera-feedback level, and the
+    /// crosshair profile) persist through <c>PlayerPrefs</c> and are pushed onto the
+    /// driver / HUD.
     ///
     /// Keyboard-driven on purpose so it needs no EventSystem/Button wiring: Up/Down move
     /// the selection, Enter activates, Esc pauses / backs out, Left/Right adjust the
@@ -25,6 +26,7 @@ namespace HoodGlobalOffensive.Presentation
 
         const string SensitivityKey = "HGO.LookSensitivity";
         const string InvertYKey = "HGO.InvertLookY";
+        const string FeedbackKey = "HGO.CameraFeedback.Level";
         const string CrosshairPresetKey = "HGO.Crosshair.Preset";
         const string CrosshairColorKey = "HGO.Crosshair.Color";
         const string CrosshairStyleKey = "HGO.Crosshair.Style";
@@ -45,6 +47,7 @@ namespace HoodGlobalOffensive.Presentation
 
         readonly string[] _rows = new string[9];
         readonly CrosshairSettings _crosshair = new();
+        readonly CameraFeedbackSettings _cameraFeedback = new();
 
         MatchDriver? _driver;
         HudSync? _hud;
@@ -77,6 +80,8 @@ namespace HoodGlobalOffensive.Presentation
 
             _sensitivity = PlayerPrefs.GetFloat(SensitivityKey, 1f);
             _invertY = PlayerPrefs.GetInt(InvertYKey, 0) != 0;
+            _cameraFeedback.Restore(
+                (CameraFeedbackLevel)PlayerPrefs.GetInt(FeedbackKey, (int)CameraFeedbackLevel.Normal));
             LoadCrosshair();
             ApplySettings();
         }
@@ -146,6 +151,12 @@ namespace HoodGlobalOffensive.Presentation
                     _previewCrosshair.Update(_crosshair, _crosshair.DynamicGap ? 5f : 0f, 1.75f);
                 }
             }
+            else if (_selected == FeedbackRow())
+            {
+                // Main/pause carry the camera-feedback level inline, like the reference.
+                if (left) CycleFeedback(-1);
+                if (right) CycleFeedback(1);
+            }
 
             if (enter) Activate();
             RefreshRows();
@@ -157,14 +168,17 @@ namespace HoodGlobalOffensive.Presentation
         {
             switch (_screen)
             {
-                case Screen.Main: return 4;
-                case Screen.Paused: return 5;
+                case Screen.Main: return 5;
+                case Screen.Paused: return 6;
                 case Screen.MatchOver: return 2;
                 case Screen.Settings: return 3;
                 case Screen.Crosshair: return 9;
                 default: return 0;
             }
         }
+
+        /// <summary>Row index of the inline camera-feedback setting, or -1.</summary>
+        int FeedbackRow() => _screen == Screen.Main || _screen == Screen.Paused ? 2 : -1;
 
         void Activate()
         {
@@ -173,15 +187,17 @@ namespace HoodGlobalOffensive.Presentation
                 case Screen.Main:
                     if (_selected == 0) BeginPlay();
                     else if (_selected == 1) OpenCrosshair(Screen.Main);
-                    else if (_selected == 2) OpenSettings(Screen.Main);
-                    else Quit();
+                    else if (_selected == 3) OpenSettings(Screen.Main);
+                    else if (_selected == 4) Quit();
+                    // Row 2 (camera feedback) is adjusted with Left/Right.
                     break;
                 case Screen.Paused:
                     if (_selected == 0) SetScreen(Screen.Playing);
                     else if (_selected == 1) OpenCrosshair(Screen.Paused);
-                    else if (_selected == 2) OpenSettings(Screen.Paused);
-                    else if (_selected == 3) BeginPlay();
-                    else Quit();
+                    else if (_selected == 3) OpenSettings(Screen.Paused);
+                    else if (_selected == 4) BeginPlay();
+                    else if (_selected == 5) Quit();
+                    // Row 2 (camera feedback) is adjusted with Left/Right.
                     break;
                 case Screen.MatchOver:
                     if (_selected == 0) BeginPlay();
@@ -267,6 +283,15 @@ namespace HoodGlobalOffensive.Presentation
             if (_driver == null) return;
             _driver.LookGain = _sensitivity;
             _driver.InvertLookY = _invertY;
+            _driver.FeedbackStrength = _cameraFeedback.Strength;
+        }
+
+        void CycleFeedback(int direction)
+        {
+            _cameraFeedback.Cycle(direction);
+            PlayerPrefs.SetInt(FeedbackKey, (int)_cameraFeedback.Level);
+            PlayerPrefs.Save();
+            ApplySettings();
         }
 
         // ----------------------------------------------------------------- crosshair
@@ -345,17 +370,19 @@ namespace HoodGlobalOffensive.Presentation
                     _subtitle.text = "FIRST-PERSON BLOCKOUT";
                     _rows[0] = "PLAY";
                     _rows[1] = $"CROSSHAIR OPTIONS   {_crosshair.PresetLabel}";
-                    _rows[2] = "SETTINGS";
-                    _rows[3] = "QUIT";
+                    _rows[2] = $"CAMERA FEEDBACK   {_cameraFeedback.Label}";
+                    _rows[3] = "SETTINGS";
+                    _rows[4] = "QUIT";
                     break;
                 case Screen.Paused:
                     _title.text = "PAUSED";
                     _subtitle.text = "";
                     _rows[0] = "RESUME";
                     _rows[1] = $"CROSSHAIR OPTIONS   {_crosshair.PresetLabel}";
-                    _rows[2] = "SETTINGS";
-                    _rows[3] = "RESTART";
-                    _rows[4] = "QUIT";
+                    _rows[2] = $"CAMERA FEEDBACK   {_cameraFeedback.Label}";
+                    _rows[3] = "SETTINGS";
+                    _rows[4] = "RESTART";
+                    _rows[5] = "QUIT";
                     break;
                 case Screen.MatchOver:
                     _title.text = "MATCH OVER";

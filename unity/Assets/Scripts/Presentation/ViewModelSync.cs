@@ -11,10 +11,11 @@ namespace HoodGlobalOffensive.Presentation
     /// Applies the sim's view-model springs and locomotion feedback to a
     /// camera-local <see cref="ViewModelRoot"/> in Unity, porting the composition
     /// the raylib reference performs in <c>Renderer.DrawViewModel</c> (sway, bob,
-    /// land dip, reload/deploy dip, view kick, the two second-order springs and
-    /// the small hip yaw). All values are read-only: it never writes to the
-    /// simulation, so parity stays intact — springs are ticked by the sim itself
-    /// inside <c>Simulation.Update</c>.
+    /// land dip, reload/deploy dip, view kick, the two second-order springs, the
+    /// small hip yaw, and the camera-feedback offsets scaled by
+    /// <see cref="MatchDriver.FeedbackStrength"/>). All values are read-only: it
+    /// never writes to the simulation, so parity stays intact — springs are ticked
+    /// by the sim itself inside <c>Simulation.Update</c>.
     ///
         /// Per-art placement (per-weapon art offsets, iron-sight targets, real
         /// muzzle anchors) is intentionally NOT ported yet: people assign the rig
@@ -85,10 +86,13 @@ namespace HoodGlobalOffensive.Presentation
             // The reference composes everything in its view basis (-Z forward,
             // +X right, +Y up). Keep those semantics here, then map them to the
             // Unity camera basis (+Z forward) when applying to the transform.
+            float feedbackStrength = _driver != null ? _driver.FeedbackStrength : 1f;
+            Vector3 feedback = FeedbackOffsetFor(p, p.Yaw + p.Punch.X, feedbackStrength);
             Vector3 offset = AnchorFor(pose);
-            offset.x += p.Sway.X * 2.4f + bobX;
-            offset.y += -p.Sway.Y * 2.4f + bobY - p.LandDip * 6f - reloadDip * 3f - deployDip * 5.5f;
-            offset.z += p.ViewKick * 0.22f;
+            offset.x += p.Sway.X * 2.4f + bobX + feedback.x * Cfg.FeedbackViewModelScale;
+            offset.y += -p.Sway.Y * 2.4f + bobY - p.LandDip * 6f - reloadDip * 3f - deployDip * 5.5f
+                + feedback.y * Cfg.FeedbackViewModelScale;
+            offset.z += p.ViewKick * 0.22f - feedback.z * Cfg.FeedbackViewModelScale;
             offset += ToUnity(p.ViewModelOffsetSpring.Value);
 
             ViewModelRoot.localPosition = FromViewBasis(offset);
@@ -162,6 +166,38 @@ namespace HoodGlobalOffensive.Presentation
             if (readyIn <= 0f || def.DeployTime <= 0.0001f) return 0f;
             float t = U.Clamp01(readyIn / def.DeployTime);
             return t * t * (3f - 2f * t);
+        }
+
+        /// <summary>
+        /// The viewmodel-local feedback offset (reference <c>Renderer.GetFeedbackOffset</c>):
+        /// footsteps, landings and incoming damage nudged in the view basis, scaled by the
+        /// user's camera-feedback level. Presentation-only translation — the world camera
+        /// origin, aim direction, spread and hit-scan are untouched. Scoping dampens it
+        /// (FeedbackAdsScale) so the sight picture stays stable.
+        /// </summary>
+        static Vector3 FeedbackOffsetFor(Player p, float viewYaw, float strength)
+        {
+            strength = U.Clamp01(strength);
+            if (strength <= 0f) return Vector3.zero;
+
+            float adsScale = U.Lerp(1f, Cfg.FeedbackAdsScale, p.ZoomBlend);
+            float scale = strength * adsScale;
+
+            float footstep = p.FootstepFeedback * scale;
+            float landing = p.LandingFeedback * scale;
+            float damage = p.DamageFeedback * scale;
+
+            float cadence = 0.68f + 0.32f * MathF.Cos(p.BobPhase);
+            float incomingRadians = (p.DamageFeedbackYaw - viewYaw) * MathF.PI / 180f;
+            float incomingSide = MathF.Sin(incomingRadians);
+
+            return new Vector3(
+                -footstep * cadence * Cfg.FeedbackFootstepSideDistance
+                    - incomingSide * damage * Cfg.FeedbackDamageSideDistance,
+                -footstep * Cfg.FeedbackFootstepDropDistance
+                    - landing * Cfg.FeedbackLandingDropDistance
+                    - damage * Cfg.FeedbackDamageDropDistance,
+                -damage * Cfg.FeedbackDamagePushDistance);
         }
 
         /// <summary>Numerics → Unity Vector3 (same axis order; offset stays in raylib basis).</summary>

@@ -23,8 +23,9 @@
   port (`8ebbce1`), the `AudioMix` routing port, the audio playback bridge
   (`unity/Assets/Scripts/Presentation/SimAudioPlayer.cs`), the first presentation-blockout pass
   (`MapBlockout` etc.), the code-built front end (`MenuSync`), the Unity YAML `.gitattributes`
-  prep, the combat-effects blockout (`EffectsSync`), the HUD floating damage numbers, and the
-  crosshair options port (settings profile, live HUD reticle, menu screen). The GitHub release asset for `v0.2.2` was
+  prep, the combat-effects blockout (`EffectsSync`), the HUD floating damage numbers, the
+  crosshair options port (settings profile, live HUD reticle, menu screen), and the
+  camera-feedback levels (driver FOV kick + view-model offsets). The GitHub release asset for `v0.2.2` was
   rebuilt in place (`gh release upload --clobber`) so the downloadable exe includes the menu fix.
   Run `git log --oneline -5` for exact hashes.
 - **Verified state:** `-warnaserror` build clean; both headless CI gates print `RESULT: PASS`;
@@ -40,8 +41,8 @@
   compile gate, edit-mode gate, audio synthesis port, `AudioMix` routing port, audio playback
   bridge, first presentation-blockout pass, the code-built front end, the Unity YAML
   `.gitattributes` prep, combat-effects blockout, the HUD floating damage numbers, the crosshair
-  options port) are
-  **local only — 12 commits ahead of `origin/main`** — keep them local until the team asks
+  options port, the camera-feedback levels) are
+  **local only — 13 commits ahead of `origin/main`** — keep them local until the team asks
   for another push.
   Pre-push gate for future work: `-warnaserror` build clean, both CI gates `RESULT: PASS`, `tools/parity`
   `PARITY: PASS`, `tools/presentation-check` build clean, and `tools/editmode-check` build clean.
@@ -232,10 +233,16 @@ behaviour questions.
     centre dot / base gap / arm length / thickness / reset / back) with the reference's
     semantics — presets restore full profiles, any manual tweak flips the label to CUSTOM,
     bounds match the reference (gap 0–24, length 1–24, thickness 1–5), and a live preview
-    panel shows the reticle at scale 1.75 with a 5 px test spread. Persistence is PlayerPrefs
+    panel shows the reticle at scale 1.75 with a 5 px test spread.     Persistence is PlayerPrefs
     (`HGO.Crosshair.*` keys, -1 preset = custom) with the reference `UserSettingsStore` restore
     rules: unknown enums fall back, values clamp, and a stored preset survives only if every
-    value still matches it.
+    value still matches it. **Camera feedback ported:** OFF / LOW / NORMAL (0 / 0.45 / 1.0),
+    carried inline on the main and pause menus like the reference and persisted as
+    `HGO.CameraFeedback.Level`. The level scales both render-only feedback layers: the FOV
+    lens kick in `MatchDriver.SyncView` (reference `GetFeedbackFovKick` — never a positional
+    shake, so the centre ray is identical at every strength; the HUD crosshair spread gap
+    reads the same field of view) and the viewmodel-local footstep/landing/damage offsets in
+    `ViewModelSync` (reference `GetFeedbackOffset`, ADS-damped by `FeedbackAdsScale`).
   `MatchDriver.SyncView` also now pins `PlayerCamera.fieldOfView` to `Sim.Player.CurrentFov`.
   **Combat-effects blockout ported:** `EffectsSync.cs` pools primitive stand-ins for the sim's
   effect lists, synced in `LateUpdate` (the sim owns every lifetime — it ages and prunes the
@@ -255,7 +262,7 @@ behaviour questions.
   placeholder mesh) to `ViewModelSync`; everything else auto-builds. `MenuSync` is optional —
   without it the driver runs unpaused from frame one with the cursor locked, as before.
   **Not yet ported:** real map meshes and bot meshes (primitive blockouts exist), VFX polish
-  (transparent/additive materials, muzzle flame lobes), camera-feedback weakness levels,
+  (transparent/additive materials, muzzle flame lobes),
   the main-menu match setup rows (loadout slots, map, bot count/skill, kill limit), screenshot
   tooling, per-art view-model calibration. The menu stack is a
   first pass (`MenuSync`): main/pause/settings/crosshair-options/match-over are covered; an
@@ -421,7 +428,7 @@ the next session knows whether GitHub is current.
 | Unity audio synthesis + mix routing port, cue manifest (engine-free) | `unity/Assets/Scripts/Sim/Audio/` (`WavGen.cs`, `AudioCatalog.cs`, `AudioMix.cs`) |
 | Sim→Unity bridge: fixed-tick `Simulation.Update`, `InputFrame` adapter, body/camera sync | `unity/Assets/Scripts/Presentation/MatchDriver.cs` + `HGO.Presentation.asmdef` |
 | Unity audio playback: PCM→`AudioClip` bank, voice pool, drains `Sim.Sounds` via `AudioMix.Resolve` | `unity/Assets/Scripts/Presentation/SimAudioPlayer.cs` |
-| Unity blockout pass: brush cubes, bot capsules, sim-driven view-model + muzzle flash, code-built uGUI HUD + menu stack, pooled combat effects, crosshair profile + reticle | `unity/Assets/Scripts/Presentation/` (`MapBlockout.cs`, `ActorViews.cs`, `ViewModelSync.cs`, `HudSync.cs`, `MenuSync.cs`, `EffectsSync.cs`, `CrosshairSettings.cs`) |
+| Unity blockout pass: brush cubes, bot capsules, sim-driven view-model + muzzle flash, code-built uGUI HUD + menu stack, pooled combat effects, crosshair profile + reticle, camera-feedback levels | `unity/Assets/Scripts/Presentation/` (`MapBlockout.cs`, `ActorViews.cs`, `ViewModelSync.cs`, `HudSync.cs`, `MenuSync.cs`, `EffectsSync.cs`, `CrosshairSettings.cs`, `CameraFeedbackSettings.cs`) |
 | Parity suite (shared) + Unity edit-mode tests | `unity/Assets/Tests/EditMode/` (`ParityChecks.cs`, `ParityTests.cs`, `HGO.Sim.Tests.asmdef`) |
 | Parity console harness + golden reports | `tools/parity/` (`Parity.csproj`, thin `Program.cs`, `goldens/`) |
 | Presentation compile gate (editor-free) | `tools/presentation-check/` (`PresentationCheck.csproj`, `UnityStubs.cs`, thin `Program.cs`) |
@@ -512,7 +519,7 @@ the next session knows whether GitHub is current.
      `CrosshairSettings` profile + reticle graphic) — see the migration-state bullet; editor
      wiring is one GameObject + one viewmodel placeholder. What remains above blockout: real map
      meshes and bot meshes, VFX polish (transparent/additive materials, muzzle flame lobes),
-     camera-feedback weakness levels, the main-menu match-setup rows, a styled
+     the main-menu match-setup rows, a styled
      options/settings screen and match-setup picker, screenshot
      tooling, per-art viewmodel calibration.
       Audio synthesis, `AudioMix` routing and the
