@@ -21,8 +21,11 @@ Quick reference:
   - `dotnet run -- --headless --seconds 300 --bots 9 --skill Normal --seed 20260114`
   - `dotnet run -- --headless --seconds 60 --bots 15 --skill Hard --seed 7331`
 - The Unity sim port must stay in parity: build `tools/parity/Parity.csproj` and run it; it must
-  end in `PARITY: PASS` (it also re-runs both CI gates through the ported runner). Keep the port
-  C# 9-compatible and never hand-edit `tools/parity/goldens/`.
+  end in `PARITY: PASS` (it also re-runs both CI gates through the ported runner, and SHA-256
+  checks all 47 procedural audio cues regenerated through `unity/Assets/Scripts/Sim/Audio/`
+  against `tools/parity/goldens/audio-hashes.txt`). Keep the port C# 9-compatible and never
+  hand-edit `tools/parity/goldens/` — the audio manifest is regenerated from a reference
+  `--sfx-dump` run plus SHA-256 hashing, nothing else.
 - The Unity presentation layer has an editor-free compile gate: build
   `tools/presentation-check/PresentationCheck.csproj` clean with `-warnaserror`. It compiles
   `unity/Assets/Scripts/Presentation/**` against `HGO.Sim` + `UnityStubs.cs`; extend the stub when

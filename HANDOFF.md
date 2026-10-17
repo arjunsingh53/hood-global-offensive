@@ -23,7 +23,8 @@
   `git log --oneline -5` for exact hashes.
 - **Verified state:** `-warnaserror` build clean; both headless CI gates print `RESULT: PASS`;
   the parity harness prints `PARITY: PASS` (including byte-exact replays of both gates through the
-  ported runner); the presentation compile gate (`tools/presentation-check`) builds clean; the
+  ported runner, and all 47 synthesised cues byte-matching the reference `--sfx-dump` by
+  SHA-256); the presentation compile gate (`tools/presentation-check`) builds clean; the
   single-file exe was re-verified from a clean directory.
 - **Push policy:** `origin/main` is synced with `main`. The migration sync push (2026-10-16, at
   team request, so the other machine could pull the sim port and the edit-mode tests) brought
@@ -107,6 +108,18 @@ behaviour questions.
   Golden reports live in `tools/parity/goldens/`. Refresh them only when the reference's headless
   output changes deliberately: run the two CI-gate commands, keep everything from the first
   `====` separator, and strip the ` wall clock` line.
+- **Procedural audio ported (engine-free):** `unity/Assets/Scripts/Sim/Audio/` carries the whole
+  synthesised cue bank — `WavGen.cs` (RBJ-biquad filter-shaped noise; mechanical port of
+  `src/Audio/WavGen.cs`) and `AudioCatalog.cs` (the weapon-family table plus the 47-cue manifest,
+  mirroring the reference `AudioBank.WeaponFamilies` + `AudioAudit.Dump` order and parameters).
+  It produces the same in-memory 16-bit PCM WAV bytes the raylib reference writes with
+  `--sfx-dump`, so the Unity presentation layer only has to wrap the bytes in an `AudioClip` —
+  no audio device, editor or `.NET` asset file is involved in the synthesis itself. Byte-parity
+  is enforced by the shared suite against `tools/parity/goldens/audio-hashes.txt` (one SHA-256
+  per cue, captured from the reference dump; regenerate only from a reference `--sfx-dump` run
+  when a cue's recipe changes deliberately). **Not ported:** playback/output — wrapping these
+  PCM buffers in Unity `AudioClip`s / `AudioSource` voices needs the editor — and the `AudioMix`
+  routing math (`src/Audio/AudioMix.cs`).
 - **Shared suite + Unity edit-mode gate:** the checks live once, in
   `unity/Assets/Tests/EditMode/ParityChecks.cs` — engine- and framework-free, collecting result
   lines into a `ParityReport`. `tools/parity/Program.cs` is a thin console wrapper over it, and
@@ -134,17 +147,20 @@ behaviour questions.
   view looks inverted. The bridge is now **compile-verified editor-free** by
   `tools/presentation-check` (a clean `-warnaserror` build there proves `MatchDriver.cs` still
   type-checks against `HGO.Sim`'s public API through a stub engine — it does not run the bridge).
-  **Not yet ported:** rendering/map meshes, HUD/menus, settings, audio playback, screenshot
-  tooling, bot view prefabs. The Unity project itself is a skeleton: editor version
+  **Not yet ported:** rendering/map meshes, HUD/menus, settings, audio playback (synthesis is
+  done — see the audio bullet above), screenshot tooling, bot view prefabs. The Unity project
+  itself is a skeleton: editor version
   `6000.3.26f1` (`unity/ProjectSettings/ProjectVersion.txt`), a minimal package manifest (test
   framework + uGUI), the `HGO.Sim` asmdef and the new `HGO.Presentation` asmdef. **No Unity
   editor pass has been run yet** — opening the project in Unity 6.3 and running the edit-mode
   parity tests (already authored, see above) is the next milestone.
   **Gates verified on this box (2026-10-17):** once SDK 10.0.402 was installed user-locally, all
-  three gates passed locally — `dotnet build --nologo -warnaserror` (0 warn/0 err), both CI
-  gates `RESULT: PASS`, and `tools/parity` `PARITY: PASS` (Unity port byte-matches the raylib
+  gates passed locally — `dotnet build --nologo -warnaserror` (0 warn/0 err), both CI gates
+  `RESULT: PASS`, and `tools/parity` `PARITY: PASS` (Unity port byte-matches the raylib
   reference goldens on both runs; the `unknown map 'nope'` line it prints is the harness's
-  fallback-map test, not an error). The remaining unverified gate is Unity's Test Runner —
+  fallback-map test, not an error). The audio check is part of `tools/parity` and prints
+  `ok audio 47 cues byte-match reference --sfx-dump`; its negative test (tamper one golden
+  hash) was run and correctly failed. The remaining unverified gate is Unity's Test Runner —
   editor only.
 
 ## How to work on this repository
@@ -287,6 +303,7 @@ the next session knows whether GitHub is current.
 | Menus (see the row-pitch note above) | `src/UI/Screens.cs` |
 | Rig converter | `tools/build_animated_viewmodels.py` |
 | Unity sim port (mirrors `src/`, engine-free) | `unity/Assets/Scripts/Sim/` |
+| Unity audio synthesis port + cue manifest (engine-free) | `unity/Assets/Scripts/Sim/Audio/` (`WavGen.cs`, `AudioCatalog.cs`) |
 | Sim→Unity bridge: fixed-tick `Simulation.Update`, `InputFrame` adapter, body/camera sync | `unity/Assets/Scripts/Presentation/MatchDriver.cs` + `HGO.Presentation.asmdef` |
 | Parity suite (shared) + Unity edit-mode tests | `unity/Assets/Tests/EditMode/` (`ParityChecks.cs`, `ParityTests.cs`, `HGO.Sim.Tests.asmdef`) |
 | Parity console harness + golden reports | `tools/parity/` (`Parity.csproj`, thin `Program.cs`, `goldens/`) |
@@ -312,6 +329,10 @@ the next session knows whether GitHub is current.
   syntax are out; the parity project pins `LangVersion 9.0` so the compiler catches drift.
 - **Never hand-edit `tools/parity/goldens/`** — they are captures of the reference; regenerate
   them from the CI-gate runs as described in the migration-state section.
+- **`audio-hashes.txt` is the one golden that hashes instead of holding text** — one
+  `name sha256` line per cue, captured by running the reference `--sfx-dump <dir>` and hashing
+  each WAV. The parity suite regenerates the cues through the ported `AudioCatalog` and compares
+  hashes (the WAVs are ~1.6 MB, so bytes are not committed).
 - **`ParityChecks.cs` is compiled by two projects** — the console harness (C# 9, no engine) and
   Unity's `HGO.Sim.Tests`. Keep it free of engine, NUnit and C# 10+ syntax; after changing it run
   `tools/parity` and, once the editor exists, the edit-mode tests. Unity generates `.meta` files
@@ -336,11 +357,13 @@ the next session knows whether GitHub is current.
   3. Wire the Unity scene: empty `PlayerBody` GameObject with `MatchDriver`, separate unparented
      `Main Camera` assigned to `MatchDriver.PlayerCamera` (the driver sets its world pose). Tune
      `LookGain` so mouse counts match the raylib feel (Unity default axes are not 1:1 counts).
-  4. Rebuild presentation (rendering/map meshes, HUD, menus, audio) against the reference —
-     gameplay behaviour is already pinned by the parity goldens, so the view layer is free to
-     diverge where it is purely cosmetic. Every presentation change goes through
-     `tools/presentation-check` (build clean) and, when a new Unity API is touched, through an
-     update to `UnityStubs.cs`.
+  4. Rebuild presentation (rendering/map meshes, HUD, menus, audio playback) against the
+     reference — gameplay behaviour is already pinned by the parity goldens, so the view layer is
+     free to diverge where it is purely cosmetic. Audio synthesis is already ported and
+     byte-verified (`Sim/Audio/`), so this is wrapping the generated WAV bytes in
+     `AudioClip.Create` + `AudioSource` voices and porting `AudioMix` routing. Every presentation
+     change goes through `tools/presentation-check` (build clean) and, when a new Unity API is
+     touched, through an update to `UnityStubs.cs`.
 - **`tools/editmode-check` is the same idea for the test assembly** — `UnityTestStubs.cs` models
   only `NUnit.Framework` (`[Test]`, `Assert.Fail`, `TestContext.Progress`) and
   `UnityEngine.Application.dataPath`, so extending the edit-mode tests with new NUnit or Unity

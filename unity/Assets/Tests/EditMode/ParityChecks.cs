@@ -2,6 +2,9 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Numerics;
+using System.Security.Cryptography;
+using System.Text;
+using HoodGlobalOffensive.Audio;
 using HoodGlobalOffensive.Combat;
 using HoodGlobalOffensive.Core;
 using HoodGlobalOffensive.Entities;
@@ -47,6 +50,21 @@ namespace HoodGlobalOffensive.Parity
             _current = report;
             RunSimChecksCore();
             RunHeadlessChecksCore(loadGolden);
+            CheckAudio(loadGolden);
+            return report;
+        }
+
+        /// <summary>
+        /// Regenerates every procedural cue through the ported <see cref="AudioCatalog"/> and
+        /// compares a SHA-256 of the resulting WAV bytes against captures of the raylib
+        /// reference's <c>--sfx-dump</c>. Proves the engine-free audio port is byte-identical to
+        /// the shipping reference, independent of any Unity audio device.
+        /// </summary>
+        public static ParityReport RunAudioChecks(Func<string, string> loadGolden)
+        {
+            var report = new ParityReport();
+            _current = report;
+            CheckAudio(loadGolden);
             return report;
         }
 
@@ -594,6 +612,80 @@ namespace HoodGlobalOffensive.Parity
 
             while (lines.Count > 0 && lines[lines.Count - 1].Length == 0) lines.RemoveAt(lines.Count - 1);
             return string.Join("\n", lines) + "\n";
+        }
+
+        // ---------------------------------------------------------------- audio
+
+        /// <summary>
+        /// Hash-compares every generated cue against reference <c>--sfx-dump</c> captures. The
+        /// golden manifest is one <c>name sha256</c> line per file (blank lines and <c>#</c>
+        /// comments are ignored), so the gate never depends on file order.
+        /// </summary>
+        private static void CheckAudio(Func<string, string> loadGolden)
+        {
+            var expected = new Dictionary<string, string>(StringComparer.Ordinal);
+            try
+            {
+                string text = loadGolden("audio-hashes.txt").Replace("\r\n", "\n");
+                foreach (string raw in text.Split('\n'))
+                {
+                    string line = raw.Trim();
+                    if (line.Length == 0 || line[0] == '#') continue;
+                    int space = line.IndexOf(' ');
+                    if (space <= 0) continue;
+                    expected[line.Substring(0, space)] = line.Substring(space + 1).Trim();
+                }
+
+                if (expected.Count == 0)
+                {
+                    Fail("audio goldens empty (audio-hashes.txt)");
+                    return;
+                }
+            }
+            catch (Exception ex)
+            {
+                Fail($"audio goldens unavailable (audio-hashes.txt): {ex.Message}");
+                return;
+            }
+
+            List<(string Name, byte[] Wav)> cues = AudioCatalog.Cues();
+            int failuresBefore = _current.Failures;
+
+            if (cues.Count != expected.Count)
+            {
+                Fail($"audio cue count: generated {cues.Count}, golden {expected.Count}");
+            }
+
+            foreach ((string name, byte[] wav) in cues)
+            {
+                if (!expected.TryGetValue(name, out string? want) || want.Length == 0)
+                {
+                    Fail($"audio cue {name}: missing from goldens");
+                    continue;
+                }
+
+                string got = Sha256Hex(wav);
+                if (!string.Equals(got, want, StringComparison.Ordinal))
+                {
+                    Fail($"audio cue {name}: sha256 {got}, want {want}");
+                }
+            }
+
+            if (_current.Failures == failuresBefore && cues.Count == expected.Count)
+            {
+                Note($"ok    audio {cues.Count} cues byte-match reference --sfx-dump");
+            }
+        }
+
+        private static string Sha256Hex(byte[] data)
+        {
+            using (SHA256 sha = SHA256.Create())
+            {
+                byte[] hash = sha.ComputeHash(data);
+                var sb = new StringBuilder(hash.Length * 2);
+                foreach (byte b in hash) sb.Append(b.ToString("x2"));
+                return sb.ToString();
+            }
         }
 
         private sealed class ProbeActor : Actor

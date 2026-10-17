@@ -32,6 +32,12 @@ namespace HoodGlobalOffensive.Parity
             AssertParity(ParityChecks.RunHeadlessReportChecks(LoadGolden));
         }
 
+        [Test]
+        public void GeneratedAudioCues_MatchReferenceCaptures()
+        {
+            AssertParity(ParityChecks.RunAudioChecks(LoadGolden));
+        }
+
         private static void AssertParity(ParityChecks.ParityReport report)
         {
             if (report.Failures == 0)
