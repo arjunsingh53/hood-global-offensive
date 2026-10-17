@@ -96,6 +96,7 @@ namespace HoodGlobalOffensive.Parity
             CheckWeapons();
             CheckFalloff();
             CheckMaps();
+            CheckAudioMix();
             CheckMover();
             CheckHitscanTrace();
             CheckNavGraph();
@@ -330,6 +331,105 @@ namespace HoodGlobalOffensive.Parity
             CheckText("map normalize unknown", MapRegistry.Normalize("nope"), "Industrial");
             CheckText("map normalize case", MapRegistry.Normalize("arena"), "Arena");
             _ = ap;
+        }
+
+        /// <summary>
+        /// Golden values captured from the raylib reference's <c>AudioMix.Resolve</c> (main @
+        /// 6a6fbdd). The battery covers local-scope bypass, the distance/pan boundaries at 1,
+        /// 1000 and 2600 units, trauma ducking, and real occlusion against the Arena collision
+        /// sidecar. Regenerate from the reference if mix rules change, never by editing values.
+        /// </summary>
+        private static void CheckAudioMix()
+        {
+            var origin = new Vector3(0f, 0f, 0f);
+            var arena = new GameMap("Arena");
+
+            CheckPlayback("mix local bypass",
+                AudioMix.Resolve(MixEvent(new Vector3(900f, 300f, -700f), 0.8f, SoundEventScope.Local),
+                    origin, 0f, null, 1f),
+                1.2800001f, 0.5f, 0f, SoundSpectrumProfile.FullRange, false);
+
+            CheckPlayback("mix dist0",
+                AudioMix.Resolve(MixEvent(origin, 1f), origin, 0f, null, 0f),
+                1.6f, 0.5f, 0f, SoundSpectrumProfile.FullRange, false);
+            CheckPlayback("mix dist1",
+                AudioMix.Resolve(MixEvent(new Vector3(1f, 0f, 0f), 1f), origin, 0f, null, 0f),
+                1.6f, 0.5f, 1f, SoundSpectrumProfile.FullRange, false);
+            CheckPlayback("mix dist2",
+                AudioMix.Resolve(MixEvent(new Vector3(2f, 0f, 0f), 1f), origin, 0f, null, 0f),
+                1.5975393f, 0.91999996f, 2f, SoundSpectrumProfile.FullRange, false);
+
+            CheckPlayback("mix pan right 100",
+                AudioMix.Resolve(MixEvent(new Vector3(100f, 0f, 0f), 1f), origin, 0f, null, 0f),
+                1.4792899f, 0.91999996f, 100f, SoundSpectrumProfile.FullRange, false);
+            CheckPlayback("mix pan left 100",
+                AudioMix.Resolve(MixEvent(new Vector3(-100f, 0f, 0f), 1f), origin, 0f, null, 0f),
+                1.4792899f, 0.08000001f, 100f, SoundSpectrumProfile.FullRange, false);
+            CheckPlayback("mix pan behind 100",
+                AudioMix.Resolve(MixEvent(new Vector3(0f, 0f, 100f), 1f), origin, 0f, null, 0f),
+                1.4792899f, 0.5f, 100f, SoundSpectrumProfile.FullRange, false);
+            CheckPlayback("mix pan yaw90 100",
+                AudioMix.Resolve(MixEvent(new Vector3(0f, 0f, -100f), 1f), origin, 90f, null, 0f),
+                1.4792899f, 0.91999996f, 100f, SoundSpectrumProfile.FullRange, false);
+            CheckPlayback("mix vertical 500",
+                AudioMix.Resolve(MixEvent(new Vector3(0f, 500f, 0f), 1f), origin, 0f, null, 0f),
+                1.0437869f, 0.5f, 500f, SoundSpectrumProfile.FullRange, false);
+
+            CheckPlayback("mix dist 999",
+                AudioMix.Resolve(MixEvent(new Vector3(999f, 0f, 0f), 1f), origin, 0f, null, 0f),
+                0.60667485f, 0.91999996f, 999f, SoundSpectrumProfile.FullRange, false);
+            CheckPlayback("mix dist 1000",
+                AudioMix.Resolve(MixEvent(new Vector3(1000f, 0f, 0f), 1f), origin, 0f, null, 0f),
+                0.496852f, 0.82759994f, 1000f, SoundSpectrumProfile.Distant, false);
+            CheckPlayback("mix dist 2000",
+                AudioMix.Resolve(MixEvent(new Vector3(2000f, 0f, 0f), 1f), origin, 0f, null, 0f),
+                0.06986982f, 0.82759994f, 2000f, SoundSpectrumProfile.Distant, false);
+            CheckPlayback("mix dist 2600",
+                AudioMix.Resolve(MixEvent(new Vector3(2600f, 0f, 0f), 1f), origin, 0f, null, 0f),
+                0f, 0.82759994f, 2600f, SoundSpectrumProfile.Distant, false);
+            CheckPlayback("mix dist 3000",
+                AudioMix.Resolve(MixEvent(new Vector3(3000f, 0f, 0f), 1f), origin, 0f, null, 0f),
+                0f, 0.82759994f, 3000f, SoundSpectrumProfile.Distant, false);
+
+            CheckPlayback("mix trauma half",
+                AudioMix.Resolve(MixEvent(new Vector3(100f, 0f, 0f), 1f), origin, 0f, null, 0.5f),
+                1.3017751f, 0.91999996f, 100f, SoundSpectrumProfile.FullRange, false);
+            CheckPlayback("mix trauma 1",
+                AudioMix.Resolve(MixEvent(new Vector3(100f, 0f, 0f), 1f), origin, 0f, null, 1f),
+                1.1242603f, 0.91999996f, 100f, SoundSpectrumProfile.FullRange, false);
+            CheckPlayback("mix trauma over",
+                AudioMix.Resolve(MixEvent(new Vector3(100f, 0f, 0f), 1f), origin, 0f, null, 1.5f),
+                1.1242603f, 0.91999996f, 100f, SoundSpectrumProfile.FullRange, false);
+            CheckPlayback("mix trauma negative",
+                AudioMix.Resolve(MixEvent(new Vector3(100f, 0f, 0f), 1f), origin, 0f, null, -0.5f),
+                1.4792899f, 0.91999996f, 100f, SoundSpectrumProfile.FullRange, false);
+
+            CheckPlayback("mix arena clear 100",
+                AudioMix.Resolve(MixEvent(new Vector3(100f, 300f, 0f), 1f),
+                    new Vector3(0f, 300f, 0f), 0f, arena, 0f),
+                1.4792899f, 0.91999996f, 100f, SoundSpectrumProfile.FullRange, false);
+            CheckPlayback("mix arena occluded",
+                AudioMix.Resolve(MixEvent(new Vector3(800f, 64f, 800f), 1f),
+                    new Vector3(0f, 64f, 0f), 0f, arena, 0f),
+                0.25525108f, 0.67225116f, 1131.3708f, SoundSpectrumProfile.Occluded, true);
+            CheckPlayback("mix arena occluded trauma",
+                AudioMix.Resolve(MixEvent(new Vector3(800f, 64f, 800f), 1f),
+                    new Vector3(0f, 64f, 0f), 0f, arena, 0.5f),
+                0.22462094f, 0.67225116f, 1131.3708f, SoundSpectrumProfile.Occluded, true);
+        }
+
+        private static SoundEvent MixEvent(Vector3 position, float volume,
+            SoundEventScope scope = SoundEventScope.World)
+            => new SoundEvent("rifle_ak", position, volume, 1f, scope);
+
+        private static void CheckPlayback(string label, SoundPlayback p, float volume, float pan,
+            float distance, SoundSpectrumProfile spectrum, bool occluded)
+        {
+            CheckNear($"{label} vol", p.Volume, volume);
+            CheckNear($"{label} pan", p.Pan, pan);
+            CheckNear($"{label} dist", p.Distance, distance);
+            CheckExact($"{label} spectrum", p.Spectrum, spectrum);
+            CheckExact($"{label} occluded", p.Occluded, occluded);
         }
 
         private static void CheckMover()

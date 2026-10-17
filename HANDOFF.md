@@ -17,22 +17,27 @@
 - **`main` = the v0.2.2 work plus follow-up commits:** the README screenshot gallery and main menu
   layout fix with `HANDOFF.md`/`AGENTS.md` (`9e782f9`), the recorded Unity migration plan
   (`6a6fbdd`), the Unity sim port with the golden-value parity harness (`8e670b9`), the
-  handoff-per-task rule (`3ebec29`), the push policy (`a5ebde6`) and the shared parity suite with
-  Unity edit-mode tests. The GitHub release asset for `v0.2.2` was rebuilt in place
-  (`gh release upload --clobber`) so the downloadable exe includes the menu fix. Run
-  `git log --oneline -5` for exact hashes.
+  handoff-per-task rule (`3ebec29`), the push policy (`a5ebde6`), the shared parity suite with
+  Unity edit-mode tests (`affecef`), the sim-to-Unity presentation bridge and its compile gate
+  (`ad97fb2`, `f3d51e8`), the edit-mode compile gate (`14144b3`), the procedural audio synthesis
+  port (`8ebbce1`) and the `AudioMix` routing port. The GitHub release asset for `v0.2.2` was
+  rebuilt in place (`gh release upload --clobber`) so the downloadable exe includes the menu fix.
+  Run `git log --oneline -5` for exact hashes.
 - **Verified state:** `-warnaserror` build clean; both headless CI gates print `RESULT: PASS`;
   the parity harness prints `PARITY: PASS` (including byte-exact replays of both gates through the
-  ported runner, and all 47 synthesised cues byte-matching the reference `--sfx-dump` by
-  SHA-256); the presentation compile gate (`tools/presentation-check`) builds clean; the
-  single-file exe was re-verified from a clean directory.
-- **Push policy:** `origin/main` is synced with `main`. The migration sync push (2026-10-16, at
-  team request, so the other machine could pull the sim port and the edit-mode tests) brought
-  GitHub up through `affecef` (the shared parity suite); see `git log --oneline -6`. Pre-push
-  gate for future work: `-warnaserror` build clean, both CI gates `RESULT: PASS`, `tools/parity`
+  ported runner, all 47 synthesised cues byte-matching the reference `--sfx-dump` by SHA-256, and
+  21 reference-captured `AudioMix` routing goldens — local-scope bypass, distance/pan boundaries,
+  trauma ducking, Arena occlusion rays); the presentation compile gate
+  (`tools/presentation-check`) builds clean; the single-file exe was re-verified from a clean
+  directory.
+- **Push policy:** `origin/main` is synced with `main` through `acd6652` ("Record the migration
+  sync push in the handoff", 2026-10-16, at team request so the other machine could pull the sim
+  port and the edit-mode tests). The follow-up migration commits (presentation bridge and its
+  compile gate, edit-mode gate, audio synthesis port, `AudioMix` routing port) are **local only —
+  5 commits ahead of `origin/main`** — keep them local until the team asks for another push.
+  Pre-push gate for future work: `-warnaserror` build clean, both CI gates `RESULT: PASS`, `tools/parity`
   `PARITY: PASS`, `tools/presentation-check` build clean, and `tools/editmode-check` build clean.
-  After a push, update this bullet
-  with the new sync point.
+  After a push, update this bullet with the new sync point.
 - **Unity migration (in progress — phase 1 committed `8e670b9`):** the deterministic simulation
   is ported into `unity/` and byte-verified against this repo by `tools/parity`. See "Migration
   state" below. The raylib build (`main`) remains the reference implementation and stays healthy.
@@ -118,8 +123,18 @@ behaviour questions.
   is enforced by the shared suite against `tools/parity/goldens/audio-hashes.txt` (one SHA-256
   per cue, captured from the reference dump; regenerate only from a reference `--sfx-dump` run
   when a cue's recipe changes deliberately). **Not ported:** playback/output — wrapping these
-  PCM buffers in Unity `AudioClip`s / `AudioSource` voices needs the editor — and the `AudioMix`
-  routing math (`src/Audio/AudioMix.cs`).
+  PCM buffers in Unity `AudioClip`s / `AudioSource` voices needs the editor.
+- **AudioMix routing ported (engine-free):** `unity/Assets/Scripts/Sim/Audio/AudioMix.cs` is the
+  mechanical port of `src/Audio/AudioMix.cs` (namespace `HoodGlobalOffensive.Audio`):
+  `SoundSpectrumProfile` (FullRange/Distant/Occluded), the `SoundPlayback` result struct, the
+  static `Resolve` (local-scope bypass; distance attenuation to `MaxAudibleDistance` 2600;
+  listener-space pan via `RightFromYaw`; Distant gain 0.82, Occluded 0.50 with narrowed pan,
+  both with clamped pan lerps) and `IsOccluded` (segment ray against the map's `RayHit` with a
+  0.75-unit endpoint tolerance, never self-occluding), plus critical-health trauma ducking via
+  `Cfg.LowHealthWorldSoundFloor`. Verified by 21 reference-captured routing goldens in the
+  shared suite (`CheckAudioMix` in `ParityChecks.cs` — 5 assertions per case), so `tools/parity`
+  and the Unity edit-mode tests both cover it; the negative test (tamper one golden) printed the
+  exact mismatch and `PARITY: FAIL (1 mismatches)`, then was reverted.
 - **Shared suite + Unity edit-mode gate:** the checks live once, in
   `unity/Assets/Tests/EditMode/ParityChecks.cs` — engine- and framework-free, collecting result
   lines into a `ParityReport`. `tools/parity/Program.cs` is a thin console wrapper over it, and
@@ -147,21 +162,23 @@ behaviour questions.
   view looks inverted. The bridge is now **compile-verified editor-free** by
   `tools/presentation-check` (a clean `-warnaserror` build there proves `MatchDriver.cs` still
   type-checks against `HGO.Sim`'s public API through a stub engine — it does not run the bridge).
-  **Not yet ported:** rendering/map meshes, HUD/menus, settings, audio playback (synthesis is
-  done — see the audio bullet above), screenshot tooling, bot view prefabs. The Unity project
-  itself is a skeleton: editor version
+  **Not yet ported:** rendering/map meshes, HUD/menus, settings, audio playback (synthesis and
+  routing are done — see the audio bullet above), screenshot tooling, bot view prefabs. The
+  Unity project itself is a skeleton: editor version
   `6000.3.26f1` (`unity/ProjectSettings/ProjectVersion.txt`), a minimal package manifest (test
   framework + uGUI), the `HGO.Sim` asmdef and the new `HGO.Presentation` asmdef. **No Unity
   editor pass has been run yet** — opening the project in Unity 6.3 and running the edit-mode
   parity tests (already authored, see above) is the next milestone.
   **Gates verified on this box (2026-10-17):** once SDK 10.0.402 was installed user-locally, all
   gates passed locally — `dotnet build --nologo -warnaserror` (0 warn/0 err), both CI gates
-  `RESULT: PASS`, and `tools/parity` `PARITY: PASS` (Unity port byte-matches the raylib
+  `RESULT: PASS`, `tools/parity` `PARITY: PASS` (Unity port byte-matches the raylib
   reference goldens on both runs; the `unknown map 'nope'` line it prints is the harness's
-  fallback-map test, not an error). The audio check is part of `tools/parity` and prints
-  `ok audio 47 cues byte-match reference --sfx-dump`; its negative test (tamper one golden
-  hash) was run and correctly failed. The remaining unverified gate is Unity's Test Runner —
-  editor only.
+  fallback-map test, not an error), and `tools/presentation-check` / `tools/editmode-check`
+  print `PRESENTATION: PASS` / `EDITMODE: PASS`. The audio checks are part of `tools/parity`:
+  synthesis prints `ok audio 47 cues byte-match reference --sfx-dump`, and the `AudioMix`
+  routing battery (21 reference-captured cases) runs silently on success; both went through
+  negative tests (tamper one golden hash / one routing golden) and correctly failed. The
+  remaining unverified gate is Unity's Test Runner — editor only.
 
 ## How to work on this repository
 
@@ -303,7 +320,7 @@ the next session knows whether GitHub is current.
 | Menus (see the row-pitch note above) | `src/UI/Screens.cs` |
 | Rig converter | `tools/build_animated_viewmodels.py` |
 | Unity sim port (mirrors `src/`, engine-free) | `unity/Assets/Scripts/Sim/` |
-| Unity audio synthesis port + cue manifest (engine-free) | `unity/Assets/Scripts/Sim/Audio/` (`WavGen.cs`, `AudioCatalog.cs`) |
+| Unity audio synthesis + mix routing port, cue manifest (engine-free) | `unity/Assets/Scripts/Sim/Audio/` (`WavGen.cs`, `AudioCatalog.cs`, `AudioMix.cs`) |
 | Sim→Unity bridge: fixed-tick `Simulation.Update`, `InputFrame` adapter, body/camera sync | `unity/Assets/Scripts/Presentation/MatchDriver.cs` + `HGO.Presentation.asmdef` |
 | Parity suite (shared) + Unity edit-mode tests | `unity/Assets/Tests/EditMode/` (`ParityChecks.cs`, `ParityTests.cs`, `HGO.Sim.Tests.asmdef`) |
 | Parity console harness + golden reports | `tools/parity/` (`Parity.csproj`, thin `Program.cs`, `goldens/`) |
@@ -359,11 +376,11 @@ the next session knows whether GitHub is current.
      `LookGain` so mouse counts match the raylib feel (Unity default axes are not 1:1 counts).
   4. Rebuild presentation (rendering/map meshes, HUD, menus, audio playback) against the
      reference — gameplay behaviour is already pinned by the parity goldens, so the view layer is
-     free to diverge where it is purely cosmetic. Audio synthesis is already ported and
-     byte-verified (`Sim/Audio/`), so this is wrapping the generated WAV bytes in
-     `AudioClip.Create` + `AudioSource` voices and porting `AudioMix` routing. Every presentation
-     change goes through `tools/presentation-check` (build clean) and, when a new Unity API is
-     touched, through an update to `UnityStubs.cs`.
+     free to diverge where it is purely cosmetic. Audio synthesis and `AudioMix` routing are
+     already ported and verified (`Sim/Audio/`), so this is wrapping the generated WAV bytes in
+     `AudioClip.Create` + `AudioSource` voices and feeding routed events through
+     `AudioMix.Resolve`. Every presentation change goes through `tools/presentation-check`
+     (build clean) and, when a new Unity API is touched, through an update to `UnityStubs.cs`.
 - **`tools/editmode-check` is the same idea for the test assembly** — `UnityTestStubs.cs` models
   only `NUnit.Framework` (`[Test]`, `Assert.Fail`, `TestContext.Progress`) and
   `UnityEngine.Application.dataPath`, so extending the edit-mode tests with new NUnit or Unity
