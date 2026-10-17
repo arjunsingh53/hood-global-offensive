@@ -46,7 +46,7 @@ namespace HoodGlobalOffensive.Presentation
         Text _timer;
         Text _matchResult;
         Text _score;
-        Text _crosshair;
+        CrosshairGraphic _crosshair;
         Text _hitmarker;
         Text _deathNotice;
         Image _damageOverlay;
@@ -59,6 +59,13 @@ namespace HoodGlobalOffensive.Presentation
         readonly List<Text> _damageShadows = new();
         readonly List<Text> _damageLabels = new();
         int _damageShown;
+
+        /// <summary>
+        /// The active reticle profile. <see cref="MenuSync"/> owns persistence and pushes
+        /// its loaded instance here (same object, so edits show live); without a menu the
+        /// HUD keeps the default Classic profile.
+        /// </summary>
+        public CrosshairSettings Crosshair { get; set; } = new CrosshairSettings();
 
         void Awake()
         {
@@ -181,8 +188,35 @@ namespace HoodGlobalOffensive.Presentation
                 _deathNotice.text = $"RESPAWNING IN {MathF.Max(0f, p.RespawnAt - sim.Time):0.0}s";
             }
 
+            // Crosshair -----------------------------------------------------
+            SyncCrosshair(p, def);
+
             // Floating damage numbers --------------------------------------
             SyncDamageNumbers(sim);
+        }
+
+        /// <summary>
+        /// The settings-driven reticle (reference <c>Hud.DrawCrosshair</c>): dynamic gap
+        /// follows the weapon's spread projected through the camera's vertical FOV so the
+        /// reticle stays an honest pixel representation of the shot cone; the reference's
+        /// suppression rule hides it behind a real scope / calibrated sight picture, and
+        /// it only draws while alive.
+        /// </summary>
+        void SyncCrosshair(Player p, WeaponDef def)
+        {
+            bool suppressed = p.ZoomBlend > 0.75f && (def.HasScope || def.HasCalibratedIronSights);
+            bool visible = p.Alive && !suppressed;
+            _crosshair.Root.gameObject.SetActive(visible);
+            if (!visible) return;
+
+            // The canvas is 1080 units tall, matching the reference's 1080p screen
+            // height in the projection formula.
+            float spread = p.Current.SpreadFor(p.HorizontalSpeed, p.OnGround, p.Crouching, p.ZoomBlend);
+            Camera? cam = PlayerCamera();
+            float fovY = cam != null ? cam.fieldOfView : p.CurrentFov;
+            float pixelsPerRadian = 540f / MathF.Tan(fovY * 0.5f * MathF.PI / 180f);
+            float spreadPixels = MathF.Tan(spread * MathF.PI / 180f) * pixelsPerRadian;
+            _crosshair.Update(Crosshair, spreadPixels, 1f, 1080f * 0.32f);
         }
 
         /// <summary>
@@ -197,13 +231,10 @@ namespace HoodGlobalOffensive.Presentation
         void SyncDamageNumbers(Simulation sim)
         {
             if (_canvasRoot == null) return;
-            if (_camera == null && _driver != null && _driver.PlayerCamera != null)
-            {
-                _camera = _driver.PlayerCamera.GetComponent<Camera>();
-            }
+            Camera? cam = PlayerCamera();
 
             int shown = 0;
-            if (_camera != null)
+            if (cam != null)
             {
                 // Reference cull margin: 40 pixels outside the 1920×1080 frame.
                 const float padX = 40f / 1920f;
@@ -211,7 +242,7 @@ namespace HoodGlobalOffensive.Presentation
 
                 foreach (FloatingDamage d in sim.DamageNumbers)
                 {
-                    Vector3 viewport = _camera.WorldToViewportPoint(MatchDriver.ToUnity(d.Position));
+                    Vector3 viewport = cam.WorldToViewportPoint(MatchDriver.ToUnity(d.Position));
                     if (viewport.z <= 0f) continue; // behind the camera
                     if (viewport.x < -padX || viewport.x > 1f + padX ||
                         viewport.y < -padY || viewport.y > 1f + padY) continue;
@@ -258,6 +289,15 @@ namespace HoodGlobalOffensive.Presentation
                 pool.Add(text);
             }
             return pool[index];
+        }
+
+        Camera? PlayerCamera()
+        {
+            if (_camera == null && _driver != null && _driver.PlayerCamera != null)
+            {
+                _camera = _driver.PlayerCamera.GetComponent<Camera>();
+            }
+            return _camera;
         }
 
         static string FormatClock(float seconds)
@@ -323,10 +363,7 @@ namespace HoodGlobalOffensive.Presentation
             }
 
             // Crosshair + hitmarker (centre) ---------------------------------
-            _crosshair = MakeText(root, "Crosshair", AnchorCenter,
-                Vector2.zero, new Vector2(48f, 56f), 30, TextAnchor.MiddleCenter,
-                new Color(1f, 1f, 1f, 0.85f));
-            _crosshair.text = "+";
+            _crosshair = CrosshairGraphic.Create(root, "Crosshair");
             _hitmarker = MakeText(root, "Hitmarker", AnchorCenter,
                 Vector2.zero, new Vector2(48f, 56f), 34, TextAnchor.MiddleCenter, Ink);
             _hitmarker.text = "×";

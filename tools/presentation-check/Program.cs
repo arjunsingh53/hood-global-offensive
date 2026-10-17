@@ -22,6 +22,8 @@ namespace HoodGlobalOffensive.PresentationCheck
             Type hud = typeof(HudSync);
             Type menu = typeof(MenuSync);
             Type effects = typeof(EffectsSync);
+            Type crosshairSettings = typeof(CrosshairSettings);
+            Type crosshairGraphic = typeof(CrosshairGraphic);
             Console.WriteLine($"MatchDriver type resolved: {driver.FullName}");
             Console.WriteLine($"SimAudioPlayer type resolved: {audio.FullName}");
             Console.WriteLine($"MapBlockout type resolved: {map.FullName}");
@@ -30,6 +32,8 @@ namespace HoodGlobalOffensive.PresentationCheck
             Console.WriteLine($"HudSync type resolved: {hud.FullName}");
             Console.WriteLine($"MenuSync type resolved: {menu.FullName}");
             Console.WriteLine($"EffectsSync type resolved: {effects.FullName}");
+            Console.WriteLine($"CrosshairSettings type resolved: {crosshairSettings.FullName}");
+            Console.WriteLine($"CrosshairGraphic type resolved: {crosshairGraphic.FullName}");
             Console.WriteLine("---------------------------------");
             Console.WriteLine("PRESENTATION: PASS");
             return 0;

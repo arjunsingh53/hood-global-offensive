@@ -21,10 +21,18 @@ namespace HoodGlobalOffensive.Presentation
     /// </summary>
     public sealed class MenuSync : MonoBehaviour
     {
-        enum Screen { Main, Playing, Paused, Settings, MatchOver }
+        enum Screen { Main, Playing, Paused, Settings, Crosshair, MatchOver }
 
         const string SensitivityKey = "HGO.LookSensitivity";
         const string InvertYKey = "HGO.InvertLookY";
+        const string CrosshairPresetKey = "HGO.Crosshair.Preset";
+        const string CrosshairColorKey = "HGO.Crosshair.Color";
+        const string CrosshairStyleKey = "HGO.Crosshair.Style";
+        const string CrosshairDynamicKey = "HGO.Crosshair.DynamicGap";
+        const string CrosshairDotKey = "HGO.Crosshair.CentreDot";
+        const string CrosshairGapKey = "HGO.Crosshair.BaseGap";
+        const string CrosshairLengthKey = "HGO.Crosshair.ArmLength";
+        const string CrosshairThicknessKey = "HGO.Crosshair.Thickness";
         const float MinSensitivity = 0.2f;
         const float MaxSensitivity = 3.0f;
         const float SensitivityStep = 0.1f;
@@ -33,12 +41,17 @@ namespace HoodGlobalOffensive.Presentation
         static readonly Color Ink = new Color(0.93f, 0.95f, 0.96f);
         static readonly Color Dim = new Color(0.55f, 0.58f, 0.60f);
         static readonly Color Gold = new Color(0.94f, 0.78f, 0.35f);
+        static readonly Color PreviewBackdrop = new Color(0.02f, 0.03f, 0.045f, 0.92f);
 
-        readonly string[] _rows = new string[6];
+        readonly string[] _rows = new string[9];
+        readonly CrosshairSettings _crosshair = new();
 
         MatchDriver? _driver;
+        HudSync? _hud;
         Font? _font;
         GameObject? _panel;
+        GameObject? _previewPanel;
+        CrosshairGraphic? _previewCrosshair;
         Text _title;
         Text _subtitle;
         Text _hint;
@@ -46,6 +59,7 @@ namespace HoodGlobalOffensive.Presentation
 
         Screen _screen = Screen.Main;
         Screen _settingsReturn = Screen.Main;
+        Screen _crosshairReturn = Screen.Main;
         int _selected;
 
         float _sensitivity = 1f;
@@ -63,6 +77,7 @@ namespace HoodGlobalOffensive.Presentation
 
             _sensitivity = PlayerPrefs.GetFloat(SensitivityKey, 1f);
             _invertY = PlayerPrefs.GetInt(InvertYKey, 0) != 0;
+            LoadCrosshair();
             ApplySettings();
         }
 
@@ -70,11 +85,15 @@ namespace HoodGlobalOffensive.Presentation
         {
             if (_driver == null) return;
 
+            _hud = GetComponent<HudSync>();
+
             _font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
             if (_font == null) _font = Font.CreateDynamicFontFromOSFont("Arial", 24);
             if (_font == null) Debug.LogWarning("MenuSync: no usable font; menu text will not draw.");
 
             BuildPanel();
+            // The HUD draws the same profile instance, so edits show live.
+            if (_hud != null) _hud.Crosshair = _crosshair;
             SetScreen(Screen.Main);
         }
 
@@ -98,6 +117,7 @@ namespace HoodGlobalOffensive.Presentation
 
             if (esc)
             {
+                if (_screen == Screen.Crosshair) { SetScreen(_crosshairReturn); return; }
                 if (_screen == Screen.Settings) { SetScreen(_settingsReturn); return; }
                 if (_screen == Screen.Paused) { SetScreen(Screen.Playing); return; }
                 if (_screen == Screen.MatchOver) { SetScreen(Screen.Main); return; }
@@ -116,6 +136,16 @@ namespace HoodGlobalOffensive.Presentation
                 if (left) AdjustSensitivity(-1);
                 if (right) AdjustSensitivity(1);
             }
+            else if (_screen == Screen.Crosshair)
+            {
+                AdjustCrosshair(left ? -1 : right ? 1 : 0);
+                if (_previewCrosshair != null)
+                {
+                    // Reference preview: scale 1.75 and a fixed 5 px spread so the
+                    // dynamic-gap setting is visible at a glance.
+                    _previewCrosshair.Update(_crosshair, _crosshair.DynamicGap ? 5f : 0f, 1.75f);
+                }
+            }
 
             if (enter) Activate();
             RefreshRows();
@@ -127,10 +157,11 @@ namespace HoodGlobalOffensive.Presentation
         {
             switch (_screen)
             {
-                case Screen.Main: return 3;
-                case Screen.Paused: return 4;
+                case Screen.Main: return 4;
+                case Screen.Paused: return 5;
                 case Screen.MatchOver: return 2;
                 case Screen.Settings: return 3;
+                case Screen.Crosshair: return 9;
                 default: return 0;
             }
         }
@@ -141,13 +172,15 @@ namespace HoodGlobalOffensive.Presentation
             {
                 case Screen.Main:
                     if (_selected == 0) BeginPlay();
-                    else if (_selected == 1) OpenSettings(Screen.Main);
+                    else if (_selected == 1) OpenCrosshair(Screen.Main);
+                    else if (_selected == 2) OpenSettings(Screen.Main);
                     else Quit();
                     break;
                 case Screen.Paused:
                     if (_selected == 0) SetScreen(Screen.Playing);
-                    else if (_selected == 1) OpenSettings(Screen.Paused);
-                    else if (_selected == 2) BeginPlay();
+                    else if (_selected == 1) OpenCrosshair(Screen.Paused);
+                    else if (_selected == 2) OpenSettings(Screen.Paused);
+                    else if (_selected == 3) BeginPlay();
                     else Quit();
                     break;
                 case Screen.MatchOver:
@@ -158,6 +191,10 @@ namespace HoodGlobalOffensive.Presentation
                     if (_selected == 1) ToggleInvert();
                     else if (_selected == 2) SetScreen(_settingsReturn);
                     // Row 0 (sensitivity) is adjusted with Left/Right; Enter is a no-op.
+                    break;
+                case Screen.Crosshair:
+                    if (_selected == 7) { _crosshair.Reset(); SaveCrosshair(); }
+                    else if (_selected == 8) SetScreen(_crosshairReturn);
                     break;
             }
         }
@@ -175,6 +212,12 @@ namespace HoodGlobalOffensive.Presentation
             SetScreen(Screen.Settings);
         }
 
+        void OpenCrosshair(Screen from)
+        {
+            _crosshairReturn = from;
+            SetScreen(Screen.Crosshair);
+        }
+
         void SetScreen(Screen screen)
         {
             _screen = screen;
@@ -185,6 +228,7 @@ namespace HoodGlobalOffensive.Presentation
             Cursor.lockState = playing ? CursorLockMode.Locked : CursorLockMode.None;
             Time.timeScale = playing ? 1f : 0f;
             if (_panel != null) _panel.SetActive(!playing);
+            if (_previewPanel != null) _previewPanel.SetActive(screen == Screen.Crosshair);
 
             RefreshRows();
         }
@@ -225,6 +269,71 @@ namespace HoodGlobalOffensive.Presentation
             _driver.InvertLookY = _invertY;
         }
 
+        // ----------------------------------------------------------------- crosshair
+
+        /// <summary>
+        /// Restores the reticle profile from PlayerPrefs with the reference's bounded
+        /// restore rules (unknown enum values fall back, sizes clamp, and a stored
+        /// preset survives only if every value still matches it). Missing keys use the
+        /// Classic profile's values, so a fresh install restores Classic exactly.
+        /// </summary>
+        void LoadCrosshair()
+        {
+            int presetValue = PlayerPrefs.GetInt(CrosshairPresetKey, (int)CrosshairPreset.Classic);
+            CrosshairPreset? preset = Enum.IsDefined(typeof(CrosshairPreset), presetValue)
+                ? (CrosshairPreset)presetValue
+                : null;
+            int colorValue = PlayerPrefs.GetInt(CrosshairColorKey, (int)CrosshairColorOption.Green);
+            CrosshairColorOption color = Enum.IsDefined(typeof(CrosshairColorOption), colorValue)
+                ? (CrosshairColorOption)colorValue
+                : CrosshairColorOption.Green;
+            int styleValue = PlayerPrefs.GetInt(CrosshairStyleKey, (int)CrosshairStyle.Cross);
+            CrosshairStyle style = Enum.IsDefined(typeof(CrosshairStyle), styleValue)
+                ? (CrosshairStyle)styleValue
+                : CrosshairStyle.Cross;
+
+            _crosshair.Restore(new CrosshairPreference(
+                preset,
+                color,
+                style,
+                PlayerPrefs.GetInt(CrosshairDynamicKey, 1) != 0,
+                PlayerPrefs.GetInt(CrosshairDotKey, 1) != 0,
+                PlayerPrefs.GetInt(CrosshairGapKey, 4),
+                PlayerPrefs.GetInt(CrosshairLengthKey, 7),
+                PlayerPrefs.GetInt(CrosshairThicknessKey, 1)));
+        }
+
+        void SaveCrosshair()
+        {
+            CrosshairPreference c = _crosshair.CapturePreference();
+            PlayerPrefs.SetInt(CrosshairPresetKey, c.Preset is CrosshairPreset preset ? (int)preset : -1);
+            PlayerPrefs.SetInt(CrosshairColorKey, (int)c.Color);
+            PlayerPrefs.SetInt(CrosshairStyleKey, (int)c.Style);
+            PlayerPrefs.SetInt(CrosshairDynamicKey, c.DynamicGap ? 1 : 0);
+            PlayerPrefs.SetInt(CrosshairDotKey, c.CentreDot ? 1 : 0);
+            PlayerPrefs.SetInt(CrosshairGapKey, c.BaseGap);
+            PlayerPrefs.SetInt(CrosshairLengthKey, c.ArmLength);
+            PlayerPrefs.SetInt(CrosshairThicknessKey, c.Thickness);
+            PlayerPrefs.Save();
+        }
+
+        void AdjustCrosshair(int axis)
+        {
+            if (axis == 0) return;
+            switch (_selected)
+            {
+                case 0: _crosshair.CyclePreset(axis); break;
+                case 1: _crosshair.CycleColor(axis); break;
+                case 2: _crosshair.ToggleDynamicGap(); break;
+                case 3: _crosshair.ToggleCentreDot(); break;
+                case 4: _crosshair.AdjustGap(axis); break;
+                case 5: _crosshair.AdjustLength(axis); break;
+                case 6: _crosshair.AdjustThickness(axis); break;
+                default: return;
+            }
+            SaveCrosshair();
+        }
+
         // --------------------------------------------------------------------- draw
 
         void RefreshRows()
@@ -234,17 +343,25 @@ namespace HoodGlobalOffensive.Presentation
                 case Screen.Main:
                     _title.text = "HOODMATCH";
                     _subtitle.text = "FIRST-PERSON BLOCKOUT";
-                    _rows[0] = "PLAY"; _rows[1] = "SETTINGS"; _rows[2] = "QUIT";
+                    _rows[0] = "PLAY";
+                    _rows[1] = $"CROSSHAIR OPTIONS   {_crosshair.PresetLabel}";
+                    _rows[2] = "SETTINGS";
+                    _rows[3] = "QUIT";
                     break;
                 case Screen.Paused:
                     _title.text = "PAUSED";
                     _subtitle.text = "";
-                    _rows[0] = "RESUME"; _rows[1] = "SETTINGS"; _rows[2] = "RESTART"; _rows[3] = "QUIT";
+                    _rows[0] = "RESUME";
+                    _rows[1] = $"CROSSHAIR OPTIONS   {_crosshair.PresetLabel}";
+                    _rows[2] = "SETTINGS";
+                    _rows[3] = "RESTART";
+                    _rows[4] = "QUIT";
                     break;
                 case Screen.MatchOver:
                     _title.text = "MATCH OVER";
                     _subtitle.text = _driver != null && _driver.Sim != null ? _driver.Sim.MatchResult : "";
-                    _rows[0] = "PLAY AGAIN"; _rows[1] = "QUIT";
+                    _rows[0] = "PLAY AGAIN";
+                    _rows[1] = "QUIT";
                     break;
                 case Screen.Settings:
                     _title.text = "SETTINGS";
@@ -253,11 +370,37 @@ namespace HoodGlobalOffensive.Presentation
                     _rows[1] = $"INVERT Y   {(_invertY ? "ON" : "OFF")}";
                     _rows[2] = "BACK";
                     break;
+                case Screen.Crosshair:
+                    _title.text = "CROSSHAIR OPTIONS";
+                    _subtitle.text = "LEFT / RIGHT adjusts the focused setting";
+                    _rows[0] = $"PRESET   {_crosshair.PresetLabel}";
+                    _rows[1] = $"COLOR   {_crosshair.ColorLabel}";
+                    _rows[2] = $"DYNAMIC GAP   {(_crosshair.DynamicGap ? "ON" : "OFF")}";
+                    _rows[3] = $"CENTRE DOT   {(_crosshair.CentreDot ? "ON" : "OFF")}";
+                    _rows[4] = $"BASE GAP   {_crosshair.BaseGap} px";
+                    _rows[5] = $"ARM LENGTH   {_crosshair.ArmLength} px";
+                    _rows[6] = $"THICKNESS   {_crosshair.Thickness} px";
+                    _rows[7] = "RESET DEFAULT";
+                    _rows[8] = "BACK";
+                    break;
                default:
                     break;
             }
 
             if (_rowTexts == null) return;
+
+            // The crosshair screen runs nine tighter rows under the live preview,
+            // so it lifts the title and uses a reduced pitch and font; every other
+            // screen keeps the roomy original layout.
+            bool crosshairScreen = _screen == Screen.Crosshair;
+            _title.rectTransform.anchoredPosition = new Vector2(0f, crosshairScreen ? 300f : 150f);
+            _subtitle.rectTransform.anchoredPosition = new Vector2(0f, crosshairScreen ? 240f : 70f);
+
+            float top = crosshairScreen ? 55f : -10f;
+            float pitch = crosshairScreen ? 42f : 52f;
+            int fontSize = crosshairScreen ? 26 : 34;
+            Vector2 rowSize = new Vector2(900f, crosshairScreen ? 38f : 48f);
+
             int count = RowCount();
             for (int i = 0; i < _rowTexts.Length; i++)
             {
@@ -266,6 +409,9 @@ namespace HoodGlobalOffensive.Presentation
                 if (!used) continue;
                 _rowTexts[i].text = (_selected == i ? "> " : "  ") + _rows[i];
                 _rowTexts[i].color = _selected == i ? Gold : Ink;
+                _rowTexts[i].fontSize = fontSize;
+                _rowTexts[i].rectTransform.anchoredPosition = new Vector2(0f, top - i * pitch);
+                _rowTexts[i].rectTransform.sizeDelta = rowSize;
             }
         }
 
@@ -288,7 +434,13 @@ namespace HoodGlobalOffensive.Presentation
             _hint = MakeText(root, "Hint", new Vector2(0f, -330f), new Vector2(1400f, 30f), 16, Dim);
             _hint.text = "UP / DOWN move     ENTER select     ESC back";
 
-            _rowTexts = new Text[6];
+            Image previewImage = MakeImage(root, "Crosshair Preview",
+                new Vector2(0f, 150f), new Vector2(640f, 110f), PreviewBackdrop);
+            _previewPanel = previewImage.gameObject;
+            _previewCrosshair = CrosshairGraphic.Create(_previewPanel.transform, "Preview Crosshair");
+            _previewPanel.SetActive(false);
+
+            _rowTexts = new Text[9];
             for (int i = 0; i < _rowTexts.Length; i++)
             {
                 _rowTexts[i] = MakeText(root, $"Row {i}",

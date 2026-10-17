@@ -23,7 +23,8 @@
   port (`8ebbce1`), the `AudioMix` routing port, the audio playback bridge
   (`unity/Assets/Scripts/Presentation/SimAudioPlayer.cs`), the first presentation-blockout pass
   (`MapBlockout` etc.), the code-built front end (`MenuSync`), the Unity YAML `.gitattributes`
-  prep, the combat-effects blockout (`EffectsSync`), and the HUD floating damage numbers. The GitHub release asset for `v0.2.2` was
+  prep, the combat-effects blockout (`EffectsSync`), the HUD floating damage numbers, and the
+  crosshair options port (settings profile, live HUD reticle, menu screen). The GitHub release asset for `v0.2.2` was
   rebuilt in place (`gh release upload --clobber`) so the downloadable exe includes the menu fix.
   Run `git log --oneline -5` for exact hashes.
 - **Verified state:** `-warnaserror` build clean; both headless CI gates print `RESULT: PASS`;
@@ -38,8 +39,9 @@
   port and the edit-mode tests). The follow-up migration commits (presentation bridge and its
   compile gate, edit-mode gate, audio synthesis port, `AudioMix` routing port, audio playback
   bridge, first presentation-blockout pass, the code-built front end, the Unity YAML
-  `.gitattributes` prep, combat-effects blockout, the HUD floating damage numbers) are
-  **local only — 11 commits ahead of `origin/main`** — keep them local until the team asks
+  `.gitattributes` prep, combat-effects blockout, the HUD floating damage numbers, the crosshair
+  options port) are
+  **local only — 12 commits ahead of `origin/main`** — keep them local until the team asks
   for another push.
   Pre-push gate for future work: `-warnaserror` build clean, both CI gates `RESULT: PASS`, `tools/parity`
   `PARITY: PASS`, `tools/presentation-check` build clean, and `tools/editmode-check` build clean.
@@ -197,8 +199,9 @@ behaviour questions.
     rotation-sign verification).
   - `HudSync.cs` — code-built uGUI blockout of the reference match HUD: health card
     (value/label/segment fill), ammo card (weapon, mag `00`, reserve `INF`), match timer,
-    score line, kill feed (6 lines, 6.5 s life), centre crosshair, hitmarker (0.12 s life,
-    kill/headshot tint), damage flash + rotating directional arrow, low-health trauma vignette,
+    score line, kill feed (6 lines, 6.5 s life), the settings-driven centre crosshair,
+    hitmarker (0.12 s life, kill/headshot tint), damage flash + rotating directional arrow,
+    low-health trauma vignette,
     respawn notice and the match-result banner. Floating damage numbers are now ported too: the
     sim's player-dealt damage numbers are projected from their world hit point through the
     assigned camera (`WorldToViewportPoint`) and positioned in 1080p canvas units, so the
@@ -206,8 +209,17 @@ behaviour questions.
     amber `!`-suffixed headshot style and its half-alpha drop shadow are kept. Uses
     `UnityEngine.UI` (uGUI is already in the
     package manifest; TextMeshPro is NOT — don't add a TMP HUD here casually).
+    **Crosshair ported:** the reticle is now the ported `CrosshairSettings` profile
+    (`CrosshairSettings.cs` in the presentation folder — model, presets, `CrosshairPreference`,
+    and the uGUI `CrosshairGraphic` blockout of the reference `CrosshairRenderer`). The HUD
+    reticle follows the reference rules exactly: it hides while dead or behind a real scope /
+    calibrated sight picture (`ZoomBlend > 0.75`), and its dynamic gap is the weapon's
+    `SpreadFor(…)` projected through the camera's vertical FOV at 1080p, clamped to 0.32×height.
+    The profile instance is pushed by `MenuSync` (public `HudSync.Crosshair` property, same
+    object so edits show live); without a menu the default Classic profile applies.
   - `MenuSync.cs` — code-built uGUI front end and game-flow owner (main / pause / settings /
-    match-over). It never changes sim rules: leaving the Playing screen disables the
+    crosshair options / match-over). It never changes sim rules: leaving the Playing screen
+    disables the
     `MatchDriver` (stopping the fixed tick), unlocks the cursor and zeroes `Time.timeScale`;
     entering it re-enables the driver, locks the cursor and restores time. `PLAY`/`RESTART`/
     `PLAY AGAIN` call `MatchDriver.Restart()` (fresh `Simulation`, same setup). Also owns the
@@ -215,7 +227,15 @@ behaviour questions.
     `Start` (after every `Awake`), so the main menu wins. Keyboard-driven (Up/Down to move,
     Enter to select, Esc to pause/back, Left/Right to adjust) so it needs no
     `EventSystem`/`Button` wiring. Settings: look sensitivity (`MatchDriver.LookGain`) and
-    invert-Y (`MatchDriver.InvertLookY`), persisted via `PlayerPrefs`.
+    invert-Y (`MatchDriver.InvertLookY`), persisted via `PlayerPrefs`. **Crosshair options
+    screen ported:** reached from main and pause, nine rows (preset / colour / dynamic gap /
+    centre dot / base gap / arm length / thickness / reset / back) with the reference's
+    semantics — presets restore full profiles, any manual tweak flips the label to CUSTOM,
+    bounds match the reference (gap 0–24, length 1–24, thickness 1–5), and a live preview
+    panel shows the reticle at scale 1.75 with a 5 px test spread. Persistence is PlayerPrefs
+    (`HGO.Crosshair.*` keys, -1 preset = custom) with the reference `UserSettingsStore` restore
+    rules: unknown enums fall back, values clamp, and a stored preset survives only if every
+    value still matches it.
   `MatchDriver.SyncView` also now pins `PlayerCamera.fieldOfView` to `Sim.Player.CurrentFov`.
   **Combat-effects blockout ported:** `EffectsSync.cs` pools primitive stand-ins for the sim's
   effect lists, synced in `LateUpdate` (the sim owns every lifetime — it ages and prunes the
@@ -235,10 +255,11 @@ behaviour questions.
   placeholder mesh) to `ViewModelSync`; everything else auto-builds. `MenuSync` is optional —
   without it the driver runs unpaused from frame one with the cursor locked, as before.
   **Not yet ported:** real map meshes and bot meshes (primitive blockouts exist), VFX polish
-  (transparent/additive materials, muzzle flame lobes), screenshot
+  (transparent/additive materials, muzzle flame lobes), camera-feedback weakness levels,
+  the main-menu match setup rows (loadout slots, map, bot count/skill, kill limit), screenshot
   tooling, per-art view-model calibration. The menu stack is a
-  first pass (`MenuSync`): main/pause/settings/match-over are covered; a real options screen
-  (crosshair, audio, keybinds), a map/server picker and a styled reference-matched skin are
+  first pass (`MenuSync`): main/pause/settings/crosshair-options/match-over are covered; an
+  audio/keybind options pass, a match-setup picker and a styled reference-matched skin are
   still blockout quality. The
   Unity project itself is a skeleton: editor version
   `6000.3.26f1` (`unity/ProjectSettings/ProjectVersion.txt`), a minimal package manifest (test
@@ -400,7 +421,7 @@ the next session knows whether GitHub is current.
 | Unity audio synthesis + mix routing port, cue manifest (engine-free) | `unity/Assets/Scripts/Sim/Audio/` (`WavGen.cs`, `AudioCatalog.cs`, `AudioMix.cs`) |
 | Sim→Unity bridge: fixed-tick `Simulation.Update`, `InputFrame` adapter, body/camera sync | `unity/Assets/Scripts/Presentation/MatchDriver.cs` + `HGO.Presentation.asmdef` |
 | Unity audio playback: PCM→`AudioClip` bank, voice pool, drains `Sim.Sounds` via `AudioMix.Resolve` | `unity/Assets/Scripts/Presentation/SimAudioPlayer.cs` |
-| Unity blockout pass: brush cubes, bot capsules, sim-driven view-model + muzzle flash, code-built uGUI HUD + menu stack, pooled combat effects | `unity/Assets/Scripts/Presentation/` (`MapBlockout.cs`, `ActorViews.cs`, `ViewModelSync.cs`, `HudSync.cs`, `MenuSync.cs`, `EffectsSync.cs`) |
+| Unity blockout pass: brush cubes, bot capsules, sim-driven view-model + muzzle flash, code-built uGUI HUD + menu stack, pooled combat effects, crosshair profile + reticle | `unity/Assets/Scripts/Presentation/` (`MapBlockout.cs`, `ActorViews.cs`, `ViewModelSync.cs`, `HudSync.cs`, `MenuSync.cs`, `EffectsSync.cs`, `CrosshairSettings.cs`) |
 | Parity suite (shared) + Unity edit-mode tests | `unity/Assets/Tests/EditMode/` (`ParityChecks.cs`, `ParityTests.cs`, `HGO.Sim.Tests.asmdef`) |
 | Parity console harness + golden reports | `tools/parity/` (`Parity.csproj`, thin `Program.cs`, `goldens/`) |
 | Presentation compile gate (editor-free) | `tools/presentation-check/` (`PresentationCheck.csproj`, `UnityStubs.cs`, thin `Program.cs`) |
@@ -486,10 +507,12 @@ the next session knows whether GitHub is current.
      reference — gameplay behaviour is already pinned by the parity goldens, so the view layer is
      free to diverge where it is purely cosmetic. A first presentation pass now exists as a
      blockout (`MapBlockout` brush cubes, `ActorViews` capsule bots, `ViewModelSync` view-model
-     dynamics + muzzle flash, `HudSync` code-built uGUI HUD, `MenuSync` code-built menu stack,
-     `EffectsSync` tracers/particles/decals) — see the migration-state bullet; editor wiring is
-     one GameObject + one viewmodel placeholder. What remains above blockout: real map meshes
-     and bot meshes, VFX polish (transparent/additive materials, muzzle flame lobes), a styled
+     dynamics + muzzle flash, `HudSync` code-built uGUI HUD, `MenuSync` code-built menu stack
+     (incl. the ported crosshair options screen), `EffectsSync` tracers/particles/decals,
+     `CrosshairSettings` profile + reticle graphic) — see the migration-state bullet; editor
+     wiring is one GameObject + one viewmodel placeholder. What remains above blockout: real map
+     meshes and bot meshes, VFX polish (transparent/additive materials, muzzle flame lobes),
+     camera-feedback weakness levels, the main-menu match-setup rows, a styled
      options/settings screen and match-setup picker, screenshot
      tooling, per-art viewmodel calibration.
       Audio synthesis, `AudioMix` routing and the
