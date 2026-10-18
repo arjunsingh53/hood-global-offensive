@@ -546,7 +546,11 @@ behaviour questions.
   no further defects — the kill-feed HEAD tags, tracers, trauma lens droplets, GLB pipe edges
   and the 1–2 px ridge slivers were all confirmed intentional — so the remaining observations
   are the documented open items below (box viewmodels for the three rig-less weapons, the
-  Industrial floor-decal hover, the high-wisp cirrus note).
+  Industrial floor-decal hover, the high-wisp cirrus note). An all-map invariant sweep
+  (90 s / 12 bots / Normal, seeds `20260114` + `424242`) printed `RESULT: PASS` for Industrial,
+  Arena, Streets, Ruins and Playground with zero non-finite frames, clear spawns, 3 upgrade
+  stations everywhere and live kill flow (116–176 deaths per map) — worth remembering that the
+  two CI gates themselves only ever run the default map.
 
 ## How to work on this repository
 
