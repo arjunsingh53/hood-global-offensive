@@ -40,9 +40,10 @@
   trauma ducking, Arena occlusion rays); the presentation compile gate
   (`tools/presentation-check`) builds clean; the single-file exe was re-verified from a clean
   directory.
-- **Push policy:** `origin/main` is synced with `main` through `acd6652` ("Record the migration
-  sync push in the handoff", 2026-10-16, at team request so the other machine could pull the sim
-  port and the edit-mode tests). The follow-up migration commits (presentation bridge and its
+- **Push policy:** `origin/main` is synced with `main` through `76c8438` ("Port the kill-feed
+  arena-panel rows", 2026-10-18, pushed at the owner's request — this also landed every
+  migration commit that had been held local; the earlier sync point was `acd6652`, 2026-10-16).
+  The migration commits carried by that push (presentation bridge and its
   compile gate, edit-mode gate, audio synthesis port, `AudioMix` routing port, audio playback
   bridge, first presentation-blockout pass, the code-built front end, the Unity YAML
   `.gitattributes` prep, combat-effects blockout, the HUD floating damage numbers, the crosshair
@@ -50,9 +51,9 @@
   overlay, the Tab scoreboard + pause/match-over parity fixes, the scenic menu backdrop, the
   scope/hook HUD pass, the top-bar + compass pass, the rotating radar scanner, the weapon-readout card,
   the biological vitals card + death overlay pass, the trauma vignette + arena-panel corner brackets
-  pass, and the kill-feed arena-panel rows pass) are
-  **local only — 24 commits ahead of `origin/main`** — keep them local until the team asks
-  for another push (or the owner pushes them, see the sync note below).
+  pass, and the kill-feed arena-panel rows pass) are on GitHub as of that push — nothing is
+  local-only any more (`git rev-list --count origin/main..main` = 0). Keep new work local until
+  the team asks for another push.
   Pre-push gate for future work: `-warnaserror` build clean, both CI gates `RESULT: PASS`, `tools/parity`
   `PARITY: PASS`, `tools/presentation-check` build clean, and `tools/editmode-check` build clean.
   After a push, update this bullet with the new sync point.
