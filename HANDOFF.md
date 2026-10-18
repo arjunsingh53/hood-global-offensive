@@ -40,9 +40,11 @@
   trauma ducking, Arena occlusion rays); the presentation compile gate
   (`tools/presentation-check`) builds clean; the single-file exe was re-verified from a clean
   directory.
-- **Push policy:** `origin/main` is synced with `main` through `76c8438` ("Port the kill-feed
-  arena-panel rows", 2026-10-18, pushed at the owner's request — this also landed every
-  migration commit that had been held local; the earlier sync point was `acd6652`, 2026-10-16).
+- **Push policy:** `origin/main` is synced with local `main` (checked after the 2026-10-18 owner
+  push: `git rev-list --count origin/main..main` = 0). That push was requested at `76c8438`
+  ("Port the kill-feed arena-panel rows") and carried every migration commit that had been held
+  local; this handoff note landed immediately after it. The previous sync point was `acd6652`
+  (2026-10-16).
   The migration commits carried by that push (presentation bridge and its
   compile gate, edit-mode gate, audio synthesis port, `AudioMix` routing port, audio playback
   bridge, first presentation-blockout pass, the code-built front end, the Unity YAML
