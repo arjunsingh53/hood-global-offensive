@@ -38,6 +38,10 @@ namespace HoodGlobalOffensive.Presentation
         static readonly Color HeadshotDamage = new Color(1f, 176f / 255f, 48f / 255f);
         static readonly Color Faint = new Color(0.38f, 0.40f, 0.42f);
         static readonly Color ScorePanel = new Color(8f / 255f, 10f / 255f, 14f / 255f, 225f / 255f);
+        static readonly Color DefaultBracketColor = new Color(232f / 255f, 240f / 255f, 244f / 255f, 130f / 255f);
+        static readonly Color CardBorderColor = new Color(232f / 255f, 240f / 255f, 244f / 255f, 74f / 255f);
+        static readonly Color AccentInk = new Color(1f, 186f / 255f, 56f / 255f);
+        static readonly Color RadarBracketColor = new Color(112f / 255f, 205f / 255f, 228f / 255f, 180f / 255f);
 
         const int FeedLines = 6;
 
@@ -50,16 +54,19 @@ namespace HoodGlobalOffensive.Presentation
         Text _matchResult;
         Image? _topBarBorder;
         Image? _topBarFill;
+        CornerBrackets? _topBarBrackets;
         Text? _clockLabel;
         Text? _clockScore;
         Image? _compassBorder;
         Image? _compassFill;
+        CornerBrackets? _compassBrackets;
         Image? _compassCaret;
         Text? _compassHeading;
         Image?[] _compassTicks = Array.Empty<Image?>();
         Text?[] _compassTickLabels = Array.Empty<Text?>();
         Image? _radarBorder;
         Image? _radarFill;
+        CornerBrackets? _radarBrackets;
         RadarGraphic? _radar;
         Text? _radarTitle;
         Text? _radarRange;
@@ -67,7 +74,7 @@ namespace HoodGlobalOffensive.Presentation
         Text _hitmarker;
         DeathOverlay? _deathOverlay;
         Image _damageOverlay;
-        Image _traumaOverlay;
+        TraumaGraphic? _trauma;
         RectTransform _damageWheel;
         Text[] _killFeed;
         HookSquare? _hookLeft;
@@ -125,6 +132,72 @@ namespace HoodGlobalOffensive.Presentation
         }
 
         /// <summary>
+        /// Procedural corner bracket overlays (reference <c>Hud.DrawCornerBracket</c>):
+        /// four L-shaped bracket overlays (eight line segments) reinforcing the corners
+        /// of an arena-panel card with length min(12, min(w, h)*0.24) and thickness 1.5.
+        /// </summary>
+        sealed class CornerBrackets
+        {
+            public readonly Image[] Segments = new Image[8];
+
+            public void Set(Color color, float opacity)
+            {
+                Color c = Fade(color, opacity);
+                for (int i = 0; i < Segments.Length; i++)
+                {
+                    Segments[i].color = c;
+                }
+            }
+
+            public static CornerBrackets Build(Transform parent, string prefix, float dx, float dy, float w, float h,
+                Color initialColor, float scale = 1.5f)
+            {
+                CornerBrackets brackets = new CornerBrackets();
+                float corner = MathF.Min(12f, MathF.Min(w, h) * 0.24f);
+                const float t = 1.5f;
+
+                float bx = dx - 1f;
+                float by = dy - 1f;
+                float bw = w + 2f;
+                float bh = h + 2f;
+
+                // Top-Left corner
+                brackets.Segments[0] = Box(parent, $"{prefix} Bracket TL H", bx, by, corner, t, initialColor, scale);
+                brackets.Segments[1] = Box(parent, $"{prefix} Bracket TL V", bx, by, t, corner, initialColor, scale);
+
+                // Top-Right corner
+                brackets.Segments[2] = Box(parent, $"{prefix} Bracket TR H", bx + bw - corner, by, corner, t, initialColor, scale);
+                brackets.Segments[3] = Box(parent, $"{prefix} Bracket TR V", bx + bw - t, by, t, corner, initialColor, scale);
+
+                // Bottom-Left corner
+                brackets.Segments[4] = Box(parent, $"{prefix} Bracket BL H", bx, by + bh - t, corner, t, initialColor, scale);
+                brackets.Segments[5] = Box(parent, $"{prefix} Bracket BL V", bx, by + bh - corner, t, corner, initialColor, scale);
+
+                // Bottom-Right corner
+                brackets.Segments[6] = Box(parent, $"{prefix} Bracket BR H", bx + bw - corner, by + bh - t, corner, t, initialColor, scale);
+                brackets.Segments[7] = Box(parent, $"{prefix} Bracket BR V", bx + bw - t, by + bh - corner, t, corner, initialColor, scale);
+
+                return brackets;
+            }
+
+            static Image Box(Transform parent, string name, float dx, float dy, float w, float h, Color color, float scale)
+            {
+                GameObject go = new GameObject(name);
+                go.AddComponent<CanvasRenderer>();
+                RectTransform rect = go.AddComponent<RectTransform>();
+                go.transform.SetParent(parent);
+                rect.anchorMin = new Vector2(0f, 1f);
+                rect.anchorMax = new Vector2(0f, 1f);
+                rect.pivot = new Vector2(0f, 1f);
+                rect.anchoredPosition = new Vector2(dx * scale, -dy * scale);
+                rect.sizeDelta = new Vector2(w * scale, h * scale);
+                Image image = go.AddComponent<Image>();
+                image.color = color;
+                return image;
+            }
+        }
+
+        /// <summary>
         /// The bottom-left biological status card (reference <c>Hud.DrawVitals</c>): the
         /// large health numeral with drop shadow, the left health-status rail, the
         /// HEALTH caption and CRITICAL / COMBAT READY status, the ten-segment health bar
@@ -147,6 +220,7 @@ namespace HoodGlobalOffensive.Presentation
             public GameObject Root = null!;
             Image CardBorder = null!;
             Image CardFill = null!;
+            CornerBrackets _brackets = null!;
             Image LeftRail = null!;
             Text ValueShadow = null!;
             Text Value = null!;
@@ -173,9 +247,11 @@ namespace HoodGlobalOffensive.Presentation
                     ? Danger
                     : (health > 0.6f ? Ink : Amber);
 
-                CardBorder.color = Fade(
-                    low ? healthColor : new Color(232f / 255f, 240f / 255f, 244f / 255f, 74f / 255f), op);
+                // Reference DrawArenaPanel: the outline stays neutral ink and the health
+                // colour lives in the corner brackets, rail, numeral and bar.
+                CardBorder.color = Fade(CardBorderColor, op);
                 CardFill.color = Fade(new Color(5f / 255f, 8f / 255f, 13f / 255f, 206f / 255f), op);
+                _brackets.Set(healthColor, op);
                 LeftRail.color = Fade(healthColor, op);
 
                 string valStr = $"{MathF.Ceiling(p.Health):0}";
@@ -239,6 +315,8 @@ namespace HoodGlobalOffensive.Presentation
                     new Color(232f / 255f, 240f / 255f, 244f / 255f, 74f / 255f));
                 view.CardFill = Box(root.transform, "Card Fill", 0f, 0f, CardW, CardH,
                     new Color(5f / 255f, 8f / 255f, 13f / 255f, 206f / 255f));
+                view._brackets = CornerBrackets.Build(root.transform, "Card", 0f, 0f, CardW, CardH,
+                    DefaultBracketColor, Scale);
                 view.LeftRail = Box(root.transform, "Left Rail", 0f, 0f, 5f, CardH, Danger);
 
                 view.ValueShadow = TextEl(root.transform, font, "Value Shadow", 16f, 24f, 80f, 48f, 63,
@@ -345,11 +423,10 @@ namespace HoodGlobalOffensive.Presentation
         /// The bottom-right weapon card (reference <c>Hud.DrawWeaponReadout</c>): the
         /// weapon name + state line, the oversized magazine numeral with the
         /// slash/reserve, an eight-segment magazine bar, the four loadout slot boxes
-        /// above the card, and the reload progress / PRESS R line. Ported in the
+        /// above the card, the reload progress / PRESS R line, and the arena-panel
+        /// corner brackets on both the card and the loadout slots. Ported in the
         /// reference's 1280x720 logical units with the 1.5x canvas scale applied, and
         /// it reuses the pointer positions the reference uses inside the 260x88 card.
-        /// The arena-panel corner brackets are still left to the skin pass, so the card
-        /// and slots use the same fill + 1 px border approximation as the other cards.
         /// </summary>
         sealed class WeaponReadout
         {
@@ -367,6 +444,7 @@ namespace HoodGlobalOffensive.Presentation
             public GameObject Root = null!;
             Image CardBorder = null!;
             Image CardFill = null!;
+            CornerBrackets _brackets = null!;
             Text Name = null!;
             Text State = null!;
             Text Mag = null!;
@@ -384,6 +462,7 @@ namespace HoodGlobalOffensive.Presentation
             {
                 public Image Border = null!;
                 public Image Fill = null!;
+                public CornerBrackets Brackets = null!;
                 public Image Active = null!;
                 public Text Label = null!;
                 public Text Index = null!;
@@ -397,6 +476,7 @@ namespace HoodGlobalOffensive.Presentation
 
                 CardBorder.color = Fade(new Color(232f / 255f, 240f / 255f, 244f / 255f, 74f / 255f), op);
                 CardFill.color = Fade(new Color(5f / 255f, 8f / 255f, 13f / 255f, 206f / 255f), op);
+                _brackets.Set(ammoColor, op);
 
                 Name.text = def.Name.ToUpperInvariant();
                 Name.color = Fade(Accent, op);
@@ -432,6 +512,7 @@ namespace HoodGlobalOffensive.Presentation
                     view.Border.color = Fade(
                         active ? Accent : new Color(232f / 255f, 240f / 255f, 244f / 255f, 74f / 255f), op);
                     view.Fill.color = Fade(new Color(5f / 255f, 8f / 255f, 13f / 255f, 206f / 255f), op);
+                    view.Brackets.Set(active ? Accent : DefaultBracketColor, op);
                     view.Active.gameObject.SetActive(active);
                     if (active) view.Active.color = Fade(Accent, op);
                     view.Label.text = owned is null ? "---" : ShortName(owned.Def.Name);
@@ -499,6 +580,8 @@ namespace HoodGlobalOffensive.Presentation
                     new Color(232f / 255f, 240f / 255f, 244f / 255f, 74f / 255f));
                 view.CardFill = Box(root.transform, "Card Fill", 0f, 0f, CardW, CardH,
                     new Color(5f / 255f, 8f / 255f, 13f / 255f, 206f / 255f));
+                view._brackets = CornerBrackets.Build(root.transform, "Card", 0f, 0f, CardW, CardH,
+                    DefaultBracketColor, Scale);
 
                 view.Name = TextEl(root.transform, font, "Name", 15f, 14f, 230f, 20f, 18,
                     TextAnchor.UpperLeft, Accent);
@@ -551,6 +634,8 @@ namespace HoodGlobalOffensive.Presentation
                         new Color(232f / 255f, 240f / 255f, 244f / 255f, 74f / 255f));
                     slotView.Fill = Box(root.transform, $"Slot {slot} Fill", boxX, -26f, 62f, 21f,
                         new Color(5f / 255f, 8f / 255f, 13f / 255f, 206f / 255f));
+                    slotView.Brackets = CornerBrackets.Build(root.transform, $"Slot {slot}", boxX, -26f, 62f, 21f,
+                        DefaultBracketColor, Scale);
                     slotView.Active = Box(root.transform, $"Slot {slot} Active", boxX, -26f, 3f, 21f, Accent);
                     slotView.Label = TextEl(root.transform, font, $"Slot {slot} Label", boxX + 31f, -20f,
                         58f, 16f, 15, TextAnchor.UpperCenter, Dim);
@@ -930,14 +1015,14 @@ namespace HoodGlobalOffensive.Presentation
             if (_clockLabel != null) _clockLabel.color = Fade(Faint, op);
             if (_topBarBorder != null)
             {
-                Color borderAccent = urgent ? Danger : Gold;
-                _topBarBorder.color = Fade(
-                    new Color(borderAccent.r, borderAccent.g, borderAccent.b, 74f / 255f), op);
+                // Reference DrawArenaPanel: neutral outline, accent only on the brackets.
+                _topBarBorder.color = Fade(CardBorderColor, op);
             }
             if (_topBarFill != null)
             {
                 _topBarFill.color = Fade(new Color(5f / 255f, 8f / 255f, 13f / 255f, 206f / 255f), op);
             }
+            _topBarBrackets?.Set(urgent ? Danger : AccentInk, op);
             if (_clockScore != null)
             {
                 int leadKills = 0;
@@ -955,6 +1040,7 @@ namespace HoodGlobalOffensive.Presentation
             {
                 _compassBorder!.color = Fade(new Color(232f / 255f, 240f / 255f, 244f / 255f, 74f / 255f), op);
                 _compassFill.color = Fade(new Color(5f / 255f, 8f / 255f, 13f / 255f, 206f / 255f), op);
+                _compassBrackets?.Set(DefaultBracketColor, op);
                 _compassCaret.color = Fade(Gold, op);
 
                 // Game yaw increases to the left; flip it for clockwise compass
@@ -1010,6 +1096,7 @@ namespace HoodGlobalOffensive.Presentation
             {
                 _radarBorder.color = Fade(new Color(232f / 255f, 240f / 255f, 244f / 255f, 74f / 255f), op);
                 _radarFill.color = Fade(new Color(5f / 255f, 8f / 255f, 13f / 255f, 206f / 255f), op);
+                _radarBrackets?.Set(RadarBracketColor, op);
                 _radar.Sync(sim, op);
                 if (_radarTitle != null) _radarTitle.color = Fade(Faint, op);
                 if (_radarRange != null) _radarRange.color = Fade(Faint, op);
@@ -1055,12 +1142,8 @@ namespace HoodGlobalOffensive.Presentation
             _damageOverlay.color = new Color(DamageTint.r, DamageTint.g, DamageTint.b, flashAlpha);
             _damageOverlay.gameObject.SetActive(flashAlpha > 0.001f);
 
-            bool lowHealth = p.Health < Cfg.LowHealthTraumaThreshold;
-            float traumaAlpha = lowHealth
-                ? p.LowHealthTrauma * (0.5f + 0.5f * p.TraumaPulse) * 0.45f
-                : 0f;
-            _traumaOverlay.color = new Color(DamageTint.r, DamageTint.g, DamageTint.b, traumaAlpha);
-            _traumaOverlay.gameObject.SetActive(traumaAlpha > 0.001f);
+            // Critical-health trauma vignette (reference DrawHealthVignette) -
+            _trauma?.Sync(sim);
 
             // Directional damage arrow: the wheel rotates so the arrow points at
             // the source on screen (relative yaw: + is to the player's left).
@@ -1407,6 +1490,10 @@ namespace HoodGlobalOffensive.Presentation
             _topBarFill = MakeImage(root, "Top Bar Fill", AnchorTopCenter,
                 new Vector2(0f, -65.5f), new Vector2(330f, 87f),
                 new Color(5f / 255f, 8f / 255f, 13f / 255f, 206f / 255f));
+            // Reference DrawArenaPanel(panel, opacity, urgent ? Danger : Accent): the
+            // 330x87 fill's canvas-space top-left is (795, 22) at 1920x1080.
+            _topBarBrackets = CornerBrackets.Build(root, "Top Bar", 795f, 22f, 330f, 87f,
+                DefaultBracketColor, 1f);
             _clockLabel = MakeText(root, "Match Clock Label", AnchorTopCenter,
                 new Vector2(0f, -40f), new Vector2(220f, 20f), 14, TextAnchor.MiddleCenter, Faint);
             _clockLabel.text = "MATCH CLOCK";
@@ -1426,6 +1513,9 @@ namespace HoodGlobalOffensive.Presentation
             _compassFill = MakeImage(root, "Compass Fill", AnchorTopCenter,
                 new Vector2(0f, -135.75f), new Vector2(630f, 31f),
                 new Color(5f / 255f, 8f / 255f, 13f / 255f, 206f / 255f));
+            // Reference DrawArenaPanel(strip, opacity): default bracket ink.
+            _compassBrackets = CornerBrackets.Build(root, "Compass", 645f, 120.25f, 630f, 31f,
+                DefaultBracketColor, 1f);
             _compassCaret = MakeImage(root, "Compass Caret", AnchorTopCenter,
                 new Vector2(0f, -124f), new Vector2(7f, 7f), Gold);
             _compassCaret.rectTransform.localRotation = Quaternion.Euler(0f, 0f, 45f);
@@ -1450,6 +1540,9 @@ namespace HoodGlobalOffensive.Presentation
             _radarFill = MakeImage(root, "Radar Fill", AnchorTopLeft,
                 new Vector2(136.5f, -133.5f), new Vector2(214f, 214f),
                 new Color(5f / 255f, 8f / 255f, 13f / 255f, 206f / 255f));
+            // Reference DrawArenaPanel(radarBounds, opacity, U.Rgba(112,205,228,180)).
+            _radarBrackets = CornerBrackets.Build(root, "Radar", 29.5f, 26.5f, 214f, 214f,
+                DefaultBracketColor, 1f);
             GameObject radarGo = new GameObject("Radar");
             radarGo.AddComponent<CanvasRenderer>();
             radarGo.AddComponent<RectTransform>();
@@ -1484,9 +1577,6 @@ namespace HoodGlobalOffensive.Presentation
             _damageOverlay = MakeImage(root, "Damage Overlay", AnchorBottomLeft,
                 Vector2.zero, new Vector2(1920f, 1080f), new Color(0f, 0f, 0f, 0f));
             _damageOverlay.gameObject.SetActive(false);
-            _traumaOverlay = MakeImage(root, "Trauma Overlay", AnchorBottomLeft,
-                Vector2.zero, new Vector2(1920f, 1080f), new Color(0f, 0f, 0f, 0f));
-            _traumaOverlay.gameObject.SetActive(false);
 
             // Directional damage arrow (rotating wheel, arrow above centre) ----
             GameObject wheelGo = new GameObject("Damage Wheel");
@@ -1511,6 +1601,17 @@ namespace HoodGlobalOffensive.Presentation
 
             // Death overlay (reference DrawDeathOverlay) --------------------
             _deathOverlay = DeathOverlay.Build(root, _font!);
+
+            // Trauma vignette (reference DrawHealthVignette) ------------------
+            // Built last so it stacks over every HUD element like the reference,
+            // which draws the vignette after the whole match layer; only the Tab
+            // scoreboard (drawn after Hud.Draw in the reference) stays above it.
+            GameObject traumaGo = new GameObject("Trauma Graphic");
+            traumaGo.AddComponent<CanvasRenderer>();
+            traumaGo.AddComponent<RectTransform>();
+            traumaGo.transform.SetParent(root);
+            ApplyRect(traumaGo, AnchorCenter, Vector2.zero, new Vector2(1920f, 1080f));
+            _trauma = traumaGo.AddComponent<TraumaGraphic>();
 
             // Scoreboard overlay (hidden; reference DrawScoreboardContent at 1.5x on
             // the 1080p canvas: panel 1140 wide, row pitch 39, top offset 150).

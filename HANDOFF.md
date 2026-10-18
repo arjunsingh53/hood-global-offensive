@@ -26,7 +26,10 @@
   prep, the combat-effects blockout (`EffectsSync`), the HUD floating damage numbers, the
   crosshair options port (settings profile, live HUD reticle, menu screen), the
   camera-feedback levels (driver FOV kick + view-model offsets), the main-menu match-setup
-  rows (loadout slots, map, bots, skill, kill limit), and the upgrade-cabinet overlay. The
+  rows (loadout slots, map, bots, skill, kill limit), the upgrade-cabinet overlay, and the
+  later HUD passes (Tab scoreboard + pause/match-over parity, scenic menu backdrop, scope/hook
+  centre zone, top bar + compass tape, rotating radar scanner, weapon-readout card, biological
+  vitals card + death overlay, and the trauma vignette + arena-panel corner brackets). The
   GitHub release asset for `v0.2.2` was
   rebuilt in place (`gh release upload --clobber`) so the downloadable exe includes the menu fix.
   Run `git log --oneline -5` for exact hashes.
@@ -46,8 +49,9 @@
   options port, the camera-feedback levels, the main-menu match-setup rows, the upgrade-cabinet
   overlay, the Tab scoreboard + pause/match-over parity fixes, the scenic menu backdrop, the
   scope/hook HUD pass, the top-bar + compass pass, the rotating radar scanner, the weapon-readout card,
-  and the biological vitals card + death overlay pass) are
-  **local only — 22 commits ahead of `origin/main`** — keep them local until the team asks
+  the biological vitals card + death overlay pass, and the trauma vignette + arena-panel corner brackets
+  pass) are
+  **local only — 23 commits ahead of `origin/main`** — keep them local until the team asks
   for another push.
   Pre-push gate for future work: `-warnaserror` build clean, both CI gates `RESULT: PASS`, `tools/parity`
   `PARITY: PASS`, `tools/presentation-check` build clean, and `tools/editmode-check` build clean.
@@ -208,8 +212,8 @@ behaviour questions.
     (value/label/segment fill), ammo card (weapon, mag `00`, reserve `INF`), match timer,
     score line, kill feed (6 lines, 6.5 s life), the settings-driven centre crosshair,
     hitmarker (0.12 s life, kill/headshot tint), damage flash + rotating directional arrow,
-    low-health trauma vignette,
-    respawn notice and the match-result banner. Floating damage numbers are now ported too: the
+    the procedural low-health trauma vignette (`TraumaGraphic`), the arena-panel corner
+    brackets on the cards, respawn notice and the match-result banner. Floating damage numbers are now ported too: the
     sim's player-dealt damage numbers are projected from their world hit point through the
     assigned camera (`WorldToViewportPoint`) and positioned in 1080p canvas units, so the
     reference's y-down screen flip lives there; the reference fade curve `min(1, t*2.2)`, larger
@@ -242,8 +246,8 @@ behaviour questions.
     or calibrated sight picture; reticle, hitmarker and scope mask never fade).
     **Top bar + compass ported:** the top-centre match-clock panel (MATCH CLOCK caption,
     two-digit clock that turns red under 30 s like the reference, YOU/LEAD/FT line from
-    `Simulation.Leaderboard()`; the panel border tints with the accent/urgency colour since
-    the arena corner brackets are not drawn) and the heading tape (630-wide at 1.5x, ticks
+    `Simulation.Leaderboard()`; the arena-panel corner brackets carry the accent, turning red
+    under 30 s like the reference) and the heading tape (630-wide at 1.5x, ticks
     every 15 degrees with N/NE/... labels at 45s, gold caret, three-digit heading under the
     strip; game yaw flipped to clockwise compass degrees exactly like the reference).
     **Radar ported:** `RadarGraphic` (a `MaskableGraphic` building the scanner as a uGUI
@@ -252,9 +256,9 @@ behaviour questions.
     brush edge as a yaw-rotated segment clipped to the circle, always-on gold cabinet dots,
     contact dots (bright when in LOS and under 1100 m) that degrade to edge chevrons past
     radius-7, the up-facing player triangle with boundary rings — over the square
-    arena-panel border/fill images, with FIELD SCANNER / RANGE 72 labels. Still
-    blockout: the arena-panel card skin (corner
-    brackets), and the peripheral-fringe/trauma-mark vignette extras.
+    arena-panel border/fill images, with FIELD SCANNER / RANGE 72 labels. The
+    arena-panel skin pass has since landed (see "Trauma vignette + arena-panel
+    skin ported"), so the cards carry their corner brackets.
     **Weapon readout ported:** the bottom-right card is now the ported
     `Hud.DrawWeaponReadout` instead of the ad-hoc name/mag/reserve texts —
     weapon name + state line (`MELEE - V` / `ALT - DOUBLE BLAST` / `SCOPE - RMB` /
@@ -264,9 +268,10 @@ behaviour questions.
     blinking `PRESS R` prompt), and the four loadout slot boxes above the card
     (active slot gold + left rail, `---` for an empty slot, `ShortName` labels).
     Built in the reference's 1280x720 logical units at the 1.5x canvas scale, so
-    the knife box overhangs the screen edge exactly like the reference. The
-    card/slots reuse the fill + 1 px border approximation (corner brackets still
-    owed by the skin pass).
+    the knife box overhangs the screen edge exactly like the reference. The card
+    and all four slot boxes carry the reference arena-panel corner brackets
+    (`CornerBrackets`, active slot gold / idle ink), so the fill + 1 px border
+    approximation is no longer alone.
     **Vitals card + death overlay ported:** the bottom-left biological status
     card is now the ported `VitalsReadout` (reference `Hud.DrawVitals`): inside
     a 250x88 card at margin 24 (1.5x scale) mirroring the bottom-right weapon
@@ -274,12 +279,47 @@ behaviour questions.
     drop shadow, HEALTH caption, CRITICAL / COMBAT READY status, the ten-segment
     health bar inside its 1 px outline, and the four build pips (HP, DMG, SPD,
     JMP) with live stat levels from `Simulation.UpgradeLevel` and 1 px borders.
+    The card carries the reference arena-panel corner brackets in the live
+    health-status colour (white above 60% health, amber down to the trauma
+    threshold, red below it).
     The death screen is now the ported `DeathOverlay` (reference
     `Hud.DrawDeathOverlay`): full-screen dark-red scrim (90, 10, 8, 60), dark
     horizontal banner at 34% height across the 1080p canvas, red ELIMINATED
     title, "killed by {name}" subtitle derived from the kill feed, amber
     "RESPAWNING IN 0.0" countdown, and the upgrade-cost and Tab score hints.
     The scoreboard draws on top of the death overlay when Tab is held.
+    **Trauma vignette + arena-panel skin ported:** `TraumaGraphic.cs` (a
+    `MaskableGraphic` beside `RadarGraphic`) replaces the old flat red
+    `_traumaOverlay` image with the reference `Hud.DrawHealthVignette` picture —
+    four GPU-interpolated edge gradient bands, four peripheral chromatic-fringe
+    layers (red left / blue right, 2–6 px at the 1.5× scale), the ten authored
+    edge trauma marks (solid disc + faint halo ring) and the neutral
+    desaturation wash (`Cfg.LowHealthNeutralWashAlpha`). It is driven straight
+    from the sim (`Player.LowHealthTrauma`, `Player.TraumaPulse`,
+    `Simulation.DamageFlash`) and emits one quad-based canvas mesh per frame
+    (`OnPopulateMesh`, no per-frame allocations), so the vignette breathes with
+    the heartbeat pulse and spikes with damage exactly like the reference. The ten
+    mark positions/radii and every alpha/width constant match `Hud.TraumaMarks`
+    and `DrawPeripheralFringe` (widths and insets are ×1.5 for the 1080p canvas).
+    The graphic GameObject is built **last** in `BuildCanvas`, after the death
+    overlay, so it stacks over the whole HUD exactly like the reference (which
+    draws the vignette after the match layer); only the Tab scoreboard sits
+    above it, matching `Screens.DrawScoreboard` being drawn after `Hud.Draw`.
+    The same pass added `CornerBrackets` inside `HudSync` — the uGUI stand-in for
+    the reference `Hud.DrawArenaPanel`, eight 1.5 px segments laid 1 px outside
+    the border image, length `min(12, min(w, h) × 0.24)` at the 1.5× scale — and
+    applied it to **every** reference `DrawArenaPanel` site that exists as a
+    panel in the port: the vitals card (bracket colour = live health status),
+    the weapon card (ammo colour), the four loadout slot boxes (accent when
+    active, default ink otherwise), the match-clock panel (accent, red under
+    30 s), the compass strip (default ink) and the radar backing (the cyan
+    `(112, 205, 228, 180)`). Panel *outlines* were pulled back to the reference's
+    neutral `(232, 240, 244, 74)` while doing this: the reference keeps the
+    outline neutral and carries the state colour in the brackets alone, so the
+    vitals and top-bar borders no longer tint red/gold themselves. Still unported
+    from that helper: the per-entry kill-feed panels (`DrawKillFeed` draws an
+    arena panel behind each row with an accent for player kills) — the feed is
+    still plain text rows.
   - `MenuSync.cs` — code-built uGUI front end and game-flow owner (main / pause / settings /
     crosshair options / match-over). It never changes sim rules: leaving the Playing screen
     disables the
@@ -373,6 +413,12 @@ behaviour questions.
   routing battery (21 reference-captured cases) runs silently on success; both went through
   negative tests (tamper one golden hash / one routing golden) and correctly failed. The
   remaining unverified gate is Unity's Test Runner — editor only.
+  **Re-verified 2026-10-18** (same user-local SDK) after the trauma-vignette + corner-bracket
+  pass: `-warnaserror` build clean, both CI gates `RESULT: PASS`, `tools/parity`
+  `PARITY: PASS`, `tools/presentation-check` build clean + `PRESENTATION: PASS` (now also
+  type-touches `TraumaGraphic`), `tools/editmode-check` build clean + `EDITMODE: PASS`.
+  Nothing about the vignette's actual pixels has been seen yet — uGUI mesh emission is
+  compile-only here, so the first editor capture is the visual check.
 
 ## How to work on this repository
 
@@ -518,7 +564,7 @@ the next session knows whether GitHub is current.
 | Unity audio synthesis + mix routing port, cue manifest (engine-free) | `unity/Assets/Scripts/Sim/Audio/` (`WavGen.cs`, `AudioCatalog.cs`, `AudioMix.cs`) |
 | Sim→Unity bridge: fixed-tick `Simulation.Update`, `InputFrame` adapter, body/camera sync | `unity/Assets/Scripts/Presentation/MatchDriver.cs` + `HGO.Presentation.asmdef` |
 | Unity audio playback: PCM→`AudioClip` bank, voice pool, drains `Sim.Sounds` via `AudioMix.Resolve` | `unity/Assets/Scripts/Presentation/SimAudioPlayer.cs` |
-| Unity blockout pass: brush cubes, bot capsules, sim-driven view-model + muzzle flash, code-built uGUI HUD (incl. Tab scoreboard + mesh radar, vitals/weapon cards, death overlay) + menu stack, pooled combat effects, crosshair profile + reticle, camera-feedback levels, match-setup rows, upgrade-cabinet overlay | `unity/Assets/Scripts/Presentation/` (`MapBlockout.cs`, `ActorViews.cs`, `ViewModelSync.cs`, `HudSync.cs`, `RadarGraphic.cs`, `MenuSync.cs`, `EffectsSync.cs`, `CrosshairSettings.cs`, `CameraFeedbackSettings.cs`, `UpgradeSync.cs`) |
+| Unity blockout pass: brush cubes, bot capsules, sim-driven view-model + muzzle flash, code-built uGUI HUD (incl. Tab scoreboard + mesh radar, vitals/weapon cards, arena-panel corner brackets on every panel, death overlay, procedural trauma vignette) + menu stack, pooled combat effects, crosshair profile + reticle, camera-feedback levels, match-setup rows, upgrade-cabinet overlay | `unity/Assets/Scripts/Presentation/` (`MapBlockout.cs`, `ActorViews.cs`, `ViewModelSync.cs`, `HudSync.cs`, `RadarGraphic.cs`, `TraumaGraphic.cs`, `MenuSync.cs`, `EffectsSync.cs`, `CrosshairSettings.cs`, `CameraFeedbackSettings.cs`, `UpgradeSync.cs`) |
 | Parity suite (shared) + Unity edit-mode tests | `unity/Assets/Tests/EditMode/` (`ParityChecks.cs`, `ParityTests.cs`, `HGO.Sim.Tests.asmdef`) |
 | Parity console harness + golden reports | `tools/parity/` (`Parity.csproj`, thin `Program.cs`, `goldens/`) |
 | Presentation compile gate (editor-free) | `tools/presentation-check/` (`PresentationCheck.csproj`, `UnityStubs.cs`, thin `Program.cs`) |
@@ -565,10 +611,34 @@ the next session knows whether GitHub is current.
 - A menu row added to the main menu will re-break the footer overlap unless the pitch math above
   is re-checked. `MenuSync` mirrors that split: the main (12 rows) and crosshair (9 rows) screens
   run tight 42-px rows under the lifted title, the shorter screens keep the roomy 52-px pitch.
-- **`UnityStubs.cs` now models the uGUI slice too** (Color/Material/Renderer/Camera/RectTransform/
-  Canvas/CanvasScaler/Text/Image/TextAnchor/Resource fonts...). It is compile-only: getters return
-  stubs and layout does nothing, so HudSync's rect math cannot be regression-tested here — verify
-  placement visually at the first editor run (it targets a 1920×1080 CanvasScaler reference).
+- **`UnityStubs.cs` now models the uGUI slice too** (Color/Color32/Material/Renderer/Camera/
+  RectTransform/Canvas/CanvasScaler/Text/Image/TextAnchor/Resource fonts, plus
+  `MaskableGraphic`, `VertexHelper` and `UIVertex` for the procedural graphics). It is
+  compile-only: getters return stubs and layout does nothing, so HudSync's rect math cannot be
+  regression-tested here — verify placement visually at the first editor run (it targets a
+  1920×1080 CanvasScaler reference).
+- **The ported HUD is sized 1.5× the reference at 1080p — settle this at the editor pass.** The
+  reference draws the HUD in *raw framebuffer pixels* (`Hud.Draw(sim, cam, w, h)` in
+  `RenderFrame`, no canvas transform: only the menus call `Ui.BeginCanvas`), so its 250×88 vitals
+  card is 250×88 px at any window size. The Unity canvas is a 1920×1080 CanvasScaler and every
+  card is authored at `reference units × 1.5`, i.e. it matches the reference's *720p* look scaled
+  up. That is deliberate and consistent across every panel (and it is why the trauma fringe is
+  ×1.5), but it is a real divergence to confirm against editor captures — if the reference-at-1080p
+  look is wanted instead, drop the `Scale` constants in `HudSync`/`TraumaGraphic`, not one panel.
+- **`CornerBrackets.Build` takes top-left offsets in the parent's units, then scales them** —
+  card-local call sites pass the reference's 1280×720 units with `scale = 1.5`, while the
+  canvas-anchored panels (top bar, compass, radar) pass canvas pixels with `scale = 1`. It wraps a
+  border image that is drawn 1 px outside its rect (`dx - 1`, `w + 2`), so pass the **inner**
+  fill rect, not the border rect, or the brackets drift 1 px out. Bracket length is
+  `min(12, min(w, h) × 0.24)` in those same units, matching `Hud.DrawArenaPanel`.
+- **Procedural HUD graphics are `MaskableGraphic`s that rebuild in `OnPopulateMesh`** —
+  `RadarGraphic`, `CrosshairGraphic` and `TraumaGraphic` each need a `CanvasRenderer` on their
+  GameObject (hand-added where the GameObject is built in code, exactly like `RadarGraphic`) and
+  emit vertices in the rect's local 1920×1080 units; `TraumaGraphic` is dirtied every
+  `LateUpdate` from the sim state and returns an empty mesh above the trauma threshold, so it
+  costs nothing visible at full health. Adding a new mesh API (`vh.AddUIVertexStream`, custom
+  `UIVertex` fields, …) means extending `UnityStubs.cs` first or the presentation gate will not
+  compile.
 - **`ViewModelSync` rotation signs are unverified** — raylib rotates right-handed, Unity
   left-handed; each flourish/spring Euler component was negated port-side. If the first editor
   capture shows the flourish leaning the wrong way, flip the sign on the offending
@@ -612,7 +682,12 @@ the next session knows whether GitHub is current.
       wiring is one GameObject + one viewmodel placeholder. What remains above blockout: real map
       meshes and bot meshes, VFX polish (transparent/additive materials, muzzle flame lobes),
       a styled options/settings screen, screenshot
-      tooling, per-art viewmodel calibration.
+      tooling, per-art viewmodel calibration, the kill-feed per-row arena panels, and the visual
+      pass on the trauma vignette / radar / crosshair meshes (all three are compile-verified but
+      have never been drawn in an editor).
+      Diff the remaining `Hud` draw calls in the reference (`src/UI/Hud.cs`) against
+      `HudSync` before starting the next HUD pass — the information layer is ported, so what
+      is left there is skin and polish.
       Audio synthesis, `AudioMix` routing and the
       `SimAudioPlayer` playback bridge are already ported (`Sim/Audio/` + `Presentation/`), so audio
       is wired end to end bar a device to hear it. Every presentation change goes through
