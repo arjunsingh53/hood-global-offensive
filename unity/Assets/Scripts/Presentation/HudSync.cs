@@ -44,10 +44,7 @@ namespace HoodGlobalOffensive.Presentation
         MatchDriver? _driver;
         Font? _font;
 
-        Text _healthValue;
-        Text _healthLabel;
-        Image _healthTrack;
-        Image _healthFill;
+        VitalsReadout? _vitals;
         WeaponReadout? _weaponReadout;
         Text _timer;
         Text _matchResult;
@@ -68,16 +65,11 @@ namespace HoodGlobalOffensive.Presentation
         Text? _radarRange;
         CrosshairGraphic _crosshair;
         Text _hitmarker;
-        Text _deathNotice;
+        DeathOverlay? _deathOverlay;
         Image _damageOverlay;
         Image _traumaOverlay;
         RectTransform _damageWheel;
         Text[] _killFeed;
-        Text? _healthStatus;
-        Text? _buildCaption;
-        readonly Text?[] _pipLabels = new Text?[4];
-        readonly Image?[] _pipBoxes = new Image?[4];
-        readonly Text?[] _pipValues = new Text?[4];
         HookSquare? _hookLeft;
         HookSquare? _hookRight;
         Text? _stationTitle;
@@ -129,6 +121,223 @@ namespace HoodGlobalOffensive.Presentation
                 Border.color = Fade(border, opacity);
                 Fill.color = Fade(fill, opacity);
                 Key.color = Fade(attached ? Gold : Faint, opacity);
+            }
+        }
+
+        /// <summary>
+        /// The bottom-left biological status card (reference <c>Hud.DrawVitals</c>): the
+        /// large health numeral with drop shadow, the left health-status rail, the
+        /// HEALTH caption and CRITICAL / COMBAT READY status, the ten-segment health bar
+        /// inside its 1 px outline, and the four build pips (HP, DMG, SPD, JMP) with
+        /// active levels. Ported in the reference's 1280x720 logical units inside a 250x88
+        /// card at the 1.5x canvas scale, perfectly mirroring the bottom-right weapon card.
+        /// </summary>
+        sealed class VitalsReadout
+        {
+            const float Scale = 1.5f;
+            const float CardW = 250f;
+            const float CardH = 88f;
+            const float BarW = 148f;
+            const float BarH = 8f;
+            const int HealthSegments = 10;
+            const float HealthGap = 2f;
+
+            static readonly Color Accent = new Color(1f, 186f / 255f, 56f / 255f);
+
+            public GameObject Root = null!;
+            Image CardBorder = null!;
+            Image CardFill = null!;
+            Image LeftRail = null!;
+            Text ValueShadow = null!;
+            Text Value = null!;
+            Text Label = null!;
+            Text Status = null!;
+            readonly Image[] _segments = new Image[HealthSegments];
+            readonly Image[] _barOutlines = new Image[4];
+            Text BuildCaption = null!;
+            readonly Pip[] _pips = new Pip[4];
+
+            sealed class Pip
+            {
+                public Image Box = null!;
+                public readonly Image[] Outlines = new Image[4];
+                public Text Label = null!;
+                public Text Value = null!;
+            }
+
+            public void Set(Player p, float op)
+            {
+                float health = U.Clamp01(p.Health / p.MaxHealth);
+                bool low = p.Health < Cfg.LowHealthTraumaThreshold;
+                Color healthColor = low
+                    ? Danger
+                    : (health > 0.6f ? Ink : Amber);
+
+                CardBorder.color = Fade(
+                    low ? healthColor : new Color(232f / 255f, 240f / 255f, 244f / 255f, 74f / 255f), op);
+                CardFill.color = Fade(new Color(5f / 255f, 8f / 255f, 13f / 255f, 206f / 255f), op);
+                LeftRail.color = Fade(healthColor, op);
+
+                string valStr = $"{MathF.Ceiling(p.Health):0}";
+                Value.text = valStr;
+                Value.color = Fade(healthColor, op);
+                ValueShadow.text = valStr;
+                ValueShadow.color = Fade(new Color(0f, 0f, 0f, 215f / 255f), op);
+
+                Label.color = Fade(low ? Danger : Dim, op);
+                Status.text = low ? "CRITICAL" : "COMBAT READY";
+                Status.color = Fade(low ? healthColor : Good, op);
+
+                float active = health * HealthSegments;
+                for (int i = 0; i < HealthSegments; i++)
+                {
+                    float intensity = U.Clamp01(active - i);
+                    Color segment = intensity > 0.01f
+                        ? new Color(healthColor.r, healthColor.g, healthColor.b,
+                            healthColor.a * (0.48f + 0.52f * intensity))
+                        : new Color(1f, 1f, 1f, 26f / 255f);
+                    _segments[i].color = Fade(segment, op);
+                }
+
+                for (int i = 0; i < _barOutlines.Length; i++)
+                {
+                    _barOutlines[i].color = Fade(new Color(1f, 1f, 1f, 54f / 255f), op);
+                }
+
+                BuildCaption.color = Fade(Faint, op);
+                for (int i = 0; i < _pips.Length; i++)
+                {
+                    int level = Simulation.UpgradeLevel(p, BuildStats[i]);
+                    Color pipColor = level > 0 ? Accent : new Color(1f, 1f, 1f, 30f / 255f);
+                    _pips[i].Box.color = Fade(pipColor, op);
+                    for (int o = 0; o < _pips[i].Outlines.Length; o++)
+                    {
+                        _pips[i].Outlines[o].color = Fade(new Color(1f, 1f, 1f, 46f / 255f), op);
+                    }
+                    _pips[i].Value.text = level > 0 ? $"{level}" : "";
+                    _pips[i].Value.color = Fade(Dim, op);
+                    _pips[i].Label.color = Fade(Faint, op);
+                }
+            }
+
+            public static VitalsReadout Build(Transform parent, Font font)
+            {
+                VitalsReadout view = new VitalsReadout();
+
+                GameObject root = new GameObject("Vitals Readout");
+                root.AddComponent<CanvasRenderer>();
+                RectTransform rect = root.AddComponent<RectTransform>();
+                rect.anchorMin = new Vector2(0f, 0f);
+                rect.anchorMax = new Vector2(0f, 0f);
+                rect.pivot = new Vector2(0f, 1f);
+                rect.anchoredPosition = new Vector2(24f * Scale, (24f + CardH) * Scale);
+                rect.sizeDelta = new Vector2(CardW * Scale, CardH * Scale);
+                root.transform.SetParent(parent);
+                view.Root = root;
+
+                view.CardBorder = Box(root.transform, "Card Border", -1f, -1f, CardW + 2f, CardH + 2f,
+                    new Color(232f / 255f, 240f / 255f, 244f / 255f, 74f / 255f));
+                view.CardFill = Box(root.transform, "Card Fill", 0f, 0f, CardW, CardH,
+                    new Color(5f / 255f, 8f / 255f, 13f / 255f, 206f / 255f));
+                view.LeftRail = Box(root.transform, "Left Rail", 0f, 0f, 5f, CardH, Danger);
+
+                view.ValueShadow = TextEl(root.transform, font, "Value Shadow", 16f, 24f, 80f, 48f, 63,
+                    TextAnchor.UpperLeft, new Color(0f, 0f, 0f, 1f));
+                view.Value = TextEl(root.transform, font, "Value", 16f, 23f, 80f, 48f, 63,
+                    TextAnchor.UpperLeft, Ink);
+
+                view.Label = TextEl(root.transform, font, "Label", 78f, 16f, 120f, 16f, 15,
+                    TextAnchor.UpperLeft, Dim);
+                view.Label.text = "HEALTH";
+
+                view.Status = TextEl(root.transform, font, "Status", 78f, 30f, 150f, 16f, 15,
+                    TextAnchor.UpperLeft, Good);
+                view.Status.text = "COMBAT READY";
+
+                float segW = (BarW - (HealthSegments - 1) * HealthGap) / HealthSegments;
+                for (int i = 0; i < HealthSegments; i++)
+                {
+                    view._segments[i] = Box(root.transform, $"Health Seg {i}", 78f + i * (segW + HealthGap), 46f,
+                        segW, BarH, new Color(1f, 1f, 1f, 26f / 255f));
+                }
+                Color outline = new Color(1f, 1f, 1f, 54f / 255f);
+                view._barOutlines[0] = Box(root.transform, "Health Outline Top", 77f, 45f, BarW + 2f, 1f, outline);
+                view._barOutlines[1] = Box(root.transform, "Health Outline Bottom", 77f, 46f + BarH, BarW + 2f, 1f, outline);
+                view._barOutlines[2] = Box(root.transform, "Health Outline Left", 77f, 45f, 1f, BarH + 2f, outline);
+                view._barOutlines[3] = Box(root.transform, "Health Outline Right", 78f + BarW, 45f, 1f, BarH + 2f, outline);
+
+                view.BuildCaption = TextEl(root.transform, font, "Build Caption", 78f, 61f, 40f, 14f, 14,
+                    TextAnchor.UpperLeft, Faint);
+                view.BuildCaption.text = "BUILD";
+
+                string[] pipNames = { "HP", "DMG", "SPD", "JMP" };
+                float[] pipXs = { 116f, 147f, 181f, 213f };
+                for (int i = 0; i < 4; i++)
+                {
+                    float px = pipXs[i];
+                    Pip pip = new Pip();
+                    pip.Box = Box(root.transform, $"Pip {i} Box", px, 62f, 8f, 8f,
+                        new Color(1f, 1f, 1f, 30f / 255f));
+                    Color pipOutline = new Color(1f, 1f, 1f, 46f / 255f);
+                    pip.Outlines[0] = Box(root.transform, $"Pip {i} Out Top", px - 1f, 61f, 10f, 1f, pipOutline);
+                    pip.Outlines[1] = Box(root.transform, $"Pip {i} Out Bottom", px - 1f, 70f, 10f, 1f, pipOutline);
+                    pip.Outlines[2] = Box(root.transform, $"Pip {i} Out Left", px - 1f, 61f, 1f, 10f, pipOutline);
+                    pip.Outlines[3] = Box(root.transform, $"Pip {i} Out Right", px + 8f, 61f, 1f, 10f, pipOutline);
+
+                    pip.Label = TextEl(root.transform, font, $"Pip {i} Label", px - 1f, 53f, 24f, 12f, 12,
+                        TextAnchor.UpperLeft, Faint);
+                    pip.Label.text = pipNames[i];
+
+                    pip.Value = TextEl(root.transform, font, $"Pip {i} Value", px + 2f, 73f, 20f, 14f, 13,
+                        TextAnchor.UpperLeft, Dim);
+
+                    view._pips[i] = pip;
+                }
+
+                return view;
+            }
+
+            static Image Box(Transform parent, string name, float dx, float dy, float w, float h, Color color)
+            {
+                GameObject go = new GameObject(name);
+                go.AddComponent<CanvasRenderer>();
+                RectTransform rect = go.AddComponent<RectTransform>();
+                go.transform.SetParent(parent);
+                rect.anchorMin = new Vector2(0f, 1f);
+                rect.anchorMax = new Vector2(0f, 1f);
+                rect.pivot = new Vector2(0f, 1f);
+                rect.anchoredPosition = new Vector2(dx * Scale, -dy * Scale);
+                rect.sizeDelta = new Vector2(w * Scale, h * Scale);
+                Image image = go.AddComponent<Image>();
+                image.color = color;
+                return image;
+            }
+
+            static Text TextEl(Transform parent, Font font, string name, float dx, float dy, float w, float h,
+                int size, TextAnchor align, Color color)
+            {
+                GameObject go = new GameObject(name);
+                go.AddComponent<CanvasRenderer>();
+                RectTransform rect = go.AddComponent<RectTransform>();
+                go.transform.SetParent(parent);
+                rect.anchorMin = new Vector2(0f, 1f);
+                rect.anchorMax = new Vector2(0f, 1f);
+                rect.pivot = align switch
+                {
+                    TextAnchor.UpperRight => new Vector2(1f, 1f),
+                    TextAnchor.UpperCenter => new Vector2(0.5f, 1f),
+                    _ => new Vector2(0f, 1f),
+                };
+                rect.anchoredPosition = new Vector2(dx * Scale, -dy * Scale);
+                rect.sizeDelta = new Vector2(w, h);
+                Text text = go.AddComponent<Text>();
+                text.font = font;
+                text.fontSize = size;
+                text.alignment = align;
+                text.horizontalOverflow = HorizontalWrapMode.Overflow;
+                text.verticalOverflow = VerticalWrapMode.Overflow;
+                text.color = color;
+                return text;
             }
         }
 
@@ -506,6 +715,151 @@ namespace HoodGlobalOffensive.Presentation
             }
         }
 
+        /// <summary>
+        /// The death / eliminated overlay (reference <c>Hud.DrawDeathOverlay</c>): full-screen
+        /// dark-red scrim (90, 10, 8, 60), a dark horizontal banner at 34% screen height
+        /// (8, 10, 14, 180) across the 1080p canvas, the red ELIMINATED title, "killed by {name}"
+        /// subtitle derived from the newest player-victim kill feed entry, the amber
+        /// "RESPAWNING IN 0.0" countdown, and the reminder hints ("death costs one upgrade level",
+        /// "press TAB for scores"). Hidden while alive.
+        /// </summary>
+        sealed class DeathOverlay
+        {
+            const float Scale = 1.5f;
+
+            public GameObject Root = null!;
+            Image Scrim = null!;
+            Image Banner = null!;
+            Text Eliminated = null!;
+            Text Killer = null!;
+            Text Respawn = null!;
+            Text CostHint = null!;
+            Text ScoresHint = null!;
+
+            public void Set(Simulation sim, Player p)
+            {
+                bool dead = !p.Alive;
+                Root.SetActive(dead);
+                if (!dead) return;
+
+                string? killerName = null;
+                for (int i = sim.KillFeed.Count - 1; i >= 0; i--)
+                {
+                    KillFeedEntry entry = sim.KillFeed[i];
+                    if (entry.VictimIsPlayer)
+                    {
+                        killerName = entry.Killer;
+                        break;
+                    }
+                }
+
+                if (killerName != null)
+                {
+                    Killer.gameObject.SetActive(true);
+                    Killer.text = $"killed by {killerName}";
+                }
+                else
+                {
+                    Killer.gameObject.SetActive(false);
+                }
+
+                float remaining = MathF.Max(0f, p.RespawnAt - sim.Time);
+                Respawn.text = $"RESPAWNING IN {remaining:0.0}";
+            }
+
+            public static DeathOverlay Build(Transform parent, Font font)
+            {
+                DeathOverlay view = new DeathOverlay();
+                GameObject root = new GameObject("Death Overlay");
+                root.AddComponent<CanvasRenderer>();
+                RectTransform rect = root.AddComponent<RectTransform>();
+                rect.anchorMin = Vector2.zero;
+                rect.anchorMax = new Vector2(1f, 1f);
+                rect.pivot = new Vector2(0.5f, 0.5f);
+                rect.anchoredPosition = Vector2.zero;
+                rect.sizeDelta = Vector2.zero;
+                root.transform.SetParent(parent);
+                view.Root = root;
+
+                view.Scrim = Box(root.transform, "Death Scrim", 0f, 0f, 1920f, 1080f,
+                    new Color(90f / 255f, 10f / 255f, 8f / 255f, 60f / 255f));
+                RectTransform scrimRect = view.Scrim.rectTransform;
+                scrimRect.anchorMin = Vector2.zero;
+                scrimRect.anchorMax = new Vector2(1f, 1f);
+                scrimRect.sizeDelta = Vector2.zero;
+                scrimRect.anchoredPosition = Vector2.zero;
+
+                const float bannerY = 367.2f;
+                const float bannerH = 177f;
+                view.Banner = Box(root.transform, "Death Banner", 0f, bannerY, 1920f, bannerH,
+                    new Color(8f / 255f, 10f / 255f, 14f / 255f, 180f / 255f));
+                RectTransform bannerRect = view.Banner.rectTransform;
+                bannerRect.anchorMin = new Vector2(0f, 1f);
+                bannerRect.anchorMax = new Vector2(1f, 1f);
+                bannerRect.pivot = new Vector2(0.5f, 1f);
+                bannerRect.anchoredPosition = new Vector2(0f, -bannerY);
+                bannerRect.sizeDelta = new Vector2(0f, bannerH);
+
+                view.Eliminated = TextCenter(root.transform, font, "Eliminated Title",
+                    -(bannerY + 14f * Scale), 45, Danger);
+                view.Eliminated.text = "ELIMINATED";
+
+                view.Killer = TextCenter(root.transform, font, "Killer Subtitle",
+                    -(bannerY + 52f * Scale), 15, Dim);
+
+                view.Respawn = TextCenter(root.transform, font, "Respawn Countdown",
+                    -(bannerY + 78f * Scale), 22, Amber);
+
+                view.CostHint = TextCenter(root.transform, font, "Cost Hint",
+                    -(bannerY + 98f * Scale), 15, Faint);
+                view.CostHint.text = "death costs one upgrade level";
+
+                view.ScoresHint = TextCenter(root.transform, font, "Scores Hint",
+                    -(bannerY + 112f * Scale), 15, Faint);
+                view.ScoresHint.text = "press TAB for scores";
+
+                view.Root.SetActive(false);
+                return view;
+            }
+
+            static Image Box(Transform parent, string name, float dx, float dy, float w, float h, Color color)
+            {
+                GameObject go = new GameObject(name);
+                go.AddComponent<CanvasRenderer>();
+                RectTransform rect = go.AddComponent<RectTransform>();
+                go.transform.SetParent(parent);
+                rect.anchorMin = new Vector2(0.5f, 1f);
+                rect.anchorMax = new Vector2(0.5f, 1f);
+                rect.pivot = new Vector2(0.5f, 1f);
+                rect.anchoredPosition = new Vector2(dx, -dy);
+                rect.sizeDelta = new Vector2(w, h);
+                Image image = go.AddComponent<Image>();
+                image.color = color;
+                return image;
+            }
+
+            static Text TextCenter(Transform parent, Font font, string name, float topY, int size, Color color)
+            {
+                GameObject go = new GameObject(name);
+                go.AddComponent<CanvasRenderer>();
+                RectTransform rect = go.AddComponent<RectTransform>();
+                go.transform.SetParent(parent);
+                rect.anchorMin = new Vector2(0.5f, 1f);
+                rect.anchorMax = new Vector2(0.5f, 1f);
+                rect.pivot = new Vector2(0.5f, 1f);
+                rect.anchoredPosition = new Vector2(0f, topY);
+                rect.sizeDelta = new Vector2(1000f, size + 10f);
+                Text text = go.AddComponent<Text>();
+                text.font = font;
+                text.fontSize = size;
+                text.alignment = TextAnchor.MiddleCenter;
+                text.horizontalOverflow = HorizontalWrapMode.Overflow;
+                text.verticalOverflow = VerticalWrapMode.Overflow;
+                text.color = color;
+                return text;
+            }
+        }
+
         Camera? _camera;
         Transform? _canvasRoot;
         readonly List<Text> _damageShadows = new();
@@ -561,40 +915,8 @@ namespace HoodGlobalOffensive.Presentation
             // (reticle, hitmarker, scope overlay) are never faded.
             float op = PeripheralOpacity(def, p.ZoomBlend);
 
-            // Health card --------------------------------------------------
-            float health = U.Clamp01(p.Health / p.MaxHealth);
-            bool lowHealth = p.Health < Cfg.LowHealthTraumaThreshold;
-            Color healthColor = lowHealth ? Danger : (health > 0.6f ? Ink : Amber);
-            _healthValue.text = $"{MathF.Ceiling(p.Health):0}";
-            _healthValue.color = Fade(healthColor, op);
-            _healthLabel.color = Fade(lowHealth ? Danger : Dim, op);
-            if (_healthStatus != null)
-            {
-                _healthStatus.text = lowHealth ? "CRITICAL" : "COMBAT READY";
-                _healthStatus.color = Fade(lowHealth ? Danger : Good, op);
-            }
-            float fillWidth = _healthTrack.rectTransform.sizeDelta.x * health;
-            _healthFill.rectTransform.sizeDelta =
-                new Vector2(fillWidth, _healthFill.rectTransform.sizeDelta.y);
-            _healthFill.color = Fade(lowHealth ? Danger : Good, op);
-            _healthTrack.color = Fade(new Color(1f, 1f, 1f, 0.10f), op);
-
-            // Build pips (reference DrawVitals upgrade row) -----------------
-            if (_buildCaption != null) _buildCaption.color = Fade(Faint, op);
-            for (int i = 0; i < BuildStats.Length; i++)
-            {
-                int level = Simulation.UpgradeLevel(p, BuildStats[i]);
-                Image? box = _pipBoxes[i];
-                Text? value = _pipValues[i];
-                Text? pipLabel = _pipLabels[i];
-                if (box == null || value == null || pipLabel == null) continue;
-                box.color = level > 0
-                    ? Fade(new Color(Gold.r, Gold.g, Gold.b, 1f), op)
-                    : Fade(new Color(1f, 1f, 1f, 30f / 255f), op);
-                value.text = level > 0 ? $"{level}" : "";
-                value.color = Fade(Dim, op);
-                pipLabel.color = Fade(Faint, op);
-            }
+            // Vitals card (reference DrawVitals) ---------------------------
+            _vitals?.Set(p, op);
 
             // Weapon readout card (reference DrawWeaponReadout) -------------
             _weaponReadout?.Set(p, sim, op);
@@ -733,6 +1055,7 @@ namespace HoodGlobalOffensive.Presentation
             _damageOverlay.color = new Color(DamageTint.r, DamageTint.g, DamageTint.b, flashAlpha);
             _damageOverlay.gameObject.SetActive(flashAlpha > 0.001f);
 
+            bool lowHealth = p.Health < Cfg.LowHealthTraumaThreshold;
             float traumaAlpha = lowHealth
                 ? p.LowHealthTrauma * (0.5f + 0.5f * p.TraumaPulse) * 0.45f
                 : 0f;
@@ -747,13 +1070,8 @@ namespace HoodGlobalOffensive.Presentation
                 _damageWheel.localRotation = Quaternion.Euler(0f, 0f, -relative);
             }
 
-            // Death / respawn ----------------------------------------------
-            bool deathVisible = !p.Alive;
-            _deathNotice.gameObject.SetActive(deathVisible);
-            if (deathVisible)
-            {
-                _deathNotice.text = $"RESPAWNING IN {MathF.Max(0f, p.RespawnAt - sim.Time):0.0}s";
-            }
+            // Death overlay (reference DrawDeathOverlay) --------------------
+            _deathOverlay?.Set(sim, p);
 
             // Crosshair -----------------------------------------------------
             SyncCrosshair(p, def);
@@ -1077,38 +1395,8 @@ namespace HoodGlobalOffensive.Presentation
             // like the reference draw order (peripheral HUD drawn after the scope).
             _scope = ScopeOverlay.Create(root);
 
-            // Health card (bottom-left, mirrors the reference card stack) ----
-            _healthValue = MakeText(root, "Health", AnchorBottomLeft,
-                new Vector2(24f, 60f), new Vector2(240f, 60f), 44, TextAnchor.LowerLeft, Ink);
-            _healthLabel = MakeText(root, "Health Label", AnchorBottomLeft,
-                new Vector2(26f, 40f), new Vector2(240f, 20f), 10, TextAnchor.LowerLeft, Dim);
-            _healthLabel.text = "HEALTH";
-            _healthStatus = MakeText(root, "Health Status", AnchorBottomLeft,
-                new Vector2(74f, 40f), new Vector2(220f, 20f), 10, TextAnchor.LowerLeft, Good);
-            _healthStatus.text = "COMBAT READY";
-            _healthTrack = MakeImage(root, "Health Track", AnchorBottomLeft,
-                new Vector2(24f, 18f), new Vector2(180f, 8f), new Color(1f, 1f, 1f, 0.10f));
-            _healthFill = MakeImage(root, "Health Fill", AnchorBottomLeft,
-                new Vector2(24f, 18f), new Vector2(180f, 8f), Good);
-
-            // Build pips (reference DrawVitals upgrade row) -------------------
-            _buildCaption = MakeText(root, "Build Caption", AnchorBottomLeft,
-                new Vector2(218f, 62f), new Vector2(60f, 16f), 10, TextAnchor.LowerLeft, Faint);
-            _buildCaption.text = "BUILD";
-            for (int i = 0; i < BuildStats.Length; i++)
-            {
-                float x = 296f + i * 47f;
-                _pipLabels[i] = MakeText(root, $"Pip {i} Label", AnchorBottomLeft,
-                    new Vector2(x, 50f), new Vector2(40f, 14f), 9, TextAnchor.LowerCenter, Faint);
-                _pipBoxes[i] = MakeImage(root, $"Pip {i} Box", AnchorBottomLeft,
-                    new Vector2(x, 36f), new Vector2(12f, 12f), new Color(1f, 1f, 1f, 30f / 255f));
-                _pipValues[i] = MakeText(root, $"Pip {i} Value", AnchorBottomLeft,
-                    new Vector2(x, 20f), new Vector2(40f, 14f), 10, TextAnchor.UpperCenter, Dim);
-            }
-            _pipLabels[0]!.text = "HP";
-            _pipLabels[1]!.text = "DMG";
-            _pipLabels[2]!.text = "SPD";
-            _pipLabels[3]!.text = "JMP";
+            // Vitals card (bottom-left, reference DrawVitals) ---------------
+            _vitals = VitalsReadout.Build(root, _font!);
 
             // Weapon readout card (bottom-right, reference DrawWeaponReadout) -
             _weaponReadout = WeaponReadout.Build(root, _font!);
@@ -1221,10 +1509,8 @@ namespace HoodGlobalOffensive.Presentation
             _stationTitle.gameObject.SetActive(false);
             _stationSub.gameObject.SetActive(false);
 
-            // Death / respawn notice (lower-centre) ---------------------------
-            _deathNotice = MakeText(root, "Death Notice", AnchorBottomCenter,
-                new Vector2(0f, 120f), new Vector2(1200f, 40f), 30, TextAnchor.MiddleCenter, Danger);
-            _deathNotice.gameObject.SetActive(false);
+            // Death overlay (reference DrawDeathOverlay) --------------------
+            _deathOverlay = DeathOverlay.Build(root, _font!);
 
             // Scoreboard overlay (hidden; reference DrawScoreboardContent at 1.5x on
             // the 1080p canvas: panel 1140 wide, row pitch 39, top offset 150).

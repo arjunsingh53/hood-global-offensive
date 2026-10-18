@@ -45,8 +45,9 @@
   `.gitattributes` prep, combat-effects blockout, the HUD floating damage numbers, the crosshair
   options port, the camera-feedback levels, the main-menu match-setup rows, the upgrade-cabinet
   overlay, the Tab scoreboard + pause/match-over parity fixes, the scenic menu backdrop, the
-  scope/hook/vitals HUD pass, the top-bar + compass pass, the rotating radar scanner, the weapon-readout card) are
-  **local only — 21 commits ahead of `origin/main`** — keep them local until the team asks
+  scope/hook HUD pass, the top-bar + compass pass, the rotating radar scanner, the weapon-readout card,
+  and the biological vitals card + death overlay pass) are
+  **local only — 22 commits ahead of `origin/main`** — keep them local until the team asks
   for another push.
   Pre-push gate for future work: `-warnaserror` build clean, both CI gates `RESULT: PASS`, `tools/parity`
   `PARITY: PASS`, `tools/presentation-check` build clean, and `tools/editmode-check` build clean.
@@ -266,6 +267,19 @@ behaviour questions.
     the knife box overhangs the screen edge exactly like the reference. The
     card/slots reuse the fill + 1 px border approximation (corner brackets still
     owed by the skin pass).
+    **Vitals card + death overlay ported:** the bottom-left biological status
+    card is now the ported `VitalsReadout` (reference `Hud.DrawVitals`): inside
+    a 250x88 card at margin 24 (1.5x scale) mirroring the bottom-right weapon
+    card, with the health-status left rail, the large health numeral with 1 px
+    drop shadow, HEALTH caption, CRITICAL / COMBAT READY status, the ten-segment
+    health bar inside its 1 px outline, and the four build pips (HP, DMG, SPD,
+    JMP) with live stat levels from `Simulation.UpgradeLevel` and 1 px borders.
+    The death screen is now the ported `DeathOverlay` (reference
+    `Hud.DrawDeathOverlay`): full-screen dark-red scrim (90, 10, 8, 60), dark
+    horizontal banner at 34% height across the 1080p canvas, red ELIMINATED
+    title, "killed by {name}" subtitle derived from the kill feed, amber
+    "RESPAWNING IN 0.0" countdown, and the upgrade-cost and Tab score hints.
+    The scoreboard draws on top of the death overlay when Tab is held.
   - `MenuSync.cs` — code-built uGUI front end and game-flow owner (main / pause / settings /
     crosshair options / match-over). It never changes sim rules: leaving the Playing screen
     disables the
@@ -504,7 +518,7 @@ the next session knows whether GitHub is current.
 | Unity audio synthesis + mix routing port, cue manifest (engine-free) | `unity/Assets/Scripts/Sim/Audio/` (`WavGen.cs`, `AudioCatalog.cs`, `AudioMix.cs`) |
 | Sim→Unity bridge: fixed-tick `Simulation.Update`, `InputFrame` adapter, body/camera sync | `unity/Assets/Scripts/Presentation/MatchDriver.cs` + `HGO.Presentation.asmdef` |
 | Unity audio playback: PCM→`AudioClip` bank, voice pool, drains `Sim.Sounds` via `AudioMix.Resolve` | `unity/Assets/Scripts/Presentation/SimAudioPlayer.cs` |
-| Unity blockout pass: brush cubes, bot capsules, sim-driven view-model + muzzle flash, code-built uGUI HUD (incl. Tab scoreboard + mesh radar) + menu stack, pooled combat effects, crosshair profile + reticle, camera-feedback levels, match-setup rows, upgrade-cabinet overlay | `unity/Assets/Scripts/Presentation/` (`MapBlockout.cs`, `ActorViews.cs`, `ViewModelSync.cs`, `HudSync.cs`, `RadarGraphic.cs`, `MenuSync.cs`, `EffectsSync.cs`, `CrosshairSettings.cs`, `CameraFeedbackSettings.cs`, `UpgradeSync.cs`) |
+| Unity blockout pass: brush cubes, bot capsules, sim-driven view-model + muzzle flash, code-built uGUI HUD (incl. Tab scoreboard + mesh radar, vitals/weapon cards, death overlay) + menu stack, pooled combat effects, crosshair profile + reticle, camera-feedback levels, match-setup rows, upgrade-cabinet overlay | `unity/Assets/Scripts/Presentation/` (`MapBlockout.cs`, `ActorViews.cs`, `ViewModelSync.cs`, `HudSync.cs`, `RadarGraphic.cs`, `MenuSync.cs`, `EffectsSync.cs`, `CrosshairSettings.cs`, `CameraFeedbackSettings.cs`, `UpgradeSync.cs`) |
 | Parity suite (shared) + Unity edit-mode tests | `unity/Assets/Tests/EditMode/` (`ParityChecks.cs`, `ParityTests.cs`, `HGO.Sim.Tests.asmdef`) |
 | Parity console harness + golden reports | `tools/parity/` (`Parity.csproj`, thin `Program.cs`, `goldens/`) |
 | Presentation compile gate (editor-free) | `tools/presentation-check/` (`PresentationCheck.csproj`, `UnityStubs.cs`, thin `Program.cs`) |
