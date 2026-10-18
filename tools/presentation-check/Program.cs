@@ -26,6 +26,7 @@ namespace HoodGlobalOffensive.PresentationCheck
             Type crosshairGraphic = typeof(CrosshairGraphic);
             Type cameraFeedback = typeof(CameraFeedbackSettings);
             Type upgrade = typeof(UpgradeSync);
+            Type radarGraphic = typeof(RadarGraphic);
             Console.WriteLine($"MatchDriver type resolved: {driver.FullName}");
             Console.WriteLine($"SimAudioPlayer type resolved: {audio.FullName}");
             Console.WriteLine($"MapBlockout type resolved: {map.FullName}");
@@ -38,6 +39,7 @@ namespace HoodGlobalOffensive.PresentationCheck
             Console.WriteLine($"CrosshairGraphic type resolved: {crosshairGraphic.FullName}");
             Console.WriteLine($"CameraFeedbackSettings type resolved: {cameraFeedback.FullName}");
             Console.WriteLine($"UpgradeSync type resolved: {upgrade.FullName}");
+            Console.WriteLine($"RadarGraphic type resolved: {radarGraphic.FullName}");
             Console.WriteLine("---------------------------------");
             Console.WriteLine("PRESENTATION: PASS");
             return 0;

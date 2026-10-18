@@ -349,6 +349,28 @@ namespace UnityEngine
             value < min ? min : (value > max ? max : value);
         public static float Deg2Rad => 0.017453292519943295f;
     }
+
+    public struct Color32
+    {
+        public byte r;
+        public byte g;
+        public byte b;
+        public byte a;
+
+        public Color32(byte r, byte g, byte b, byte a)
+        {
+            this.r = r;
+            this.g = g;
+            this.b = b;
+            this.a = a;
+        }
+    }
+
+    public struct UIVertex
+    {
+        public Vector3 position;
+        public Color32 color;
+    }
 }
 
 namespace UnityEngine.UI
@@ -399,5 +421,33 @@ namespace UnityEngine.UI
     public class Image : Graphic
     {
         public override string ToString() => name;
+    }
+
+    public class MaskableGraphic : Graphic
+    {
+        protected virtual void OnPopulateMesh(VertexHelper vh)
+        {
+        }
+
+        public void SetVerticesDirty()
+        {
+        }
+    }
+
+    public class VertexHelper
+    {
+        private int _count;
+
+        public int currentVertCount => _count;
+
+        public void Clear() => _count = 0;
+
+        public void AddVert(UIVertex vertex) => _count++;
+
+        public void AddUIVertexQuad(UIVertex[] quad) => _count += 4;
+
+        public void AddTriangle(int index0, int index1, int index2)
+        {
+        }
     }
 }

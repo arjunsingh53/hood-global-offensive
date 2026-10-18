@@ -13,14 +13,15 @@ namespace HoodGlobalOffensive.Presentation
     /// First-pass uGUI HUD driven entirely by sim state — no editor wiring needed:
     /// the canvas, scaler and every element are built in code. It mirrors the
     /// reference HUD's information layer (health card with build pips, ammo card,
-    /// top bar with match clock + YOU/LEAD/FT line, compass tape, kill feed,
-    /// hitmarker, hook status squares, station prompt, damage flash + directional
-    /// indicator, low-health vignette, scope overlay, match-over banner, Tab
-    /// scoreboard) as one blockout; per-part colours follow the reference palette
-    /// where the values were already captured. The peripheral anchors fade to 0.38
-    /// opacity behind a real scope / calibrated sight picture (reference
-    /// Hud.PeripheralHudOpacity); the reticle, hitmarker and scope mask are never
-    /// faded. Read-only view: it never writes to the simulation.
+    /// top bar with match clock + YOU/LEAD/FT line, compass tape, rotating radar
+    /// scanner, kill feed, hitmarker, hook status squares, station prompt, damage
+    /// flash + directional indicator, low-health vignette, scope overlay,
+    /// match-over banner, Tab scoreboard) as one blockout; per-part colours
+    /// follow the reference palette where the values were already captured. The
+    /// peripheral anchors fade to 0.38 opacity behind a real scope / calibrated
+    /// sight picture (reference Hud.PeripheralHudOpacity); the reticle, hitmarker
+    /// and scope mask are never faded. Read-only view: it never writes to the
+    /// simulation.
     /// </summary>
     public sealed class HudSync : MonoBehaviour
     {
@@ -61,6 +62,11 @@ namespace HoodGlobalOffensive.Presentation
         Text? _compassHeading;
         Image?[] _compassTicks = Array.Empty<Image?>();
         Text?[] _compassTickLabels = Array.Empty<Text?>();
+        Image? _radarBorder;
+        Image? _radarFill;
+        RadarGraphic? _radar;
+        Text? _radarTitle;
+        Text? _radarRange;
         CrosshairGraphic _crosshair;
         Text _hitmarker;
         Text _deathNotice;
@@ -418,6 +424,16 @@ namespace HoodGlobalOffensive.Presentation
                 int headingDisplay = ((int)MathF.Round(heading)) % 360;
                 _compassHeading.text = $"{headingDisplay:000}";
                 _compassHeading.color = Fade(Faint, op);
+            }
+
+            // Radar (reference DrawRadar) -----------------------------------
+            if (_radar != null && _radarBorder != null && _radarFill != null)
+            {
+                _radarBorder.color = Fade(new Color(232f / 255f, 240f / 255f, 244f / 255f, 74f / 255f), op);
+                _radarFill.color = Fade(new Color(5f / 255f, 8f / 255f, 13f / 255f, 206f / 255f), op);
+                _radar.Sync(sim, op);
+                if (_radarTitle != null) _radarTitle.color = Fade(Faint, op);
+                if (_radarRange != null) _radarRange.color = Fade(Faint, op);
             }
 
             // Kill feed (newest first, 6.5 s life like the reference) -------
@@ -886,6 +902,26 @@ namespace HoodGlobalOffensive.Presentation
                 _compassTicks[i]!.gameObject.SetActive(false);
                 _compassTickLabels[i]!.gameObject.SetActive(false);
             }
+
+            // Radar (reference DrawRadar; player-centred, rotates with yaw) --
+            _radarBorder = MakeImage(root, "Radar Border", AnchorTopLeft,
+                new Vector2(136.5f, -133.5f), new Vector2(216f, 216f),
+                new Color(232f / 255f, 240f / 255f, 244f / 255f, 74f / 255f));
+            _radarFill = MakeImage(root, "Radar Fill", AnchorTopLeft,
+                new Vector2(136.5f, -133.5f), new Vector2(214f, 214f),
+                new Color(5f / 255f, 8f / 255f, 13f / 255f, 206f / 255f));
+            GameObject radarGo = new GameObject("Radar");
+            radarGo.AddComponent<CanvasRenderer>();
+            radarGo.AddComponent<RectTransform>();
+            radarGo.transform.SetParent(root);
+            ApplyRect(radarGo, AnchorTopLeft, new Vector2(136.5f, -133.5f), new Vector2(216f, 216f));
+            _radar = radarGo.AddComponent<RadarGraphic>();
+            _radarTitle = MakeText(root, "Radar Title", AnchorTopLeft,
+                new Vector2(126.5f, -43.5f), new Vector2(160f, 18f), 14, TextAnchor.MiddleLeft, Faint);
+            _radarTitle.text = "FIELD SCANNER";
+            _radarRange = MakeText(root, "Radar Range", AnchorTopLeft,
+                new Vector2(146.5f, -210f), new Vector2(160f, 16f), 12, TextAnchor.MiddleRight, Faint);
+            _radarRange.text = "RANGE 72";
 
             // Kill feed (top-right) ------------------------------------------
             _killFeed = new Text[FeedLines];

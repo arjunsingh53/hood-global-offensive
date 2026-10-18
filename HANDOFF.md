@@ -45,8 +45,8 @@
   `.gitattributes` prep, combat-effects blockout, the HUD floating damage numbers, the crosshair
   options port, the camera-feedback levels, the main-menu match-setup rows, the upgrade-cabinet
   overlay, the Tab scoreboard + pause/match-over parity fixes, the scenic menu backdrop, the
-  scope/hook/vitals HUD pass, the top-bar + compass pass) are
-  **local only — 19 commits ahead of `origin/main`** — keep them local until the team asks
+  scope/hook/vitals HUD pass, the top-bar + compass pass, the rotating radar scanner) are
+  **local only — 20 commits ahead of `origin/main`** — keep them local until the team asks
   for another push.
   Pre-push gate for future work: `-warnaserror` build clean, both CI gates `RESULT: PASS`, `tools/parity`
   `PARITY: PASS`, `tools/presentation-check` build clean, and `tools/editmode-check` build clean.
@@ -244,8 +244,15 @@ behaviour questions.
     `Simulation.Leaderboard()`; the panel border tints with the accent/urgency colour since
     the arena corner brackets are not drawn) and the heading tape (630-wide at 1.5x, ticks
     every 15 degrees with N/NE/... labels at 45s, gold caret, three-digit heading under the
-    strip; game yaw flipped to clockwise compass degrees exactly like the reference). Still
-    blockout: the radar, weapon-readout detail lines, the arena-panel card skin (corner
+    strip; game yaw flipped to clockwise compass degrees exactly like the reference).
+    **Radar ported:** `RadarGraphic` (a `MaskableGraphic` building the scanner as a uGUI
+    mesh in the reference's logical units with the 1.5x scale applied at emit) draws the
+    player-centred rotating scanner — backdrop circles, grid rings/cross, every non-floor
+    brush edge as a yaw-rotated segment clipped to the circle, always-on gold cabinet dots,
+    contact dots (bright when in LOS and under 1100 m) that degrade to edge chevrons past
+    radius-7, the up-facing player triangle with boundary rings — over the square
+    arena-panel border/fill images, with FIELD SCANNER / RANGE 72 labels. Still
+    blockout: the weapon-readout detail lines, the arena-panel card skin (corner
     brackets), and the peripheral-fringe/trauma-mark vignette extras.
   - `MenuSync.cs` — code-built uGUI front end and game-flow owner (main / pause / settings /
     crosshair options / match-over). It never changes sim rules: leaving the Playing screen
@@ -485,7 +492,7 @@ the next session knows whether GitHub is current.
 | Unity audio synthesis + mix routing port, cue manifest (engine-free) | `unity/Assets/Scripts/Sim/Audio/` (`WavGen.cs`, `AudioCatalog.cs`, `AudioMix.cs`) |
 | Sim→Unity bridge: fixed-tick `Simulation.Update`, `InputFrame` adapter, body/camera sync | `unity/Assets/Scripts/Presentation/MatchDriver.cs` + `HGO.Presentation.asmdef` |
 | Unity audio playback: PCM→`AudioClip` bank, voice pool, drains `Sim.Sounds` via `AudioMix.Resolve` | `unity/Assets/Scripts/Presentation/SimAudioPlayer.cs` |
-| Unity blockout pass: brush cubes, bot capsules, sim-driven view-model + muzzle flash, code-built uGUI HUD (incl. Tab scoreboard) + menu stack, pooled combat effects, crosshair profile + reticle, camera-feedback levels, match-setup rows, upgrade-cabinet overlay | `unity/Assets/Scripts/Presentation/` (`MapBlockout.cs`, `ActorViews.cs`, `ViewModelSync.cs`, `HudSync.cs`, `MenuSync.cs`, `EffectsSync.cs`, `CrosshairSettings.cs`, `CameraFeedbackSettings.cs`, `UpgradeSync.cs`) |
+| Unity blockout pass: brush cubes, bot capsules, sim-driven view-model + muzzle flash, code-built uGUI HUD (incl. Tab scoreboard + mesh radar) + menu stack, pooled combat effects, crosshair profile + reticle, camera-feedback levels, match-setup rows, upgrade-cabinet overlay | `unity/Assets/Scripts/Presentation/` (`MapBlockout.cs`, `ActorViews.cs`, `ViewModelSync.cs`, `HudSync.cs`, `RadarGraphic.cs`, `MenuSync.cs`, `EffectsSync.cs`, `CrosshairSettings.cs`, `CameraFeedbackSettings.cs`, `UpgradeSync.cs`) |
 | Parity suite (shared) + Unity edit-mode tests | `unity/Assets/Tests/EditMode/` (`ParityChecks.cs`, `ParityTests.cs`, `HGO.Sim.Tests.asmdef`) |
 | Parity console harness + golden reports | `tools/parity/` (`Parity.csproj`, thin `Program.cs`, `goldens/`) |
 | Presentation compile gate (editor-free) | `tools/presentation-check/` (`PresentationCheck.csproj`, `UnityStubs.cs`, thin `Program.cs`) |
