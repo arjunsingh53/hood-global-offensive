@@ -11,10 +11,13 @@
 
 ## Where the project stands
 
-- **Release:** `0.2.2`, tagged `v0.2.2`, published on the
+- **Release:** `0.2.3`, tagged `v0.2.3` (annotated), published on the
   [releases page](https://github.com/arjunsingh53/hood-global-offensive/releases) with a
   self-contained Windows x64 `HoodGlobalOffensive.exe` (assets embedded, no .NET install needed).
-- **`main` = the v0.2.2 work plus follow-up commits:** the README screenshot gallery and main menu
+  It carries the scoped-sniper/scope/decal fixes, the sky-ramp smoothing and the
+  tactical-soldier bot presentation; the `v0.2.2` asset had also been refreshed in place earlier
+  the same day (see the bullet below).
+- **`main` = the 0.2.3 release work:** the README screenshot gallery and main menu
   layout fix with `HANDOFF.md`/`AGENTS.md` (`9e782f9`), the recorded Unity migration plan
   (`6a6fbdd`), the Unity sim port with the golden-value parity harness (`8e670b9`), the
   handoff-per-task rule (`3ebec29`), the push policy (`a5ebde6`), the shared parity suite with

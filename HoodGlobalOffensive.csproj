@@ -9,7 +9,7 @@
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-    <Version>0.2.2</Version>
+    <Version>0.2.3</Version>
     <Product>HOODMATCH</Product>
     <Description>Fast-movement arena FPS with dual grappling hooks and kill-point upgrades.</Description>
     <!-- Raylib-cs hands out vertex data as pointers; WeaponModels reads it to

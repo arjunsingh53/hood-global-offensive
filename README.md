@@ -8,14 +8,14 @@ cabinets to permanently upgrade your health, damage, speed and jump for the matc
 every sound is synthesised at startup, the weapon viewmodels are animated rigs, and the supplied
 map loads directly from a local GLB.
 
-![status](https://img.shields.io/badge/status-early%20access%200.2.2-ffba38)
+![status](https://img.shields.io/badge/status-early%20access%200.2.3-ffba38)
 ![language](https://img.shields.io/badge/C%23-.NET%2010-512bd4)
 ![framework](https://img.shields.io/badge/raylib--cs-8.1.0-2f6f4e)
 ![platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey)
 ![license](https://img.shields.io/badge/license-MIT-blue)
 
 > ### Early access
-> `0.2.2` is a playable single-player-vs-bots worktree: one game mode, five maps, no networking.
+> `0.2.3` is a playable single-player-vs-bots worktree: one game mode, five maps, no networking.
 > The simulation is deterministic given a seed, and every build is verified by a headless harness
 > before it ships. The latest pass added animated viewmodel rigs, rebuilt firearm audio and a
 > camera-anchored sky. See [docs/ROADMAP.md](docs/ROADMAP.md) for what is planned next.

@@ -10,8 +10,15 @@ the minor number may contain breaking changes.
 
 ## [Unreleased]
 
-Start of the complete migration to Unity: the deterministic simulation is ported into the Unity
-project and byte-verified against this reference implementation by a parity harness.
+Nothing yet — the next cycle lands here.
+
+---
+
+## [0.2.3] — 2026-10-18
+
+Presentation, accuracy and character pass — plus the start of the complete migration to Unity:
+the deterministic simulation is ported into the Unity project and byte-verified against this
+reference implementation by a parity harness.
 
 ### Added
 
