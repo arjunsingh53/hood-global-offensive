@@ -25,6 +25,12 @@ namespace HoodGlobalOffensive.Presentation
     /// focused setting. Attach it to the MatchDriver GameObject. The driver may still
     /// lock the cursor in its own <c>Awake</c>: this component applies menu state in
     /// <c>Start</c>, which is guaranteed to run after every <c>Awake</c>.
+    ///
+    /// The main screen renders the reference <c>Screens.MainMenu.Draw</c> skin (left command
+    /// surface, panelled label/value setup rows, LOCAL OPERATION match brief, footer hints)
+    /// in the reference's 1280x720 design canvas mapped at the canvas's fixed 1.5x; the
+    /// pause / settings / crosshair-options / match-over screens are still centred blockout
+    /// rows awaiting their own skin pass.
     /// </summary>
     public sealed class MenuSync : MonoBehaviour
     {
@@ -50,11 +56,35 @@ namespace HoodGlobalOffensive.Presentation
         const float MaxSensitivity = 3.0f;
         const float SensitivityStep = 0.1f;
 
-        static readonly Color Backdrop = new Color(0.04f, 0.05f, 0.06f, 0.82f);
-        static readonly Color Ink = new Color(0.93f, 0.95f, 0.96f);
-        static readonly Color Dim = new Color(0.55f, 0.58f, 0.60f);
+        // The front-end palette is now the reference's exact byte values
+        // (src/UI/Ui.cs + the colour literals in Screens.MainMenu.Draw)
+        // instead of eyeballed floats, so the two front ends cannot drift.
+        static readonly Color Scrim = new Color(4f / 255f, 7f / 255f, 11f / 255f, 94f / 255f);
+        static readonly Color CommandSurface = new Color(8f / 255f, 11f / 255f, 16f / 255f, 214f / 255f);
+        static readonly Color Ink = new Color(236f / 255f, 236f / 255f, 234f / 255f);
+        static readonly Color Dim = new Color(236f / 255f, 236f / 255f, 234f / 255f, 140f / 255f);
+        static readonly Color Faint = new Color(236f / 255f, 236f / 255f, 234f / 255f, 70f / 255f);
+        static readonly Color Accent = new Color(1f, 186f / 255f, 56f / 255f);
+        static readonly Color Good = new Color(118f / 255f, 206f / 255f, 124f / 255f);
+        static readonly Color RowFill = new Color(1f, 1f, 1f, 10f / 255f);
+        static readonly Color RowFillSelected = new Color(1f, 186f / 255f, 56f / 255f, 46f / 255f);
+        static readonly Color RowBorder = new Color(1f, 1f, 1f, 22f / 255f);
+        static readonly Color Rule = new Color(1f, 1f, 1f, 34f / 255f);
+        static readonly Color BriefFill = new Color(8f / 255f, 11f / 255f, 16f / 255f, 196f / 255f);
+        static readonly Color BriefBorder = new Color(1f, 1f, 1f, 42f / 255f);
+        static readonly Color BriefRule = new Color(1f, 1f, 1f, 28f / 255f);
+        // Blockout screens only — the reference skin uses Accent above.
         static readonly Color Gold = new Color(0.94f, 0.78f, 0.35f);
         static readonly Color PreviewBackdrop = new Color(0.02f, 0.03f, 0.045f, 0.92f);
+
+        // The reference front end is authored in Ui's 1280x720 design canvas
+        // and letterboxed to the window; the menu canvas is a fixed
+        // 1920x1080 CanvasScaler, so one design unit maps to 1.5 canvas px.
+        const float UiScale = 1.5f;
+
+        static float D(float v) => v * UiScale;
+
+        static int DSize(float design) => (int)Math.Round(design * UiScale);
 
         readonly string[] _rows = new string[12];
         readonly CrosshairSettings _crosshair = new();
@@ -66,12 +96,21 @@ namespace HoodGlobalOffensive.Presentation
         UpgradeSync? _upgradeSync;
         Font? _font;
         GameObject? _panel;
+        GameObject? _mainRoot;
         GameObject? _previewPanel;
         CrosshairGraphic? _previewCrosshair;
         Text _title;
         Text _subtitle;
         Text _hint;
         Text[] _rowTexts;
+        // Reference-skin main menu (Screens.MainMenu.Draw): label/value row
+        // panels with the selection carried by the panel highlight, plus the
+        // LOCAL OPERATION match-brief card whose map name updates live.
+        Text[]? _rowLabels;
+        Text[]? _rowValues;
+        Image[]? _rowFills;
+        Image[]? _rowOutlines;
+        Text? _briefMap;
 
         Screen _screen = Screen.Main;
         Screen _settingsReturn = Screen.Main;
@@ -488,20 +527,22 @@ namespace HoodGlobalOffensive.Presentation
             switch (_screen)
             {
                 case Screen.Main:
-                    _title.text = "HOODMATCH";
-                    _subtitle.text = "FIRST-PERSON BLOCKOUT";
-                    _rows[0] = "PLAY";
-                    _rows[1] = $"SLOT 1   {_loadout[0]}";
-                    _rows[2] = $"SLOT 2   {_loadout[1]}";
-                    _rows[3] = $"SLOT 3   {_loadout[2]}";
-                    _rows[4] = $"MAP   {_mapName.ToUpperInvariant()}";
-                    _rows[5] = $"BOTS   {_botCount}";
-                    _rows[6] = $"BOT SKILL   {_skill.ToString().ToUpperInvariant()}";
-                    _rows[7] = $"KILL LIMIT   {_killsToWin}";
-                    _rows[8] = $"CROSSHAIR OPTIONS   {_crosshair.PresetLabel}";
-                    _rows[9] = $"CAMERA FEEDBACK   {_cameraFeedback.Label}";
-                    _rows[10] = "SETTINGS";
-                    _rows[11] = "QUIT";
+                    // Reference-skin rows: label left / value right, with the
+                    // panel highlight carrying the selection (no ">" prefix).
+                    // Row order is unchanged — Activate()/Update() index it.
+                    SetMainRow(0, "START DEATHMATCH", "");
+                    SetMainRow(1, "SLOT 1", _loadout[0]);
+                    SetMainRow(2, "SLOT 2", _loadout[1]);
+                    SetMainRow(3, "SLOT 3", _loadout[2]);
+                    SetMainRow(4, "MAP", _mapName.ToUpperInvariant());
+                    SetMainRow(5, "BOTS", $"{_botCount}");
+                    SetMainRow(6, "BOT SKILL", _skill.ToString().ToUpperInvariant());
+                    SetMainRow(7, "KILL LIMIT", $"{_killsToWin}");
+                    SetMainRow(8, "CROSSHAIR OPTIONS", _crosshair.PresetLabel);
+                    SetMainRow(9, "CAMERA FEEDBACK", _cameraFeedback.Label);
+                    SetMainRow(10, "SETTINGS", "");
+                    SetMainRow(11, "QUIT", "");
+                    if (_briefMap != null) _briefMap.text = _mapName.ToUpperInvariant();
                     break;
                 case Screen.Paused:
                     _title.text = "PAUSED";
@@ -549,10 +590,28 @@ namespace HoodGlobalOffensive.Presentation
 
             if (_rowTexts == null) return;
 
-            // Main is a twelve-row setup list and the crosshair screen runs nine
-            // tighter rows under the live preview, so both lift the title and use a
-            // reduced pitch and font; the shorter screens keep the roomy original.
-            bool listScreen = _screen == Screen.Main || _screen == Screen.Crosshair;
+            // The main screen draws its own reference skin (command surface,
+            // top-left title block, panelled rows, match brief); the centred
+            // blockout title/subtitle/hint and text rows belong to the
+            // remaining screens. BuildPanel assigns all of them together, so
+            // the _rowTexts guard above implies the rest exist.
+            bool main = _screen == Screen.Main;
+            if (_mainRoot != null) _mainRoot.SetActive(main);
+            _title.gameObject.SetActive(!main);
+            _subtitle.gameObject.SetActive(!main);
+            _hint.gameObject.SetActive(!main);
+            if (main)
+            {
+                // The centred blockout rows would otherwise show through the
+                // reference skin from the startup state (they default active).
+                for (int i = 0; i < _rowTexts.Length; i++) _rowTexts[i].gameObject.SetActive(false);
+                return;
+            }
+
+            // The crosshair screen runs nine tighter rows under the live
+            // preview, so it lifts the title and uses a reduced pitch and
+            // font; the shorter screens keep the roomy original.
+            bool listScreen = _screen == Screen.Crosshair;
             _title.rectTransform.anchoredPosition = new Vector2(0f, listScreen ? 300f : 150f);
             _subtitle.rectTransform.anchoredPosition = new Vector2(0f, listScreen ? 240f : 70f);
 
@@ -588,7 +647,10 @@ namespace HoodGlobalOffensive.Presentation
             _panel = canvasGo;
 
             Transform root = canvasGo.transform;
-            MakeImage(root, "Backdrop", Vector2.zero, new Vector2(1920f, 1080f), Backdrop);
+            // The reference scrim is rgba(4,7,11,94) over the parked scenic
+            // backdrop, so the map stays visible behind the front end; only
+            // the command surface (760 design units) is heavily darkened.
+            MakeImage(root, "Backdrop", Vector2.zero, new Vector2(1920f, 1080f), Scrim);
             _title = MakeText(root, "Title", new Vector2(0f, 150f), new Vector2(1400f, 90f), 64, Ink);
             _subtitle = MakeText(root, "Subtitle", new Vector2(0f, 70f), new Vector2(1400f, 40f), 22, Dim);
             _hint = MakeText(root, "Hint", new Vector2(0f, -330f), new Vector2(1400f, 30f), 16, Dim);
@@ -606,6 +668,8 @@ namespace HoodGlobalOffensive.Presentation
                 _rowTexts[i] = MakeText(root, $"Row {i}",
                     new Vector2(0f, -10f - i * 52f), new Vector2(900f, 48f), 34, Ink);
             }
+
+            BuildMainSurface(root);
         }
 
         void ApplyRect(GameObject go, Vector2 anchoredPosition, Vector2 size)
@@ -652,6 +716,166 @@ namespace HoodGlobalOffensive.Presentation
             Image image = go.AddComponent<Image>();
             image.color = color;
             return image;
+        }
+
+        // ------------------------------------------- reference main-menu skin
+
+        /// <summary>
+        /// Ports the reference <c>Screens.MainMenu.Draw</c> front end: the dark
+        /// left command surface, the full-width accent bar, the top-left
+        /// <c>Cfg.GameName</c> title block with the version rule line, the
+        /// twelve setup rows rebuilt as <c>DrawRows</c> panels (fill + border
+        /// highlight, label left / value right at 15 design units), the
+        /// <c>DrawMatchBrief</c> LOCAL OPERATION card on the right, and the
+        /// three footer hint lines. Every coordinate is the reference's
+        /// 1280x720 design canvas converted at the canvas's fixed 1.5x, and
+        /// the whole surface hides outside the Main screen.
+        ///
+        /// One deliberate divergence from the reference row set: row 10 is
+        /// SETTINGS (which holds look sensitivity + invert-Y) where the
+        /// reference carries MOUSE SENSITIVITY inline — invert-Y has no
+        /// reference row, so the port keeps one settings screen for both.
+        /// </summary>
+        void BuildMainSurface(Transform parent)
+        {
+            GameObject rootGo = new GameObject("Main Menu Surface");
+            rootGo.AddComponent<RectTransform>();
+            rootGo.transform.SetParent(parent);
+            ApplySkinRect(rootGo, Vector2.zero, new Vector2(1920f, 1080f));
+            _mainRoot = rootGo;
+            Transform root = rootGo.transform;
+
+            MakeSkinImage(root, "Command Surface", 0f, 0f, 760f, 720f, CommandSurface);
+            MakeSkinImage(root, "Accent Bar", 0f, 0f, 1280f, 6f, Accent);
+            MakeSkinText(root, "Game Title", 60f, 48f, 700f, 84f, Cfg.GameName, 52f,
+                Ink, TextAnchor.UpperLeft);
+            MakeSkinText(root, "Version Line", 64f, 116f, 900f, 24f,
+                $"EARLY ACCESS v{Cfg.Version}   -   OFFLINE BOT DEATHMATCH   -   GRAPPLE ARENA",
+                13f, Dim, TextAnchor.UpperLeft);
+            MakeSkinImage(root, "Title Rule", 64f, 145f, 460f, 1f, Rule);
+
+            _rowLabels = new Text[12];
+            _rowValues = new Text[12];
+            _rowFills = new Image[12];
+            _rowOutlines = new Image[12];
+            for (int i = 0; i < 12; i++)
+            {
+                // Reference row geometry: x 64, width 460, height 34, a
+                // 39-unit pitch from y 156 (row height 34 + gap 5), which
+                // keeps the last row's border at 619 — above the first footer
+                // hint at 624, like the reference's pitch note.
+                float y = 156f + i * 39f;
+                _rowOutlines[i] = MakeSkinImage(root, $"Row {i} Outline",
+                    63f, y - 1f, 462f, 36f, RowBorder);
+                _rowFills[i] = MakeSkinImage(root, $"Row {i} Fill", 64f, y, 460f, 34f, RowFill);
+                _rowLabels[i] = MakeSkinText(root, $"Row {i} Label",
+                    80f, y + 4f, 300f, 26f, "", 15f, Dim, TextAnchor.MiddleLeft);
+                _rowValues[i] = MakeSkinText(root, $"Row {i} Value",
+                    208f, y + 4f, 300f, 26f, "", 15f, Dim, TextAnchor.MiddleRight);
+            }
+
+            // Reference DrawMatchBrief — the LOCAL OPERATION card (770,202,
+            // 420x232) to the right of the command surface.
+            MakeSkinImage(root, "Brief Outline", 769f, 201f, 422f, 234f, BriefBorder);
+            MakeSkinImage(root, "Brief Fill", 770f, 202f, 420f, 232f, BriefFill);
+            MakeSkinImage(root, "Brief Accent Bar", 770f, 202f, 5f, 232f, Accent);
+            MakeSkinText(root, "Brief Caption", 796f, 224f, 300f, 20f,
+                "LOCAL OPERATION", 11f, Accent, TextAnchor.MiddleLeft);
+            _briefMap = MakeSkinText(root, "Brief Map", 794f, 244f, 560f, 44f,
+                "", 27f, Ink, TextAnchor.MiddleLeft);
+            MakeSkinText(root, "Brief Mode Line", 795f, 282f, 300f, 20f,
+                "OFFLINE FREE-FOR-ALL", 11f, Dim, TextAnchor.MiddleLeft);
+            MakeSkinImage(root, "Brief Rule", 794f, 310f, 372f, 1f, BriefRule);
+            MakeSkinText(root, "Brief Mode Caption", 794f, 328f, 140f, 18f,
+                "MODE", 10f, Faint, TextAnchor.MiddleLeft);
+            MakeSkinText(root, "Brief Mode Value", 794f, 346f, 140f, 24f,
+                "DEATHMATCH", 16f, Ink, TextAnchor.MiddleLeft);
+            MakeSkinText(root, "Brief Economy Caption", 944f, 328f, 130f, 18f,
+                "ECONOMY", 10f, Faint, TextAnchor.MiddleLeft);
+            MakeSkinText(root, "Brief Economy Value", 944f, 346f, 160f, 24f,
+                "KILL UPGRADES", 16f, Ink, TextAnchor.MiddleLeft);
+            MakeSkinText(root, "Brief Status Caption", 1076f, 328f, 110f, 18f,
+                "STATUS", 10f, Faint, TextAnchor.MiddleLeft);
+            MakeSkinText(root, "Brief Status Value", 1076f, 346f, 110f, 24f,
+                "LOCAL", 16f, Good, TextAnchor.MiddleLeft);
+            MakeSkinText(root, "Brief Hint", 794f, 388f, 580f, 30f,
+                "Kills bank upgrade points. Spend them at a cabinet to grow health, damage, speed or jump.",
+                10f, Dim, TextAnchor.MiddleLeft);
+
+            MakeSkinText(root, "Hint Controls", 64f, 618f, 900f, 18f,
+                "WASD move    MOUSE aim    LMB shoot    RMB aim / alt fire    R reload    1-4 weapons",
+                10f, Faint, TextAnchor.UpperLeft);
+            MakeSkinText(root, "Hint Grapple", 64f, 634f, 900f, 18f,
+                "Q / E left & right grapple    V knife    F flashlight    SPACE jump (HOLD to bunny-hop)    TAB scores",
+                10f, Faint, TextAnchor.UpperLeft);
+            MakeSkinText(root, "Hint Tip", 64f, 658f, 900f, 18f,
+                "Tip: hold jump and stay off WASD to keep speed. Grapple far and high, then slingshot.",
+                10f, Dim, TextAnchor.UpperLeft);
+
+            // Hidden until RefreshRows shows it on the Main screen.
+            _mainRoot.SetActive(false);
+        }
+
+        void SetMainRow(int i, string label, string value)
+        {
+            if (_rowLabels == null || _rowValues == null ||
+                _rowFills == null || _rowOutlines == null) return;
+            bool selected = _selected == i;
+            _rowLabels[i].text = label;
+            _rowLabels[i].color = selected ? Ink : Dim;
+            _rowValues[i].text = value;
+            _rowValues[i].color = selected ? Accent : Dim;
+            _rowFills[i].color = selected ? RowFillSelected : RowFill;
+            _rowOutlines[i].color = selected ? Accent : RowBorder;
+        }
+
+        static readonly Vector2 TopLeft = new Vector2(0f, 1f);
+
+        void ApplySkinRect(GameObject go, Vector2 anchoredPosition, Vector2 size)
+        {
+            RectTransform rectTransform = go.GetComponent<RectTransform>();
+            if (rectTransform == null) rectTransform = go.AddComponent<RectTransform>();
+            rectTransform.anchorMin = TopLeft;
+            rectTransform.anchorMax = TopLeft;
+            rectTransform.pivot = TopLeft;
+            rectTransform.anchoredPosition = anchoredPosition;
+            rectTransform.sizeDelta = size;
+        }
+
+        /// <summary>Design-canvas image (top-left origin, y grows downward).</summary>
+        Image MakeSkinImage(Transform parent, string name, float x, float y,
+            float w, float h, Color color)
+        {
+            GameObject go = new GameObject(name);
+            go.AddComponent<CanvasRenderer>();
+            go.AddComponent<RectTransform>();
+            go.transform.SetParent(parent);
+            ApplySkinRect(go, new Vector2(D(x), -D(y)), new Vector2(D(w), D(h)));
+
+            Image image = go.AddComponent<Image>();
+            image.color = color;
+            return image;
+        }
+
+        /// <summary>Design-canvas text; size is in design units, like Ui.Text.</summary>
+        Text MakeSkinText(Transform parent, string name, float x, float y,
+            float w, float h, string text, float designSize, Color color, TextAnchor alignment)
+        {
+            GameObject go = new GameObject(name);
+            go.AddComponent<CanvasRenderer>();
+            go.AddComponent<RectTransform>();
+            go.transform.SetParent(parent);
+            ApplySkinRect(go, new Vector2(D(x), -D(y)), new Vector2(D(w), D(h)));
+
+            Text label = go.AddComponent<Text>();
+            label.font = _font ?? Font.CreateDynamicFontFromOSFont("Arial", 24);
+            label.fontSize = DSize(designSize);
+            label.alignment = alignment;
+            label.horizontalOverflow = HorizontalWrapMode.Overflow;
+            label.verticalOverflow = VerticalWrapMode.Overflow;
+            label.text = text;
+            label.color = color;
+            return label;
         }
     }
 }
