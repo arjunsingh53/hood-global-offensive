@@ -31,8 +31,9 @@
   centre zone, top bar + compass tape, rotating radar scanner, weapon-readout card, biological
   vitals card + death overlay, the trauma vignette + arena-panel corner brackets, the kill-feed
   arena-panel rows, the per-actor box head silhouettes, the hitmarker (drawn four-tick
-  marker, reference envelope, ELIMINATED / HEADSHOT labels under the crosshair), and the
-  main-menu reference skin (command surface, panelled setup rows, match-brief card). The
+  marker, reference envelope, ELIMINATED / HEADSHOT labels under the crosshair), the
+  main-menu reference skin (command surface, panelled setup rows, match-brief card), and the
+  centred pause/settings/match-over skin + crosshair-options panel port. The
   GitHub release asset for `v0.2.2` was
   rebuilt in place (`gh release upload --clobber`) so the downloadable exe includes the menu fix.
   Run `git log --oneline -5` for exact hashes.
@@ -359,7 +360,7 @@ behaviour questions.
     setup); pause `QUIT TO MENU` and match-over `BACK TO MENU` return to the main screen like
     the reference (`ScreenAction.QuitToMenu`), while only the main menu's QUIT exits the app.
     The pause screen carries the reference's live kills/deaths/upgrade-points subtitle and the
-    match-over subtitle appends the reference's "you finished rank X of Y" line. Entering the
+    match-over screen the reference's two-line result + "you finished rank X of Y". Entering the
     main screen parks the camera on the reference's scenic menu backdrop
     (`Renderer.DrawMenuBackdrop`'s fixed 58° pose over the Industrial raw coordinates, via
     `MatchDriver.ParkMenuBackdrop`); every other screen keeps the live gameplay frame behind
@@ -404,12 +405,27 @@ behaviour questions.
     `DrawMenuBackdrop`. Every coordinate is the reference's 1280x720 design canvas mapped at
     the canvas's fixed 1.5x (`D`/`DSize` helpers, top-left-anchored rects via
     `ApplySkinRect`), and the front-end palette is now the reference's exact byte values
-    (`Ui.Ink/Dim/Faint/Accent/Good` replace the old eyeballed floats; `Gold` remains only for
-    the blockout screens). One deliberate divergence, documented in the file: row 10 is
-    SETTINGS (look sensitivity + invert-Y) where the reference carries MOUSE SENSITIVITY
-    inline, because invert-Y has no reference row. Pause / settings / crosshair-options /
-    match-over keep the centred blockout rows — porting the reference's centred `DrawRows`
-    skin to those screens is the next menu pass.
+    (`Ui.Ink/Dim/Faint/Accent/Good` replace the old eyeballed floats). One deliberate
+    divergence, documented in the file: row 10 is SETTINGS (look sensitivity + invert-Y)
+    where the reference carries MOUSE SENSITIVITY inline, because invert-Y has no reference
+    row. **Centred-screens skin ported:** pause and match-over now render `Screens.Pause.Draw`
+    / `Screens.MatchOver.Draw` — the per-screen scrim (pause `rgba(6, 8, 12, 175)`, crosshair
+    `rgba(6, 8, 12, 88)`; match-over keeps the light 94 veil, see below), the 40-unit centred
+    title (Ink PAUSED, Accent MATCH OVER), the live kills/deaths/points and match-result
+    lines (the match-over rank line is the reference's two-line form, and it fixed an
+    off-by-one the blockout had — `PlayerRank()` is already 1-based), and the 420-wide
+    `DrawRows` panels on the reference's 42+8 pitch from `h*0.25` (180) / `h*0.62` (446).
+    The port-only settings screen (no reference counterpart) reuses the pause geometry. The
+    crosshair options screen is now the reference's left-anchored 440x590 panel: title +
+    session-only line, the LIVE PREVIEW plate with the radius-30 ring and 80-unit cross
+    (16 tangent bars — uGUI has no line/circle primitive), the reticle preview at 62% of the
+    plate height and scale 1.75x1.5, the nine 35-unit rows on the reference's 5-unit gap, and
+    both footer hint lines. All four screens draw through one shared reference row bank
+    (`BuildRefRows`/`PositionRefRows`/`SetRefRow`); the old centred blockout rows, title/hint
+    and the ad-hoc preview panel are gone. Second documented divergence: the match-over scrim
+    stays at the main screen's 94 because `HudSync`'s forced scoreboard sits *beneath* the
+    menu canvas — the reference's `rgba(6, 8, 12, 200)` would bury it (the reference draws
+    its board above that scrim instead).
   - `UpgradeSync.cs` — the kill-point upgrade cabinet overlay (reference `Screens.UpgradeMenu`).
     When the sim raises `Player.WantsOpenUpgrade` (E next to a station), it opens a code-built
     uGUI panel and freezes the match — `MatchDriver.Update` skips its tick while `IsOpen`,
@@ -443,11 +459,9 @@ behaviour questions.
   `UpgradeSync` is optional too, and without it the cabinet simply never opens.
   **Not yet ported:** real map meshes and bot meshes (primitive blockouts exist), VFX polish
   (transparent/additive materials, muzzle flame lobes), screenshot tooling, per-art view-model
-  calibration. The menu stack is a
-  first pass (`MenuSync`): main/pause/settings/crosshair-options/match-over are covered; the
-  main screen now carries the reference skin (see "Main-menu reference skin ported"), while
-  the pause / settings / crosshair-options / match-over screens are still centred blockout
-  rows, and an audio/keybind options pass is still open. The
+  calibration. The menu stack (`MenuSync`) now carries the reference skin on every screen
+  (main surface; centred pause/settings/match-over; crosshair-options panel — see the
+  MenuSync bullet), and an audio/keybind options pass is still open. The
   Unity project itself is a skeleton: editor version
   `6000.3.26f1` (`unity/ProjectSettings/ProjectVersion.txt`), a minimal package manifest (test
   framework + uGUI), the `HGO.Sim` asmdef and the new `HGO.Presentation` asmdef. **No Unity
@@ -498,6 +512,12 @@ behaviour questions.
   the row/brief placement are the things to check at the first editor capture.
   Nothing about the vignette's actual pixels has been seen yet — uGUI mesh emission is
   compile-only here, so the first editor capture is the visual check.
+  The centred-screens + crosshair-panel pass afterwards changed only `MenuSync.cs`, so again
+  only the affected gate was rerun: `tools/presentation-check` build clean (`0`
+  warnings/errors) + `PRESENTATION: PASS`. Nothing about those screens' pixels has been seen
+  yet either — the shared row bank's per-screen layout, the centred-text leading offsets,
+  the preview ring bars and the 1.75x preview scale are all compile-verified only; the first
+  editor capture is the visual check (compare against `src/UI/Screens.cs`).
 
 ## How to work on this repository
 
@@ -643,7 +663,7 @@ the next session knows whether GitHub is current.
 | Unity audio synthesis + mix routing port, cue manifest (engine-free) | `unity/Assets/Scripts/Sim/Audio/` (`WavGen.cs`, `AudioCatalog.cs`, `AudioMix.cs`) |
 | Sim→Unity bridge: fixed-tick `Simulation.Update`, `InputFrame` adapter, body/camera sync | `unity/Assets/Scripts/Presentation/MatchDriver.cs` + `HGO.Presentation.asmdef` |
 | Unity audio playback: PCM→`AudioClip` bank, voice pool, drains `Sim.Sounds` via `AudioMix.Resolve` | `unity/Assets/Scripts/Presentation/SimAudioPlayer.cs` |
-| Unity blockout pass: brush cubes, bot capsules + per-actor box head silhouettes, sim-driven view-model + muzzle flash, code-built uGUI HUD (incl. Tab scoreboard + mesh radar, vitals/weapon cards, arena-panel corner brackets on every panel, death overlay, procedural trauma vignette) + menu stack, pooled combat effects, crosshair profile + reticle, camera-feedback levels, match-setup rows, upgrade-cabinet overlay | `unity/Assets/Scripts/Presentation/` (`MapBlockout.cs`, `ActorViews.cs`, `ViewModelSync.cs`, `HudSync.cs`, `RadarGraphic.cs`, `TraumaGraphic.cs`, `HitmarkerGraphic.cs`, `MenuSync.cs`, `EffectsSync.cs`, `CrosshairSettings.cs`, `CameraFeedbackSettings.cs`, `UpgradeSync.cs`) |
+| Unity blockout pass: brush cubes, bot capsules + per-actor box head silhouettes, sim-driven view-model + muzzle flash, code-built uGUI HUD (incl. Tab scoreboard + mesh radar, vitals/weapon cards, arena-panel corner brackets on every panel, death overlay, procedural trauma vignette) + reference-skin menu stack, pooled combat effects, crosshair profile + reticle, camera-feedback levels, match-setup rows, upgrade-cabinet overlay | `unity/Assets/Scripts/Presentation/` (`MapBlockout.cs`, `ActorViews.cs`, `ViewModelSync.cs`, `HudSync.cs`, `RadarGraphic.cs`, `TraumaGraphic.cs`, `HitmarkerGraphic.cs`, `MenuSync.cs`, `EffectsSync.cs`, `CrosshairSettings.cs`, `CameraFeedbackSettings.cs`, `UpgradeSync.cs`) |
 | Parity suite (shared) + Unity edit-mode tests | `unity/Assets/Tests/EditMode/` (`ParityChecks.cs`, `ParityTests.cs`, `HGO.Sim.Tests.asmdef`) |
 | Parity console harness + golden reports | `tools/parity/` (`Parity.csproj`, thin `Program.cs`, `goldens/`) |
 | Presentation compile gate (editor-free) | `tools/presentation-check/` (`PresentationCheck.csproj`, `UnityStubs.cs`, thin `Program.cs`) |
@@ -691,9 +711,12 @@ the next session knows whether GitHub is current.
   re-checked. The raylib main menu runs a 39-unit pitch from y 156 (row height 34, gap 5,
   last border 619 above the first hint at 624), and the ported skin mirrors that geometry
   exactly (`BuildMainSurface`: `y = 156 + i * 39`, footer hints at y 618/634/658) — a thirteenth
-  row would collide with the hints in both. In `MenuSync`, the main rows are now the
-  reference-skin panels (label/value split), while the crosshair (9 rows) still runs tight
-  42-px centred rows under the lifted title and the shorter screens keep the roomy 52-px pitch.
+  row would collide with the hints in both. In `MenuSync`, the main rows are the
+  reference-skin panels (label/value split) and every other screen shares one reference row
+  bank (`BuildRefRows` / `PositionRefRows`): the centred pause/settings/match-over rows are
+  420×42 on a 50-unit pitch (from y 180 / 446) and the crosshair rows 404×35 on a 40-unit
+  pitch inside the panel. Those row counts are fixed by the reference row sets, so a new row
+  there also needs the bank's nine-row headroom re-checked.
 - **`UnityStubs.cs` now models the uGUI slice too** (Color/Color32/Material/Renderer/Camera/
   RectTransform/Canvas/CanvasScaler/Text/Image/TextAnchor/Resource fonts, plus
   `MaskableGraphic`, `VertexHelper` and `UIVertex` for the procedural graphics). It is
@@ -773,15 +796,14 @@ the next session knows whether GitHub is current.
      free to diverge where it is purely cosmetic. A first presentation pass now exists as a
       blockout (`MapBlockout` brush cubes, `ActorViews` capsule bots, `ViewModelSync` view-model
       dynamics + muzzle flash, `HudSync` code-built uGUI HUD, `MenuSync` code-built menu stack
-      (incl. the ported crosshair options screen and match-setup rows), `UpgradeSync` cabinet
+      (reference skin on every screen — main surface, centred pause/settings/match-over,
+      crosshair-options panel — incl. match-setup rows), `UpgradeSync` cabinet
       overlay, `EffectsSync` tracers/particles/decals,
       `CrosshairSettings` profile + reticle graphic, `CameraFeedbackSettings`) — see the migration-state bullet; editor
       wiring is one GameObject + one viewmodel placeholder. What remains above blockout: real map
       meshes and the rigged bot meshes (the blockout capsules and their box head silhouettes are
       placeholders, not the owner-supplied rigs), VFX polish (transparent/additive materials,
-      muzzle flame lobes), the remaining menu skin (the main screen now carries the reference
-      skin; pause / settings / crosshair-options / match-over still draw the centred blockout
-      rows where the reference uses its panelled `DrawRows` look), screenshot
+      muzzle flame lobes), the menu's audio/keybind options pass, screenshot
       tooling, per-art viewmodel calibration, and the visual pass on the trauma vignette / radar /
       crosshair meshes (all three are compile-verified but have never been drawn in an editor);
       the kill-feed row sizing (fixed panel width, fixed name slots) is the one deliberate

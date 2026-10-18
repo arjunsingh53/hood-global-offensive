@@ -26,11 +26,17 @@ namespace HoodGlobalOffensive.Presentation
     /// lock the cursor in its own <c>Awake</c>: this component applies menu state in
     /// <c>Start</c>, which is guaranteed to run after every <c>Awake</c>.
     ///
-    /// The main screen renders the reference <c>Screens.MainMenu.Draw</c> skin (left command
-    /// surface, panelled label/value setup rows, LOCAL OPERATION match brief, footer hints)
-    /// in the reference's 1280x720 design canvas mapped at the canvas's fixed 1.5x; the
-    /// pause / settings / crosshair-options / match-over screens are still centred blockout
-    /// rows awaiting their own skin pass.
+    /// The whole front end renders the reference <c>Screens</c> skin in the reference's
+    /// 1280x720 design canvas mapped at the canvas's fixed 1.5x: main is
+    /// <c>Screens.MainMenu.Draw</c> (left command surface, panelled label/value setup rows,
+    /// LOCAL OPERATION match brief, footer hints); pause / match-over render the centred
+    /// reference <c>DrawRows</c> look (40-unit title, live subtitle, 420-wide panelled rows)
+    /// with the port-only settings screen reusing the pause geometry; and crosshair options
+    /// is the reference's left-anchored 440x590 panel with the live reticle preview and its
+    /// rule-based rows. Documented divergences: SETTINGS replaces the reference's inline
+    /// MOUSE SENSITIVITY row (invert-Y has no reference row, like the main screen), and the
+    /// match-over screen keeps the main screen's light scrim because <see cref="HudSync"/>'s
+    /// forced scoreboard sits beneath this canvas instead of above the reference's 200 veil.
     /// </summary>
     public sealed class MenuSync : MonoBehaviour
     {
@@ -73,9 +79,20 @@ namespace HoodGlobalOffensive.Presentation
         static readonly Color BriefFill = new Color(8f / 255f, 11f / 255f, 16f / 255f, 196f / 255f);
         static readonly Color BriefBorder = new Color(1f, 1f, 1f, 42f / 255f);
         static readonly Color BriefRule = new Color(1f, 1f, 1f, 28f / 255f);
-        // Blockout screens only — the reference skin uses Accent above.
-        static readonly Color Gold = new Color(0.94f, 0.78f, 0.35f);
-        static readonly Color PreviewBackdrop = new Color(0.02f, 0.03f, 0.045f, 0.92f);
+        // Reference per-screen scrims (Screens.Pause / CrosshairOptions / MatchOver
+        // each draw their own full-screen fill over the live frame). Match-over
+        // keeps Scrim: its scoreboard is drawn by HudSync beneath this canvas, so
+        // the reference's near-opaque 200 veil would bury it.
+        static readonly Color PauseScrim = new Color(6f / 255f, 8f / 255f, 12f / 255f, 175f / 255f);
+        static readonly Color CrosshairScrim = new Color(6f / 255f, 8f / 255f, 12f / 255f, 88f / 255f);
+        // Crosshair options panel (Screens.CrosshairOptions.Draw): plate, border
+        // and the preview's two near-invisible guide strokes.
+        static readonly Color PanelFill = new Color(11f / 255f, 13f / 255f, 18f / 255f, 232f / 255f);
+        static readonly Color PanelBorder = new Color(1f, 1f, 1f, 46f / 255f);
+        static readonly Color PreviewFill = new Color(3f / 255f, 7f / 255f, 11f / 255f, 196f / 255f);
+        static readonly Color PreviewBorder = new Color(1f, 1f, 1f, 25f / 255f);
+        static readonly Color PreviewGuide = new Color(1f, 1f, 1f, 16f / 255f);
+        static readonly Color PreviewAxis = new Color(1f, 1f, 1f, 10f / 255f);
 
         // The reference front end is authored in Ui's 1280x720 design canvas
         // and letterboxed to the window; the menu canvas is a fixed
@@ -86,7 +103,10 @@ namespace HoodGlobalOffensive.Presentation
 
         static int DSize(float design) => (int)Math.Round(design * UiScale);
 
-        readonly string[] _rows = new string[12];
+        // The shared reference-row bank (below) is sized for the largest
+        // screen that uses it: the nine crosshair-options rows.
+        const int RefRowCount = 9;
+
         readonly CrosshairSettings _crosshair = new();
         readonly CameraFeedbackSettings _cameraFeedback = new();
         readonly string[] _loadout = (string[])WeaponRegistry.DefaultLoadout.Clone();
@@ -96,13 +116,14 @@ namespace HoodGlobalOffensive.Presentation
         UpgradeSync? _upgradeSync;
         Font? _font;
         GameObject? _panel;
+        Image? _backdrop;
         GameObject? _mainRoot;
-        GameObject? _previewPanel;
+        GameObject? _centerRoot;
+        GameObject? _crossRoot;
         CrosshairGraphic? _previewCrosshair;
-        Text _title;
-        Text _subtitle;
-        Text _hint;
-        Text[] _rowTexts;
+        Text? _centerTitle;
+        Text? _centerSub1;
+        Text? _centerSub2;
         // Reference-skin main menu (Screens.MainMenu.Draw): label/value row
         // panels with the selection carried by the panel highlight, plus the
         // LOCAL OPERATION match-brief card whose map name updates live.
@@ -111,6 +132,12 @@ namespace HoodGlobalOffensive.Presentation
         Image[]? _rowFills;
         Image[]? _rowOutlines;
         Text? _briefMap;
+        // Reference DrawRows bank shared by the centred screens (pause /
+        // settings / match-over) and the crosshair-options panel.
+        Text[]? _refLabels;
+        Text[]? _refValues;
+        Image[]? _refFills;
+        Image[]? _refOutlines;
 
         Screen _screen = Screen.Main;
         Screen _settingsReturn = Screen.Main;
@@ -209,9 +236,12 @@ namespace HoodGlobalOffensive.Presentation
                 AdjustCrosshair(left ? -1 : right ? 1 : 0);
                 if (_previewCrosshair != null)
                 {
-                    // Reference preview: scale 1.75 and a fixed 5 px spread so the
-                    // dynamic-gap setting is visible at a glance.
-                    _previewCrosshair.Update(_crosshair, _crosshair.DynamicGap ? 5f : 0f, 1.75f);
+                    // Reference preview: a fixed 5-unit spread and scale 1.75 so
+                    // the dynamic-gap setting is visible at a glance. Both are
+                    // design units here (x1.5 for the canvas); the graphic
+                    // multiplies the spread by the scale, exactly like
+                    // CrosshairRenderer.Draw.
+                    _previewCrosshair.Update(_crosshair, _crosshair.DynamicGap ? 5f : 0f, 1.75f * UiScale);
                 }
             }
             else if (_screen == Screen.Main && _selected >= 1 && _selected <= 7)
@@ -312,7 +342,6 @@ namespace HoodGlobalOffensive.Presentation
             Cursor.lockState = playing ? CursorLockMode.Locked : CursorLockMode.None;
             Time.timeScale = playing ? 1f : 0f;
             if (_panel != null) _panel.SetActive(!playing);
-            if (_previewPanel != null) _previewPanel.SetActive(screen == Screen.Crosshair);
             // The reference draws its scoreboard inside the match-over screen; the HUD
             // forces it up so the same information is visible behind the menu backdrop.
             if (_hud != null) _hud.ForceScoreboard = screen == Screen.MatchOver;
@@ -524,6 +553,14 @@ namespace HoodGlobalOffensive.Presentation
         void RefreshRows()
         {
             var sim = _driver != null ? _driver.Sim : null;
+
+            if (_backdrop != null) _backdrop.color = BackdropFor(_screen);
+            if (_mainRoot != null) _mainRoot.SetActive(_screen == Screen.Main);
+            bool centre = _screen == Screen.Paused || _screen == Screen.Settings ||
+                _screen == Screen.MatchOver;
+            if (_centerRoot != null) _centerRoot.SetActive(centre);
+            if (_crossRoot != null) _crossRoot.SetActive(_screen == Screen.Crosshair);
+
             switch (_screen)
             {
                 case Screen.Main:
@@ -543,94 +580,61 @@ namespace HoodGlobalOffensive.Presentation
                     SetMainRow(10, "SETTINGS", "");
                     SetMainRow(11, "QUIT", "");
                     if (_briefMap != null) _briefMap.text = _mapName.ToUpperInvariant();
+                    PositionRefRows(0, 0f, 0f, 0f, 0f, 0f);
                     break;
                 case Screen.Paused:
-                    _title.text = "PAUSED";
-                    _subtitle.text = sim != null
+                    SetCenterTitle("PAUSED", false, 108f);
+                    SetCenterSub(_centerSub1, sim != null
                         ? $"{sim.Player.Kills} kills   {sim.Player.Deaths} deaths   {sim.Player.KillPoints} upgrade points"
-                        : "";
-                    _rows[0] = "RESUME";
-                    _rows[1] = $"CROSSHAIR OPTIONS   {_crosshair.PresetLabel}";
-                    _rows[2] = $"CAMERA FEEDBACK   {_cameraFeedback.Label}";
-                    _rows[3] = "SETTINGS";
-                    _rows[4] = "RESTART MATCH";
-                    _rows[5] = "QUIT TO MENU";
+                        : "", 154f);
+                    SetCenterSub(_centerSub2, "", 0f);
+                    // The port keeps its SETTINGS row where the reference
+                    // adjusts MOUSE SENSITIVITY inline: sensitivity and
+                    // invert-Y share one settings screen (see the class note).
+                    SetRefRow(0, "RESUME", "");
+                    SetRefRow(1, "CROSSHAIR OPTIONS", _crosshair.PresetLabel);
+                    SetRefRow(2, "CAMERA FEEDBACK", _cameraFeedback.Label);
+                    SetRefRow(3, "SETTINGS", "");
+                    SetRefRow(4, "RESTART MATCH", "");
+                    SetRefRow(5, "QUIT TO MENU", "");
+                    PositionRefRows(6, 430f, 180f, 420f, 42f, 50f);
                     break;
                 case Screen.MatchOver:
-                    _title.text = "MATCH OVER";
-                    _subtitle.text = sim != null
-                        ? $"{sim.MatchResult}   -   you finished rank {sim.PlayerRank() + 1} of {sim.Actors.Count}"
-                        : "";
-                    _rows[0] = "PLAY AGAIN";
-                    _rows[1] = "BACK TO MENU";
+                    SetCenterTitle("MATCH OVER", true, 372f);
+                    SetCenterSub(_centerSub1, sim != null ? sim.MatchResult : "", 416f);
+                    SetCenterSub(_centerSub2, sim != null
+                        ? $"you finished rank {sim.PlayerRank()} of {sim.Actors.Count}"
+                        : "", 436f);
+                    SetRefRow(0, "PLAY AGAIN", "");
+                    SetRefRow(1, "BACK TO MENU", "");
+                    PositionRefRows(2, 430f, 446f, 420f, 42f, 50f);
                     break;
                 case Screen.Settings:
-                    _title.text = "SETTINGS";
-                    _subtitle.text = "LEFT / RIGHT adjusts the focused setting";
-                    _rows[0] = $"LOOK SENSITIVITY   {_sensitivity:0.0}";
-                    _rows[1] = $"INVERT Y   {(_invertY ? "ON" : "OFF")}";
-                    _rows[2] = "BACK";
+                    SetCenterTitle("SETTINGS", false, 108f);
+                    SetCenterSub(_centerSub1, "LEFT / RIGHT adjusts the focused setting", 154f);
+                    SetCenterSub(_centerSub2, "", 0f);
+                    SetRefRow(0, "LOOK SENSITIVITY", $"{_sensitivity:0.0}");
+                    SetRefRow(1, "INVERT Y", _invertY ? "ON" : "OFF");
+                    SetRefRow(2, "BACK", "");
+                    PositionRefRows(3, 430f, 180f, 420f, 42f, 50f);
                     break;
                 case Screen.Crosshair:
-                    _title.text = "CROSSHAIR OPTIONS";
-                    _subtitle.text = "LEFT / RIGHT adjusts the focused setting";
-                    _rows[0] = $"PRESET   {_crosshair.PresetLabel}";
-                    _rows[1] = $"COLOR   {_crosshair.ColorLabel}";
-                    _rows[2] = $"DYNAMIC GAP   {(_crosshair.DynamicGap ? "ON" : "OFF")}";
-                    _rows[3] = $"CENTRE DOT   {(_crosshair.CentreDot ? "ON" : "OFF")}";
-                    _rows[4] = $"BASE GAP   {_crosshair.BaseGap} px";
-                    _rows[5] = $"ARM LENGTH   {_crosshair.ArmLength} px";
-                    _rows[6] = $"THICKNESS   {_crosshair.Thickness} px";
-                    _rows[7] = "RESET DEFAULT";
-                    _rows[8] = "BACK";
+                    // Reference row set (Screens.CrosshairOptions.Draw): rows
+                    // sit inside the left panel on the 40-unit pitch.
+                    SetRefRow(0, "PRESET", _crosshair.PresetLabel);
+                    SetRefRow(1, "COLOR", _crosshair.ColorLabel);
+                    SetRefRow(2, "DYNAMIC GAP", _crosshair.DynamicGap ? "ON" : "OFF");
+                    SetRefRow(3, "CENTRE DOT", _crosshair.CentreDot ? "ON" : "OFF");
+                    SetRefRow(4, "BASE GAP", $"{_crosshair.BaseGap} px");
+                    SetRefRow(5, "ARM LENGTH", $"{_crosshair.ArmLength} px");
+                    SetRefRow(6, "THICKNESS", $"{_crosshair.Thickness} px");
+                    SetRefRow(7, "RESET DEFAULT", "");
+                    SetRefRow(8, "BACK", "");
+                    PositionRefRows(9, 42f, 261f, 404f, 35f, 40f);
                     break;
-               default:
+                default:
+                    PositionRefRows(0, 0f, 0f, 0f, 0f, 0f);
                     break;
-            }
-
-            if (_rowTexts == null) return;
-
-            // The main screen draws its own reference skin (command surface,
-            // top-left title block, panelled rows, match brief); the centred
-            // blockout title/subtitle/hint and text rows belong to the
-            // remaining screens. BuildPanel assigns all of them together, so
-            // the _rowTexts guard above implies the rest exist.
-            bool main = _screen == Screen.Main;
-            if (_mainRoot != null) _mainRoot.SetActive(main);
-            _title.gameObject.SetActive(!main);
-            _subtitle.gameObject.SetActive(!main);
-            _hint.gameObject.SetActive(!main);
-            if (main)
-            {
-                // The centred blockout rows would otherwise show through the
-                // reference skin from the startup state (they default active).
-                for (int i = 0; i < _rowTexts.Length; i++) _rowTexts[i].gameObject.SetActive(false);
-                return;
-            }
-
-            // The crosshair screen runs nine tighter rows under the live
-            // preview, so it lifts the title and uses a reduced pitch and
-            // font; the shorter screens keep the roomy original.
-            bool listScreen = _screen == Screen.Crosshair;
-            _title.rectTransform.anchoredPosition = new Vector2(0f, listScreen ? 300f : 150f);
-            _subtitle.rectTransform.anchoredPosition = new Vector2(0f, listScreen ? 240f : 70f);
-
-            float top = _screen == Screen.Main ? 195f : _screen == Screen.Crosshair ? 55f : -10f;
-            float pitch = listScreen ? 42f : 52f;
-            int fontSize = listScreen ? 26 : 34;
-            Vector2 rowSize = new Vector2(900f, listScreen ? 38f : 48f);
-
-            int count = RowCount();
-            for (int i = 0; i < _rowTexts.Length; i++)
-            {
-                bool used = i < count;
-                _rowTexts[i].gameObject.SetActive(used);
-                if (!used) continue;
-                _rowTexts[i].text = (_selected == i ? "> " : "  ") + _rows[i];
-                _rowTexts[i].color = _selected == i ? Gold : Ink;
-                _rowTexts[i].fontSize = fontSize;
-                _rowTexts[i].rectTransform.anchoredPosition = new Vector2(0f, top - i * pitch);
-                _rowTexts[i].rectTransform.sizeDelta = rowSize;
             }
         }
 
@@ -647,76 +651,18 @@ namespace HoodGlobalOffensive.Presentation
             _panel = canvasGo;
 
             Transform root = canvasGo.transform;
-            // The reference scrim is rgba(4,7,11,94) over the parked scenic
-            // backdrop, so the map stays visible behind the front end; only
-            // the command surface (760 design units) is heavily darkened.
-            MakeImage(root, "Backdrop", Vector2.zero, new Vector2(1920f, 1080f), Scrim);
-            _title = MakeText(root, "Title", new Vector2(0f, 150f), new Vector2(1400f, 90f), 64, Ink);
-            _subtitle = MakeText(root, "Subtitle", new Vector2(0f, 70f), new Vector2(1400f, 40f), 22, Dim);
-            _hint = MakeText(root, "Hint", new Vector2(0f, -330f), new Vector2(1400f, 30f), 16, Dim);
-            _hint.text = "UP / DOWN move     ENTER select     ESC back";
+            // Per-screen scrim. It starts on the reference main-menu veil
+            // rgba(4,7,11,94) so the parked scenic backdrop stays visible
+            // behind the front end; RefreshRows recolours it per screen.
+            _backdrop = MakeSkinImage(root, "Backdrop", 0f, 0f, 1280f, 720f, Scrim);
 
-            Image previewImage = MakeImage(root, "Crosshair Preview",
-                new Vector2(0f, 150f), new Vector2(640f, 110f), PreviewBackdrop);
-            _previewPanel = previewImage.gameObject;
-            _previewCrosshair = CrosshairGraphic.Create(_previewPanel.transform, "Preview Crosshair");
-            _previewPanel.SetActive(false);
-
-            _rowTexts = new Text[12];
-            for (int i = 0; i < _rowTexts.Length; i++)
-            {
-                _rowTexts[i] = MakeText(root, $"Row {i}",
-                    new Vector2(0f, -10f - i * 52f), new Vector2(900f, 48f), 34, Ink);
-            }
-
-            BuildMainSurface(root);
-        }
-
-        void ApplyRect(GameObject go, Vector2 anchoredPosition, Vector2 size)
-        {
-            RectTransform rectTransform = go.GetComponent<RectTransform>();
-            if (rectTransform == null) rectTransform = go.AddComponent<RectTransform>();
-            rectTransform.anchorMin = Center;
-            rectTransform.anchorMax = Center;
-            rectTransform.pivot = Center;
-            rectTransform.anchoredPosition = anchoredPosition;
-            rectTransform.sizeDelta = size;
+            BuildMainSurface(root);       // reference main-menu skin (hidden)
+            BuildCenterSurface(root);     // centred reference skin (hidden)
+            BuildCrosshairSurface(root);  // crosshair options panel (hidden)
+            BuildRefRows(root);           // shared DrawRows bank (hidden)
         }
 
         static readonly Vector2 Center = new Vector2(0.5f, 0.5f);
-
-        Text MakeText(Transform parent, string name, Vector2 anchoredPosition,
-            Vector2 size, int fontSize, Color color)
-        {
-            GameObject go = new GameObject(name);
-            go.AddComponent<CanvasRenderer>();
-            go.AddComponent<RectTransform>();
-            go.transform.SetParent(parent);
-            ApplyRect(go, anchoredPosition, size);
-
-            Text text = go.AddComponent<Text>();
-            text.font = _font ?? Font.CreateDynamicFontFromOSFont("Arial", 24);
-            text.fontSize = fontSize;
-            text.alignment = TextAnchor.MiddleCenter;
-            text.horizontalOverflow = HorizontalWrapMode.Overflow;
-            text.verticalOverflow = VerticalWrapMode.Overflow;
-            text.color = color;
-            return text;
-        }
-
-        Image MakeImage(Transform parent, string name, Vector2 anchoredPosition,
-            Vector2 size, Color color)
-        {
-            GameObject go = new GameObject(name);
-            go.AddComponent<CanvasRenderer>();
-            go.AddComponent<RectTransform>();
-            go.transform.SetParent(parent);
-            ApplyRect(go, anchoredPosition, size);
-
-            Image image = go.AddComponent<Image>();
-            image.color = color;
-            return image;
-        }
 
         // ------------------------------------------- reference main-menu skin
 
@@ -876,6 +822,250 @@ namespace HoodGlobalOffensive.Presentation
             label.text = text;
             label.color = color;
             return label;
+        }
+
+        // ---------------------------------- reference centred / crosshair screens
+
+        /// <summary>
+        /// The centred reference skin shared by pause / settings / match-over: a
+        /// 40-unit title and two 15-unit subtitle lines, all centred on the
+        /// 1280x720 design canvas. Positions and visibility are set per screen in
+        /// <see cref="RefreshRows"/>; settings is port-only (the reference has no
+        /// such screen) and reuses the pause geometry.
+        /// </summary>
+        void BuildCenterSurface(Transform parent)
+        {
+            GameObject rootGo = new GameObject("Centred Menu Surface");
+            rootGo.AddComponent<RectTransform>();
+            rootGo.transform.SetParent(parent);
+            ApplySkinRect(rootGo, Vector2.zero, new Vector2(1920f, 1080f));
+            _centerRoot = rootGo;
+            Transform root = rootGo.transform;
+
+            _centerTitle = MakeSkinText(root, "Title", 0f, 0f, 1280f, 60f, "", 40f, Ink, TextAnchor.MiddleCenter);
+            _centerSub1 = MakeSkinText(root, "Subtitle 1", 0f, 0f, 1280f, 20f, "", 15f, Dim, TextAnchor.MiddleCenter);
+            _centerSub2 = MakeSkinText(root, "Subtitle 2", 0f, 0f, 1280f, 20f, "", 15f, Ink, TextAnchor.MiddleCenter);
+            _centerRoot.SetActive(false);
+        }
+
+        /// <summary>
+        /// Ports the reference <c>Screens.CrosshairOptions.Draw</c> panel: the
+        /// left-anchored 440x590 plate at x 24 / y 65, the title and its
+        /// session-only line, the LIVE PREVIEW plate with the faint radius-30
+        /// ring and 80-unit cross, the live 1.75x reticle preview, and the two
+        /// footer hint lines. The nine setting rows are the shared reference row
+        /// bank, laid out inside the panel by <see cref="RefreshRows"/>.
+        /// </summary>
+        void BuildCrosshairSurface(Transform parent)
+        {
+            GameObject rootGo = new GameObject("Crosshair Options Surface");
+            rootGo.AddComponent<RectTransform>();
+            rootGo.transform.SetParent(parent);
+            ApplySkinRect(rootGo, Vector2.zero, new Vector2(1920f, 1080f));
+            _crossRoot = rootGo;
+            Transform root = rootGo.transform;
+
+            // Reference panel: x 24, y = max(36, (720 - 590) / 2) = 65, 440x590,
+            // rgba(11,13,18,232) fill with a rgba(255,255,255,46) border.
+            MakeSkinImage(root, "Panel Border", 23f, 64f, 442f, 592f, PanelBorder);
+            MakeSkinImage(root, "Panel Fill", 24f, 65f, 440f, 590f, PanelFill);
+            MakeRefText(root, "Title", 44f, 83f, 400f, "CROSSHAIR OPTIONS", 26f, Ink, TextAnchor.UpperLeft);
+            MakeRefText(root, "Subtitle", 45f, 115f, 400f, "Session-only visual settings", 11f, Dim, TextAnchor.UpperLeft);
+
+            // Preview plate (42,143,404,102); the reticle sits at 62% of its
+            // height like the reference preview.
+            MakeSkinImage(root, "Preview Border", 41f, 142f, 406f, 104f, PreviewBorder);
+            Image plate = MakeSkinImage(root, "Preview Fill", 42f, 143f, 404f, 102f, PreviewFill);
+            MakeRefText(root, "Preview Caption", 54f, 153f, 300f, "LIVE PREVIEW", 10f, Faint, TextAnchor.UpperLeft);
+            BuildPreviewGuides(plate.transform);
+            _previewCrosshair = CrosshairGraphic.Create(plate.transform, "Preview Crosshair");
+            ((RectTransform)_previewCrosshair.Root).anchoredPosition = PreviewCentre;
+
+            MakeRefText(root, "Hint Rows", 44f, 621f, 500f,
+                "UP/DOWN select    LEFT/RIGHT adjust    ENTER reset/back", 10f, Faint, TextAnchor.UpperLeft);
+            MakeRefText(root, "Hint Note", 44f, 636f, 500f,
+                "The centre reticle remains aligned to the shot path.", 10f, Dim, TextAnchor.UpperLeft);
+
+            _crossRoot.SetActive(false);
+        }
+
+        /// <summary>The reticle point inside the preview plate: 62% down it.</summary>
+        static Vector2 PreviewCentre => new Vector2(0f, -(0.12f * D(102f)));
+
+        /// <summary>
+        /// The reference preview's faint guides at <see cref="PreviewCentre"/>:
+        /// the 80-unit cross and the radius-30 circle, both near-invisible whites
+        /// (alpha 10 / 16 of 255). The ring is 16 tangent bars (chord = 2 r
+        /// tan(pi/16)) so it reads as one circle.
+        /// </summary>
+        void BuildPreviewGuides(Transform plate)
+        {
+            MakePreviewBar(plate, "Preview Axis H", PreviewCentre, new Vector2(D(80f), D(1f)), 0f, PreviewAxis);
+            MakePreviewBar(plate, "Preview Axis V", PreviewCentre, new Vector2(D(1f), D(80f)), 0f, PreviewAxis);
+
+            const int segments = 16;
+            float radius = D(30f);
+            float chord = 2f * radius * (float)Math.Tan(Math.PI / segments);
+            for (int i = 0; i < segments; i++)
+            {
+                float degrees = (i + 0.5f) * (360f / segments);
+                double rad = degrees * Math.PI / 180.0;
+                Vector2 at = new Vector2(
+                    PreviewCentre.x + radius * (float)Math.Cos(rad),
+                    PreviewCentre.y + radius * (float)Math.Sin(rad));
+                MakePreviewBar(plate, $"Preview Ring {i}", at, new Vector2(chord, D(1f)),
+                    degrees + 90f, PreviewGuide);
+            }
+        }
+
+        /// <summary>
+        /// The shared reference DrawRows bank for every screen except main: an
+        /// outline + fill image pair and label/value texts per row, all 15-unit
+        /// type like the reference. Rows are laid out per screen by
+        /// <see cref="PositionRefRows"/> and hidden while unused.
+        /// </summary>
+        void BuildRefRows(Transform root)
+        {
+            _refLabels = new Text[RefRowCount];
+            _refValues = new Text[RefRowCount];
+            _refFills = new Image[RefRowCount];
+            _refOutlines = new Image[RefRowCount];
+            for (int i = 0; i < RefRowCount; i++)
+            {
+                _refOutlines[i] = MakeSkinImage(root, $"Ref Row {i} Outline", 0f, 0f, 1f, 1f, RowBorder);
+                _refFills[i] = MakeSkinImage(root, $"Ref Row {i} Fill", 0f, 0f, 1f, 1f, RowFill);
+                _refLabels[i] = MakeSkinText(root, $"Ref Row {i} Label", 0f, 0f, 1f, 1f, "", 15f, Dim, TextAnchor.MiddleLeft);
+                _refValues[i] = MakeSkinText(root, $"Ref Row {i} Value", 0f, 0f, 1f, 1f, "", 15f, Dim, TextAnchor.MiddleRight);
+                _refOutlines[i].gameObject.SetActive(false);
+                _refFills[i].gameObject.SetActive(false);
+                _refLabels[i].gameObject.SetActive(false);
+                _refValues[i].gameObject.SetActive(false);
+            }
+        }
+
+        /// <summary>Applies one reference DrawRows row (label left, value right).</summary>
+        void SetRefRow(int i, string label, string value)
+        {
+            if (_refLabels == null || _refValues == null || _refFills == null || _refOutlines == null) return;
+            bool selected = _selected == i;
+            _refLabels[i].text = label;
+            _refLabels[i].color = selected ? Ink : Dim;
+            _refValues[i].text = value;
+            _refValues[i].color = selected ? Accent : Dim;
+            _refFills[i].color = selected ? RowFillSelected : RowFill;
+            _refOutlines[i].color = selected ? Accent : RowBorder;
+        }
+
+        /// <summary>
+        /// Lays the bank out for one screen in reference design units: the
+        /// outline sits 1 unit outside the fill, the label 16 units in from the
+        /// left and the value 16 in from the right, both vertically centred
+        /// across the row like DrawRows' <c>textY = y + h/2 - 8</c> at the
+        /// port's 26-unit text box.
+        /// </summary>
+        void PositionRefRows(int count, float x, float y0, float w, float h, float pitch)
+        {
+            if (_refLabels == null || _refValues == null || _refFills == null || _refOutlines == null) return;
+            for (int i = 0; i < RefRowCount; i++)
+            {
+                bool used = i < count;
+                _refOutlines[i].gameObject.SetActive(used);
+                _refFills[i].gameObject.SetActive(used);
+                _refLabels[i].gameObject.SetActive(used);
+                _refValues[i].gameObject.SetActive(used);
+                if (!used) continue;
+
+                float y = y0 + i * pitch;
+                float textY = y + h * 0.5f - 13f;
+                ApplySkinRect(_refOutlines[i].gameObject,
+                    new Vector2(D(x - 1f), -D(y - 1f)), new Vector2(D(w + 2f), D(h + 2f)));
+                ApplySkinRect(_refFills[i].gameObject,
+                    new Vector2(D(x), -D(y)), new Vector2(D(w), D(h)));
+                ApplySkinRect(_refLabels[i].gameObject,
+                    new Vector2(D(x + 16f), -D(textY)), new Vector2(D(300f), D(26f)));
+                ApplySkinRect(_refValues[i].gameObject,
+                    new Vector2(D(x + w - 316f), -D(textY)), new Vector2(D(300f), D(26f)));
+            }
+        }
+
+        void SetCenterTitle(string text, bool accent, float refY)
+        {
+            if (_centerTitle == null) return;
+            _centerTitle.text = text;
+            _centerTitle.color = accent ? Accent : Ink;
+            PlaceCentered(_centerTitle, refY, 40f);
+        }
+
+        void SetCenterSub(Text? text, string value, float refY)
+        {
+            if (text == null) return;
+            text.text = value;
+            text.gameObject.SetActive(value.Length > 0);
+            if (value.Length > 0) PlaceCentered(text, refY, 15f);
+        }
+
+        /// <summary>
+        /// Places centred reference text: the glyphs' top ends up at the
+        /// reference's y (the rect is lifted by the line's leading and the box
+        /// centre carries the glyph centre), so the 40/15-unit lines land where
+        /// the raylib build drew them.
+        /// </summary>
+        void PlaceCentered(Text text, float refY, float size)
+        {
+            ApplySkinRect(text.gameObject,
+                new Vector2(0f, -D(refY - 0.12f * size)), new Vector2(D(1280f), D(1.24f * size)));
+        }
+
+        /// <summary>
+        /// Reference-canvas text drawn from its top-left corner, lifted by the
+        /// font's leading so the glyphs start at the reference's y.
+        /// </summary>
+        Text MakeRefText(Transform parent, string name, float x, float refY, float w,
+            string text, float designSize, Color color, TextAnchor alignment)
+        {
+            float lead = 0.12f * designSize;
+            return MakeSkinText(parent, name, x, refY - lead, w, 1.6f * designSize,
+                text, designSize, color, alignment);
+        }
+
+        /// <summary>Centre-anchored preview stroke (uGUI has no line primitive).</summary>
+        Image MakePreviewBar(Transform parent, string name, Vector2 anchoredPosition,
+            Vector2 size, float rotationDegrees, Color color)
+        {
+            GameObject go = new GameObject(name);
+            go.AddComponent<CanvasRenderer>();
+            RectTransform rect = go.AddComponent<RectTransform>();
+            rect.anchorMin = Center;
+            rect.anchorMax = Center;
+            rect.pivot = Center;
+            go.transform.SetParent(parent);
+            rect.anchoredPosition = anchoredPosition;
+            rect.sizeDelta = size;
+            if (rotationDegrees != 0f) rect.localRotation = Quaternion.Euler(0f, 0f, rotationDegrees);
+
+            Image image = go.AddComponent<Image>();
+            image.color = color;
+            return image;
+        }
+
+        /// <summary>
+        /// Reference per-screen scrim. Match-over keeps the main screen's light
+        /// veil on purpose: HudSync draws the forced scoreboard beneath this
+        /// canvas, and the reference's rgba(6,8,12,200) would bury it (the
+        /// reference draws its board above that scrim instead).
+        /// </summary>
+        static Color BackdropFor(Screen screen)
+        {
+            switch (screen)
+            {
+                case Screen.Paused:
+                case Screen.Settings:
+                    return PauseScrim;
+                case Screen.Crosshair:
+                    return CrosshairScrim;
+                default:
+                    return Scrim;
+            }
         }
     }
 }
