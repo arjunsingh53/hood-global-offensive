@@ -34,8 +34,9 @@
   marker, reference envelope, ELIMINATED / HEADSHOT labels under the crosshair), the
   main-menu reference skin (command surface, panelled setup rows, match-brief card), the
   centred pause/settings/match-over skin + crosshair-options panel port, the sniper-feel +
-  scope-reticle pass with the invisible-surface decal fix, and the sky-ramp band smoothing from
-  the follow-up visual audit. The
+  scope-reticle pass with the invisible-surface decal fix, the sky-ramp band smoothing from
+  the follow-up visual audit, and the tactical-soldier world-model swap with the refreshed
+  README gallery (verification log below). The
   GitHub release asset for `v0.2.2` was
   rebuilt in place (`gh release upload --clobber`) so the downloadable exe includes the menu fix.
   Run `git log --oneline -5` for exact hashes.
@@ -69,8 +70,11 @@
   is ported into `unity/` and byte-verified against this repo by `tools/parity`. See "Migration
   state" below. The raylib build (`main`) remains the reference implementation and stays healthy.
 - **Licensing:** MIT, **except** `assets/weapons/viewmodel-*.glb` (owner-supplied, not covered by
-  the repo licence — see `assets/weapons/viewmodel-rig-SOURCE.md`) and the Industrial Zone map
-  (CC-BY 4.0, novikto — keep its attribution file with any distribution).
+  the repo licence — see `assets/weapons/viewmodel-rig-SOURCE.md`), the character models in
+  `assets/characters/` (`tactical-soldier-02.glb` is owner-supplied with the licence evidence
+  still pending — the build falls back to fully game-owned art when it is removed — and
+  `soldier.glb` is a Mixamo conversion; both have record files in that folder), and the
+  Industrial Zone map (CC-BY 4.0, novikto — keep its attribution file with any distribution).
 
 ### What the 0.2.2 pass changed
 
@@ -551,6 +555,20 @@ behaviour questions.
   Arena, Streets, Ruins and Playground with zero non-finite frames, clear spawns, 3 upgrade
   stations everywhere and live kill flow (116–176 deaths per map) — worth remembering that the
   two CI gates themselves only ever run the default map.
+  A character-presentation pass afterwards swapped the world-model bots to the owner-supplied
+  Tactical Soldier 02 and refreshed the README gallery from the same build. The code change is
+  `CharacterModels.cs` only: the `Artwork` table now lists the tactical soldier first and the
+  record gained a per-model `HeadAccessories` flag, so the capsule's cone/horn/halo/top-hat
+  silhouettes no longer attach to the realistic soldier (they stay on the capsule fallback).
+  No sim, port or golden surface is touched, but the full gate set was rerun for the record:
+  `-warnaserror` build clean, both CI gates `RESULT: PASS`, `tools/parity` `PARITY: PASS`,
+  `tools/presentation-check` build clean, `tools/editmode-check` build clean. Deterministic
+  captures verified the swap at three distances — impact close-up, Industrial play frame and
+  Arena mid-distance: human proportions, correct 180° facing, the integrated low-ready carbine
+  in both hands, no leftover capsule shapes or accessories. All eight `shots/` captures were
+  re-staged from the current build; the iron-sights frame needed `--seed 11` (the deterministic
+  default-seed frame stages at 25 HP under the damage vignette) and the reload frame is the
+  `RELOAD1:0.5` reach pose. Recipes recorded under "Capturing screenshots".
 
 ## How to work on this repository
 
@@ -626,6 +644,13 @@ dotnet run -- --screenshot cab.png  --map Arena    --screen upgrade   # staged U
   change `--map` or `--seed` (or both).
 - **Judging alignment:** never eyeball at 1×. Crop + upscale with
   `System.Drawing` (`NearestNeighbor`, 3×) into `.assets-scratch/` before reading the image.
+- **README gallery recipes** — the eight `shots/` captures, each run with
+  `--screenshot shots/<name>.png --width 1920 --height 1080`: `30-menu` (`--screen menu`),
+  `31-industrial` (`--weapon Rifle`), `32-iron-sights` (`--weapon Rifle --zoom --seed 11`),
+  `33-reload` (`--weapon SMG --anim RELOAD1:0.5`), `34-arena` (`--map Arena`), `35-playground`
+  (`--map Playground`), `36-upgrade` (`--screen upgrade`), `37-scoreboard`
+  (`--screen scoreboard --bots 15`). Stage candidates in `.assets-scratch/audit/gallery/` first,
+  copy only the frames that beat the current ones over `shots/`, then `git add -f`.
 - Captures need a real GPU; headless machines cannot run `--screenshot`.
 
 ### Audio workflow
@@ -789,9 +814,12 @@ the next session knows whether GitHub is current.
   and half-height), and `HeadArt` is an unscaled sibling lifted to `HeadHeight` with a baked
   180° yaw so the reference's model-frame block coordinates can be copied as-is. Do not parent
   the head blocks under the capsule: the non-uniform body scale squashes them and the crouch
-  crouches them instead of lowering them. The reference head art only exists for the GLB path
-  (`HasIntegratedCarbine`), which Unity cannot load at runtime — the port draws it on the
-  capsule instead, and the real rigs replace the whole view at the mesh pass.
+  crouches them instead of lowering them. The reference head art is gated on the capsule
+  artwork's `HeadAccessories` flag (currently true only for
+  `hgo-lowpoly-tactical-operator.glb`; the default bot presentation is now the owner-supplied
+  tactical soldier, which has none). Unity cannot load that GLB path at runtime — the port keeps
+  drawing the box silhouettes on the capsule as the blockout stand-in, and the real rigs replace
+  the whole view at the mesh pass.
 - **`ViewModelSync` rotation signs are unverified** — raylib rotates right-handed, Unity
   left-handed; each flourish/spring Euler component was negated port-side. If the first editor
   capture shows the flourish leaning the wrong way, flip the sign on the offending
@@ -871,11 +899,6 @@ the next session knows whether GitHub is current.
   lower decorative ground beneath — a mark in one of those hovers slightly above the visible
   surface. Only the never-drawn containment rim rejects decals outright (`Brush.Invisible`); the
   floor stays decalable because it matches the pavement everywhere else.
-- **README gallery refresh** (optional): `shots/` still holds the v0.2.2-era captures, so the
-  README's "current build" frames predate the sniper/scope, decal and sky-ramp passes. The
-  original staging commands were never recorded; re-stage each capture from the current build
-  with the same caption setups (menu, rifle gameplay, iron sights with `--zoom`, rig reload with
-  `--anim`, Arena, Playground, upgrade cabinet, scoreboard) and `git add -f` the eight PNGs.
 - **Audio tuning by ear** — the cue set is mechanically verified (no silence, no clipping) but
   was never listened to on hardware by the development session; `--sfx-dump` + a real playback
   device is the way to A/B it.

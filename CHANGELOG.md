@@ -34,6 +34,15 @@ project and byte-verified against this reference implementation by a parity harn
   Unity's Test Runner against the same checked-in goldens — so the port can be gated from inside
   the editor as soon as the project is first opened there.
 
+### Changed
+
+- **Bot world models**: the world-model bots now present the owner-supplied *Tactical Soldier 02*
+  operator — a Character-Creator rig with HGO-authored locomotion loops and an integrated
+  low-ready carbine — instead of the HGO capsule combatant. The capsule combatant stays the
+  automatic fallback (used whenever the owner-supplied file is absent) and remains the fully
+  game-owned option; the flat block-proxy weapon is now drawn only for the legacy fallback.
+  Presentation only — no simulation, weapon, port or golden surface changes.
+
 ### Fixed
 
 - **Scoped sniper shots missed the reticle**: scoping multiplied the sniper's 5.5° idle cone by

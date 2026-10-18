@@ -15,7 +15,7 @@ namespace HoodGlobalOffensive.Render;
 public static unsafe class CharacterModels
 {
     private readonly record struct CharacterArtwork(string Name, string Path, float YawOffset,
-        bool HasIntegratedCarbine);
+        bool HasIntegratedCarbine, bool HeadAccessories);
 
     // The HGO capsule operator is original game-owned art. The legacy conversion stays
     // only as an emergency development fallback; it is not part of the normal
@@ -24,11 +24,15 @@ public static unsafe class CharacterModels
     // art or affect simulation state.
     private static readonly CharacterArtwork[] Artwork =
     {
+        // Owner-supplied Character-Creator operator with HGO-authored locomotion
+        // loops and a low-ready carbine mesh. The capsule combatant below stays
+        // as the license-clean fallback.
+        new("Tactical Soldier 02", "assets/characters/tactical-soldier-02.glb", 180f, true, false),
         // The source capsule faces Blender -Y; after GLB export its visible
         // front is +Z while HGO yaw 0 faces -Z. Its compact carbine is part of
         // the rigged world model, correctly scaled to its hands.
-        new("HGO Capsule Combatant", Cfg.SoldierModelPath, 180f, true),
-        new("Soldier fallback", Cfg.SoldierFallbackModelPath, 0f, false),
+        new("HGO Capsule Combatant", Cfg.SoldierModelPath, 180f, true, true),
+        new("Soldier fallback", Cfg.SoldierFallbackModelPath, 0f, false, false),
     };
 
     private sealed class LoadedCharacter
@@ -88,10 +92,9 @@ public static unsafe class CharacterModels
             character.Scale * crouchHeightScale, character.Scale * crouchWidthScale);
         Raylib.DrawModelEx(character.Model, position, Vector3.UnitY,
             actor.Yaw + character.Artwork.YawOffset, scale, Color.White);
-        if (character.Artwork.HasIntegratedCarbine) DrawCapsuleHeadAccessory(actor, character.Artwork.YawOffset);
-        // The preferred HGO operator carries a compact original carbine as a
-        // rigid mesh skinned to its right hand. Do not overlay the old proxy on
-        // top of that pose; retain the proxy only for the legacy fallback.
+        if (character.Artwork.HeadAccessories) DrawCapsuleHeadAccessory(actor, character.Artwork.YawOffset);
+        // Both rigged world models carry their carbine as part of the skinned
+        // mesh, so the old block proxy is overlaid only on the legacy fallback.
         if (!character.Artwork.HasIntegratedCarbine) DrawCarriedWeapon(actor);
         return true;
     }

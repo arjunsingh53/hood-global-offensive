@@ -42,7 +42,9 @@ included in the game asset.
 
 ## Integration boundary
 
-`CharacterModels` selects this as an integrated-carbine world character and
-attaches the visual-only accessory variants. Neither path changes simulation,
-weapons, collision, bot decisions, damage, or Gun Game; the old oversized
-fallback proxy stays disabled for this asset.
+`CharacterModels` presents the owner-supplied Tactical Soldier 02 as the default
+world model and keeps this capsule as the automatic fallback (it is used whenever
+that file is absent) — it remains the fully game-owned option. When presented it
+selects the integrated carbine and attaches the visual-only accessory variants.
+Neither path changes simulation, weapons, collision, bot decisions, damage, or
+Gun Game; the old oversized fallback proxy stays disabled for this asset.

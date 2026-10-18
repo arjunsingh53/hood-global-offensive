@@ -26,3 +26,8 @@ HGO-local locomotion loops are authored by
 because the supplied FBX contains a bind pose only. They are not represented as
 source-provided animations. Collision, hitboxes, weapon logic and the Gun Game
 first-person weapon model remain HGO-owned systems.
+
+As of the 2026-10-18 build this package is the default in-game bot world model
+(`CharacterModels.Artwork`). The HGO capsule combatant remains the automatic
+next fallback, so removing this file from a distribution build reverts the
+presentation to fully game-owned art with no code change.
