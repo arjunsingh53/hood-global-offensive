@@ -12,7 +12,8 @@ namespace HoodGlobalOffensive.Presentation
     /// <summary>
     /// First-pass uGUI HUD driven entirely by sim state — no editor wiring needed:
     /// the canvas, scaler and every element are built in code. It mirrors the
-    /// reference HUD's information layer (health card with build pips, ammo card,
+    /// reference HUD's information layer (health card with build pips, weapon
+    /// readout card with magazine bar + loadout slots,
     /// top bar with match clock + YOU/LEAD/FT line, compass tape, rotating radar
     /// scanner, kill feed, hitmarker, hook status squares, station prompt, damage
     /// flash + directional indicator, low-health vignette, scope overlay,
@@ -47,9 +48,7 @@ namespace HoodGlobalOffensive.Presentation
         Text _healthLabel;
         Image _healthTrack;
         Image _healthFill;
-        Text _ammoWeapon;
-        Text _ammoMag;
-        Text _ammoReserve;
+        WeaponReadout? _weaponReadout;
         Text _timer;
         Text _matchResult;
         Image? _topBarBorder;
@@ -130,6 +129,273 @@ namespace HoodGlobalOffensive.Presentation
                 Border.color = Fade(border, opacity);
                 Fill.color = Fade(fill, opacity);
                 Key.color = Fade(attached ? Gold : Faint, opacity);
+            }
+        }
+
+        /// <summary>
+        /// The bottom-right weapon card (reference <c>Hud.DrawWeaponReadout</c>): the
+        /// weapon name + state line, the oversized magazine numeral with the
+        /// slash/reserve, an eight-segment magazine bar, the four loadout slot boxes
+        /// above the card, and the reload progress / PRESS R line. Ported in the
+        /// reference's 1280x720 logical units with the 1.5x canvas scale applied, and
+        /// it reuses the pointer positions the reference uses inside the 260x88 card.
+        /// The arena-panel corner brackets are still left to the skin pass, so the card
+        /// and slots use the same fill + 1 px border approximation as the other cards.
+        /// </summary>
+        sealed class WeaponReadout
+        {
+            const float Scale = 1.5f;
+            const float CardW = 260f;
+            const float CardH = 88f;
+            const float BarW = 111f;
+            const float BarH = 8f;
+            const float ReloadBarH = 5f;
+            const int MagSegments = 8;
+            const float MagGap = 2f;
+
+            static readonly Color Accent = new Color(1f, 186f / 255f, 56f / 255f);
+
+            public GameObject Root = null!;
+            Image CardBorder = null!;
+            Image CardFill = null!;
+            Text Name = null!;
+            Text State = null!;
+            Text Mag = null!;
+            Text Slash = null!;
+            Text Reserve = null!;
+            Text MagCaption = null!;
+            Text ResCaption = null!;
+            readonly Image[] _magSegments = new Image[MagSegments];
+            Image ReloadTrack = null!;
+            Image ReloadFill = null!;
+            Text ReloadLabel = null!;
+            Slot[] _slots = Array.Empty<Slot>();
+
+            sealed class Slot
+            {
+                public Image Border = null!;
+                public Image Fill = null!;
+                public Image Active = null!;
+                public Text Label = null!;
+                public Text Index = null!;
+            }
+
+            public void Set(Player p, Simulation sim, float op)
+            {
+                Weapon weapon = p.Current;
+                WeaponDef def = weapon.Def;
+                Color ammoColor = def.UsesAmmo && weapon.Mag == 0 ? Danger : Ink;
+
+                CardBorder.color = Fade(new Color(232f / 255f, 240f / 255f, 244f / 255f, 74f / 255f), op);
+                CardFill.color = Fade(new Color(5f / 255f, 8f / 255f, 13f / 255f, 206f / 255f), op);
+
+                Name.text = def.Name.ToUpperInvariant();
+                Name.color = Fade(Accent, op);
+                State.text = WeaponState(def);
+                State.color = Fade(Dim, op);
+
+                Mag.text = def.UsesAmmo ? weapon.Mag.ToString("00") : "--";
+                Mag.color = Fade(ammoColor, op);
+                Slash.color = Fade(Faint, op);
+                Reserve.color = Fade(new Color(238f / 255f, 242f / 255f, 244f / 255f, 210f / 255f), op);
+                MagCaption.color = Fade(Faint, op);
+                ResCaption.color = Fade(Faint, op);
+
+                // Segmented magazine bar (reference DrawSegmentedBar): each of the
+                // eight cells brightens as its share of the load is present.
+                float magFill = def.Magazine <= 0 ? 0f : weapon.Mag / (float)def.Magazine;
+                for (int i = 0; i < _magSegments.Length; i++)
+                {
+                    float intensity = U.Clamp01(magFill * MagSegments - i);
+                    Color segment = intensity > 0.01f
+                        ? new Color(ammoColor.r, ammoColor.g, ammoColor.b,
+                            ammoColor.a * (0.48f + 0.52f * intensity))
+                        : new Color(1f, 1f, 1f, 24f / 255f);
+                    _magSegments[i].color = Fade(segment, op);
+                }
+
+                // Four loadout slots: primary, secondary, tertiary, then the knife.
+                for (int slot = 1; slot <= 4; slot++)
+                {
+                    Slot view = _slots[slot - 1];
+                    Weapon? owned = p.Weapons.Find(candidate => candidate.Slot == slot);
+                    bool active = owned is not null && ReferenceEquals(owned, p.Current);
+                    view.Border.color = Fade(
+                        active ? Accent : new Color(232f / 255f, 240f / 255f, 244f / 255f, 74f / 255f), op);
+                    view.Fill.color = Fade(new Color(5f / 255f, 8f / 255f, 13f / 255f, 206f / 255f), op);
+                    view.Active.gameObject.SetActive(active);
+                    if (active) view.Active.color = Fade(Accent, op);
+                    view.Label.text = owned is null ? "---" : ShortName(owned.Def.Name);
+                    view.Label.color = Fade(active ? Ink : Dim, op);
+                    view.Index.color = Fade(Faint, op);
+                }
+
+                // Reload progress / PRESS R prompt (reference lines below the bar).
+                bool reloading = weapon.Reloading && def.UsesAmmo;
+                bool pressR = !reloading && def.UsesAmmo && weapon.Mag == 0;
+                ReloadTrack.gameObject.SetActive(reloading);
+                ReloadFill.gameObject.SetActive(reloading);
+                ReloadLabel.gameObject.SetActive(reloading || pressR);
+                if (reloading)
+                {
+                    float duration = MathF.Max(0.001f, def.ReloadTime);
+                    float t = U.Clamp01(1f - (weapon.ReloadEndTime - sim.Time) / duration);
+                    ReloadTrack.color = Fade(new Color(0f, 0f, 0f, 160f / 255f), op);
+                    ReloadFill.rectTransform.sizeDelta = new Vector2(BarW * Scale * t, ReloadBarH * Scale);
+                    ReloadFill.color = Fade(Accent, op);
+                    ReloadLabel.text = weapon.ReloadStartedEmpty ? "EMPTY RELOAD" : "TACTICAL RELOAD";
+                    ReloadLabel.color = Fade(Accent, op);
+                }
+                else if (pressR)
+                {
+                    ReloadLabel.text = "PRESS R";
+                    ReloadLabel.color = Fade((int)(sim.Time * 3f) % 2 == 0 ? Danger : Dim, op);
+                }
+            }
+
+            static string WeaponState(WeaponDef def) => def switch
+            {
+                { Melee: true } => "MELEE - V",
+                { HasSecondary: true } => "ALT - DOUBLE BLAST",
+                { HasScope: true } => "SCOPE - RMB",
+                { HasIronSights: true } => "IRON SIGHTS - RMB",
+                _ => "PRIMARY",
+            };
+
+            static string ShortName(string name) => name switch
+            {
+                "Double Barrel" => "DB",
+                "Revolver" => "REV",
+                _ => name.ToUpperInvariant(),
+            };
+
+            public static WeaponReadout Build(Transform parent, Font font)
+            {
+                WeaponReadout view = new WeaponReadout();
+
+                // Card home: 24 logical from the right and bottom edges, pivot at its
+                // top-left so every child uses the reference's card-local offsets.
+                GameObject root = new GameObject("Weapon Readout");
+                root.AddComponent<CanvasRenderer>();
+                RectTransform rect = root.AddComponent<RectTransform>();
+                rect.anchorMin = new Vector2(1f, 0f);
+                rect.anchorMax = new Vector2(1f, 0f);
+                rect.pivot = new Vector2(0f, 1f);
+                rect.anchoredPosition = new Vector2(-(24f + CardW) * Scale, (24f + CardH) * Scale);
+                rect.sizeDelta = new Vector2(CardW * Scale, CardH * Scale);
+                root.transform.SetParent(parent);
+                view.Root = root;
+
+                view.CardBorder = Box(root.transform, "Card Border", -1f, -1f, CardW + 2f, CardH + 2f,
+                    new Color(232f / 255f, 240f / 255f, 244f / 255f, 74f / 255f));
+                view.CardFill = Box(root.transform, "Card Fill", 0f, 0f, CardW, CardH,
+                    new Color(5f / 255f, 8f / 255f, 13f / 255f, 206f / 255f));
+
+                view.Name = TextEl(root.transform, font, "Name", 15f, 14f, 230f, 20f, 18,
+                    TextAnchor.UpperLeft, Accent);
+                view.State = TextEl(root.transform, font, "State", 15f, 30f, 220f, 16f, 15,
+                    TextAnchor.UpperLeft, Dim);
+                view.Mag = TextEl(root.transform, font, "Mag", 144f, 33f, 90f, 48f, 57,
+                    TextAnchor.UpperLeft, Ink);
+                view.Slash = TextEl(root.transform, font, "Slash", 197f, 55f, 20f, 22f, 24,
+                    TextAnchor.UpperLeft, Faint);
+                view.Reserve = TextEl(root.transform, font, "Reserve", 213f, 50f, 46f, 30f, 30,
+                    TextAnchor.UpperLeft, Ink);
+                view.MagCaption = TextEl(root.transform, font, "Mag Caption", 147f, 74f, 40f, 14f, 14,
+                    TextAnchor.UpperLeft, Faint);
+                view.ResCaption = TextEl(root.transform, font, "Res Caption", 218f, 74f, 40f, 14f, 14,
+                    TextAnchor.UpperLeft, Faint);
+                view.MagCaption.text = "MAG";
+                view.ResCaption.text = "RES";
+
+                // Magazine bar: eight cells inside a 1 px outline, like the health bar.
+                float segW = (BarW - (MagSegments - 1) * MagGap) / MagSegments;
+                for (int i = 0; i < MagSegments; i++)
+                {
+                    view._magSegments[i] = Box(root.transform, $"Mag {i}", 15f + i * (segW + MagGap), 51f,
+                        segW, BarH, new Color(1f, 1f, 1f, 24f / 255f));
+                }
+                Color outline = new Color(1f, 1f, 1f, 48f / 255f);
+                Box(root.transform, "Mag Outline Top", 14f, 50f, BarW + 2f, 1f, outline);
+                Box(root.transform, "Mag Outline Bottom", 14f, 51f + BarH, BarW + 2f, 1f, outline);
+                Box(root.transform, "Mag Outline Left", 14f, 50f, 1f, BarH + 2f, outline);
+                Box(root.transform, "Mag Outline Right", 15f + BarW, 50f, 1f, BarH + 2f, outline);
+
+                view.ReloadTrack = Box(root.transform, "Reload Track", 15f, 72f, BarW, ReloadBarH,
+                    new Color(0f, 0f, 0f, 160f / 255f));
+                view.ReloadFill = Box(root.transform, "Reload Fill", 15f, 72f, BarW, ReloadBarH, Accent);
+                view.ReloadLabel = TextEl(root.transform, font, "Reload Label", 126f, 63f, 120f, 14f, 14,
+                    TextAnchor.UpperRight, Accent);
+                view.ReloadTrack.gameObject.SetActive(false);
+                view.ReloadFill.gameObject.SetActive(false);
+                view.ReloadLabel.gameObject.SetActive(false);
+
+                // Loadout strip sits 26 logical above the card, right-aligned to the
+                // card so the knife box overhangs the screen edge exactly like the
+                // reference (its last box is clipped by the display).
+                view._slots = new Slot[4];
+                for (int slot = 1; slot <= 4; slot++)
+                {
+                    float boxX = CardW - (4 - slot) * 70f;
+                    Slot slotView = new Slot();
+                    slotView.Border = Box(root.transform, $"Slot {slot} Border", boxX - 1f, -27f, 64f, 23f,
+                        new Color(232f / 255f, 240f / 255f, 244f / 255f, 74f / 255f));
+                    slotView.Fill = Box(root.transform, $"Slot {slot} Fill", boxX, -26f, 62f, 21f,
+                        new Color(5f / 255f, 8f / 255f, 13f / 255f, 206f / 255f));
+                    slotView.Active = Box(root.transform, $"Slot {slot} Active", boxX, -26f, 3f, 21f, Accent);
+                    slotView.Label = TextEl(root.transform, font, $"Slot {slot} Label", boxX + 31f, -20f,
+                        58f, 16f, 15, TextAnchor.UpperCenter, Dim);
+                    slotView.Index = TextEl(root.transform, font, $"Slot {slot} Index", boxX + 3f, -24f,
+                        20f, 16f, 15, TextAnchor.UpperLeft, Faint);
+                    slotView.Index.text = $"{slot}";
+                    slotView.Active.gameObject.SetActive(false);
+                    view._slots[slot - 1] = slotView;
+                }
+
+                return view;
+            }
+
+            static Image Box(Transform parent, string name, float dx, float dy, float w, float h, Color color)
+            {
+                GameObject go = new GameObject(name);
+                go.AddComponent<CanvasRenderer>();
+                RectTransform rect = go.AddComponent<RectTransform>();
+                go.transform.SetParent(parent);
+                rect.anchorMin = new Vector2(0f, 1f);
+                rect.anchorMax = new Vector2(0f, 1f);
+                rect.pivot = new Vector2(0f, 1f);
+                rect.anchoredPosition = new Vector2(dx * Scale, -dy * Scale);
+                rect.sizeDelta = new Vector2(w * Scale, h * Scale);
+                Image image = go.AddComponent<Image>();
+                image.color = color;
+                return image;
+            }
+
+            static Text TextEl(Transform parent, Font font, string name, float dx, float dy, float w, float h,
+                int size, TextAnchor align, Color color)
+            {
+                GameObject go = new GameObject(name);
+                go.AddComponent<CanvasRenderer>();
+                RectTransform rect = go.AddComponent<RectTransform>();
+                go.transform.SetParent(parent);
+                rect.anchorMin = new Vector2(0f, 1f);
+                rect.anchorMax = new Vector2(0f, 1f);
+                rect.pivot = align switch
+                {
+                    TextAnchor.UpperRight => new Vector2(1f, 1f),
+                    TextAnchor.UpperCenter => new Vector2(0.5f, 1f),
+                    _ => new Vector2(0f, 1f),
+                };
+                rect.anchoredPosition = new Vector2(dx * Scale, -dy * Scale);
+                rect.sizeDelta = new Vector2(w, h);
+                Text text = go.AddComponent<Text>();
+                text.font = font;
+                text.fontSize = size;
+                text.alignment = align;
+                text.horizontalOverflow = HorizontalWrapMode.Overflow;
+                text.verticalOverflow = VerticalWrapMode.Overflow;
+                text.color = color;
+                return text;
             }
         }
 
@@ -288,8 +554,7 @@ namespace HoodGlobalOffensive.Presentation
             Simulation? sim = _driver != null ? _driver.Sim : null;
             if (sim == null) return;
             Player p = sim.Player;
-            Weapon weapon = p.Current;
-            WeaponDef def = weapon.Def;
+            WeaponDef def = p.Current.Def;
 
             // The peripheral anchors fade behind a real scope / calibrated sight
             // picture (reference Hud.PeripheralHudOpacity). Centre elements
@@ -331,16 +596,8 @@ namespace HoodGlobalOffensive.Presentation
                 pipLabel.color = Fade(Faint, op);
             }
 
-            // Ammo card ----------------------------------------------------
-            string mag = def.UsesAmmo ? weapon.Mag.ToString("00") : "--";
-            _ammoMag.text = mag;
-            _ammoMag.color = Fade(def.UsesAmmo && weapon.Mag == 0 ? Danger : Ink, op);
-            _ammoWeapon.text = def.Name.ToUpperInvariant();
-            _ammoWeapon.color = Fade(Dim, op);
-            _ammoReserve.text = def.UsesAmmo
-                ? (def.InfiniteReserve ? "RESERVE INF" : $"RESERVE {weapon.Reserve}")
-                : "MELEE";
-            _ammoReserve.color = Fade(Dim, op);
+            // Weapon readout card (reference DrawWeaponReadout) -------------
+            _weaponReadout?.Set(p, sim, op);
 
             // Top bar (reference DrawTopBar) ---------------------------------
             _matchResult.gameObject.SetActive(sim.MatchOver);
@@ -853,13 +1110,8 @@ namespace HoodGlobalOffensive.Presentation
             _pipLabels[2]!.text = "SPD";
             _pipLabels[3]!.text = "JMP";
 
-            // Ammo card (bottom-right) --------------------------------------
-            _ammoWeapon = MakeText(root, "Ammo Weapon", AnchorBottomRight,
-                new Vector2(-24f, 96f), new Vector2(400f, 24f), 20, TextAnchor.UpperRight, Dim);
-            _ammoMag = MakeText(root, "Ammo Mag", AnchorBottomRight,
-                new Vector2(-24f, 24f), new Vector2(300f, 60f), 46, TextAnchor.UpperRight, Ink);
-            _ammoReserve = MakeText(root, "Ammo Reserve", AnchorBottomRight,
-                new Vector2(-24f, 2f), new Vector2(400f, 20f), 13, TextAnchor.UpperRight, Dim);
+            // Weapon readout card (bottom-right, reference DrawWeaponReadout) -
+            _weaponReadout = WeaponReadout.Build(root, _font!);
 
             // Top bar (reference DrawTopBar; panel 220x58 at 1.5x) ------------
             _topBarBorder = MakeImage(root, "Top Bar Border", AnchorTopCenter,
@@ -1004,7 +1256,6 @@ namespace HoodGlobalOffensive.Presentation
 
         static readonly Vector2 AnchorBottomLeft = new Vector2(0f, 0f);
         static readonly Vector2 AnchorBottomCenter = new Vector2(0.5f, 0f);
-        static readonly Vector2 AnchorBottomRight = new Vector2(1f, 0f);
         static readonly Vector2 AnchorTopLeft = new Vector2(0f, 1f);
         static readonly Vector2 AnchorTopRight = new Vector2(1f, 1f);
         static readonly Vector2 AnchorTopCenter = new Vector2(0.5f, 1f);

@@ -45,8 +45,8 @@
   `.gitattributes` prep, combat-effects blockout, the HUD floating damage numbers, the crosshair
   options port, the camera-feedback levels, the main-menu match-setup rows, the upgrade-cabinet
   overlay, the Tab scoreboard + pause/match-over parity fixes, the scenic menu backdrop, the
-  scope/hook/vitals HUD pass, the top-bar + compass pass, the rotating radar scanner) are
-  **local only — 20 commits ahead of `origin/main`** — keep them local until the team asks
+  scope/hook/vitals HUD pass, the top-bar + compass pass, the rotating radar scanner, the weapon-readout card) are
+  **local only — 21 commits ahead of `origin/main`** — keep them local until the team asks
   for another push.
   Pre-push gate for future work: `-warnaserror` build clean, both CI gates `RESULT: PASS`, `tools/parity`
   `PARITY: PASS`, `tools/presentation-check` build clean, and `tools/editmode-check` build clean.
@@ -252,8 +252,20 @@ behaviour questions.
     contact dots (bright when in LOS and under 1100 m) that degrade to edge chevrons past
     radius-7, the up-facing player triangle with boundary rings — over the square
     arena-panel border/fill images, with FIELD SCANNER / RANGE 72 labels. Still
-    blockout: the weapon-readout detail lines, the arena-panel card skin (corner
+    blockout: the arena-panel card skin (corner
     brackets), and the peripheral-fringe/trauma-mark vignette extras.
+    **Weapon readout ported:** the bottom-right card is now the ported
+    `Hud.DrawWeaponReadout` instead of the ad-hoc name/mag/reserve texts —
+    weapon name + state line (`MELEE - V` / `ALT - DOUBLE BLAST` / `SCOPE - RMB` /
+    `IRON SIGHTS - RMB` / `PRIMARY`), the oversized `00` magazine numeral with
+    `/` + `INF`, `MAG`/`RES` captions, the eight-segment magazine bar inside its
+    1 px outline, the reload progress bar + `TACTICAL`/`EMPTY RELOAD` line (or the
+    blinking `PRESS R` prompt), and the four loadout slot boxes above the card
+    (active slot gold + left rail, `---` for an empty slot, `ShortName` labels).
+    Built in the reference's 1280x720 logical units at the 1.5x canvas scale, so
+    the knife box overhangs the screen edge exactly like the reference. The
+    card/slots reuse the fill + 1 px border approximation (corner brackets still
+    owed by the skin pass).
   - `MenuSync.cs` — code-built uGUI front end and game-flow owner (main / pause / settings /
     crosshair options / match-over). It never changes sim rules: leaving the Playing screen
     disables the
