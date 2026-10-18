@@ -266,8 +266,10 @@ public static class Renderer
 
         // Zenith-to-horizon ramp, then the dusk mist that sits below the
         // horizon line so map edges fade into atmosphere instead of void.
+        // The multi-stop ramp is drawn band by band; 160 keeps each step
+        // under ~8 px so even the scrim-darkened menu sky stays smooth.
         float span = height * 1.15f;
-        const int bands = 56;
+        const int bands = 160;
         for (int i = 0; i < bands; i++)
         {
             float t0 = i / (float)bands;

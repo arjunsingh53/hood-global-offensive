@@ -33,8 +33,9 @@
   arena-panel rows, the per-actor box head silhouettes, the hitmarker (drawn four-tick
   marker, reference envelope, ELIMINATED / HEADSHOT labels under the crosshair), the
   main-menu reference skin (command surface, panelled setup rows, match-brief card), the
-  centred pause/settings/match-over skin + crosshair-options panel port, and the sniper-feel +
-  scope-reticle pass with the invisible-surface decal fix. The
+  centred pause/settings/match-over skin + crosshair-options panel port, the sniper-feel +
+  scope-reticle pass with the invisible-surface decal fix, and the sky-ramp band smoothing from
+  the follow-up visual audit. The
   GitHub release asset for `v0.2.2` was
   rebuilt in place (`gh release upload --clobber`) so the downloadable exe includes the menu fix.
   Run `git log --oneline -5` for exact hashes.
@@ -533,6 +534,19 @@ behaviour questions.
   see. Reference pixels were verified with deterministic `--screenshot` captures (the new scope
   reticle renders as designed; the floating sky specks are gone from the same seed/frame);
   `HudSync` pixels remain compile-verified only, as usual.
+  A visual-audit pass afterwards changed only the reference renderer (`src/Render/Renderer.cs`:
+  the dusk ramp's 56 flat bands became 160, so the ~22 px steps that showed through the menu's
+  darkened backdrop scrim are gone) — no sim or port surface is touched, but the full gate set
+  was still rerun for the record: `-warnaserror` build clean, both CI gates `RESULT: PASS`,
+  `tools/parity` `PARITY: PASS`, `tools/presentation-check` build clean, `tools/editmode-check`
+  build clean. Verified with deterministic captures at the same seed: the menu sky's step lines
+  vanish (before/after crops of `1150,20` 720×170) while the clouds and the presented gameplay
+  frames keep their look. The same sweep re-viewed every staged screen (`menu`, `scoreboard`,
+  `upgrade`, `crosshair`, `trauma`, `impact`) and every map against the current build and found
+  no further defects — the kill-feed HEAD tags, tracers, trauma lens droplets, GLB pipe edges
+  and the 1–2 px ridge slivers were all confirmed intentional — so the remaining observations
+  are the documented open items below (box viewmodels for the three rig-less weapons, the
+  Industrial floor-decal hover, the high-wisp cirrus note).
 
 ## How to work on this repository
 

@@ -53,6 +53,10 @@ project and byte-verified against this reference implementation by a parity harn
   feedback; decals on the floor and structures are unchanged.
 - **Screenshot staging tightened**: `--screenshot`'s "enemy in view" gate now requires the enemy
   near frame centre, so captures stop staging against a wall that fills the view.
+- **Sky-ramp banding** (`src/Render/Renderer.cs`): the dusk gradient was drawn as 56 flat bands
+  (~22 px each at 1080p) and its steps read as faint horizontal lines through the main menu's
+  darkened backdrop scrim. The ramp now uses 160 steps (~8 px), which presents as a smooth
+  gradient at 1080p.
 
 ---
 
