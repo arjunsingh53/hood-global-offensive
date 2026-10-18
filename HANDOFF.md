@@ -867,6 +867,11 @@ the next session knows whether GitHub is current.
   lower decorative ground beneath — a mark in one of those hovers slightly above the visible
   surface. Only the never-drawn containment rim rejects decals outright (`Brush.Invisible`); the
   floor stays decalable because it matches the pavement everywhere else.
+- **README gallery refresh** (optional): `shots/` still holds the v0.2.2-era captures, so the
+  README's "current build" frames predate the sniper/scope, decal and sky-ramp passes. The
+  original staging commands were never recorded; re-stage each capture from the current build
+  with the same caption setups (menu, rifle gameplay, iron sights with `--zoom`, rig reload with
+  `--anim`, Arena, Playground, upgrade cabinet, scoreboard) and `git add -f` the eight PNGs.
 - **Audio tuning by ear** — the cue set is mechanically verified (no silence, no clipping) but
   was never listened to on hardware by the development session; `--sfx-dump` + a real playback
   device is the way to A/B it.
