@@ -53,9 +53,9 @@
   overlay, the Tab scoreboard + pause/match-over parity fixes, the scenic menu backdrop, the
   scope/hook HUD pass, the top-bar + compass pass, the rotating radar scanner, the weapon-readout card,
   the biological vitals card + death overlay pass, the trauma vignette + arena-panel corner brackets
-  pass, and the kill-feed arena-panel rows pass) are on GitHub as of that push — nothing is
-  local-only any more (`git rev-list --count origin/main..main` = 0). Keep new work local until
-  the team asks for another push.
+  pass, and the kill-feed arena-panel rows pass) are on GitHub as of that push. Work landed
+  after it (starting with the actor head silhouettes) stays local until the team asks for
+  another push; `git rev-list --count origin/main..main` shows how much is held.
   Pre-push gate for future work: `-warnaserror` build clean, both CI gates `RESULT: PASS`, `tools/parity`
   `PARITY: PASS`, `tools/presentation-check` build clean, and `tools/editmode-check` build clean.
   After a push, update this bullet with the new sync point.
@@ -331,6 +331,19 @@ behaviour questions.
     name and sizes the panel to the content (`total + 18`), which uGUI cannot do
     before layout, so the row is a fixed 470 × 37.5 canvas-pixel panel with fixed
     name slots on the reference's 27-unit (40.5 px) pitch.
+    **Actor head silhouettes ported:** `ActorViews` used to be one flat team-tinted capsule per
+    bot, which made every opponent read the same. It now also carries the reference
+    `CharacterModels.DrawCapsuleHeadAccessory` art — `Math.Abs(actor.Id) % 4` picks one of the
+    four authored box silhouettes (warm pixel cone, two leaning horns on a dark visor, cyan
+    square halo, dark top hat with a warm band) in the reference's own `18 / 12 / 6`,
+    `22 × 3 × 12`, `27 × 2.5 × 3`-style block sizes. The blocks hang off a `HeadArt` pivot at
+    `actor.HeadHeight`, so they ride the crouch height without being squashed by the body scale,
+    and the pivot carries the reference's 180° yaw offset so the block numbers are copied
+    verbatim. Side fix in the same file: the capsule body was `Cfg.HalfWidth * 4` wide (a 64-unit
+    diameter for a 32-unit-wide actor), now `* 2` — the blockout bots were twice as fat as the sim
+    hitbox they stand in. The view list is also dropped whenever `MatchDriver.Sim` becomes a new
+    `Simulation` (restart, map swap, new bot count): actor ids are only unique inside one sim, so
+    the old capsules used to linger as ghosts.
   - `MenuSync.cs` — code-built uGUI front end and game-flow owner (main / pause / settings /
     crosshair options / match-over). It never changes sim rules: leaving the Playing screen
     disables the
@@ -432,6 +445,9 @@ behaviour questions.
   rerun: `tools/presentation-check` build clean (`0` warnings/errors) + `PRESENTATION: PASS`;
   the raylib build, the CI gates and the parity/edit-mode harnesses do not compile the
   presentation layer and were not affected.
+  The actor head-silhouette pass afterwards changed only `ActorViews.cs`, so again only the
+  affected gate was rerun: `tools/presentation-check` build clean (`0` warnings/errors) +
+  `PRESENTATION: PASS` (`ActorViews type resolved`).
   Nothing about the vignette's actual pixels has been seen yet — uGUI mesh emission is
   compile-only here, so the first editor capture is the visual check.
 
@@ -579,7 +595,7 @@ the next session knows whether GitHub is current.
 | Unity audio synthesis + mix routing port, cue manifest (engine-free) | `unity/Assets/Scripts/Sim/Audio/` (`WavGen.cs`, `AudioCatalog.cs`, `AudioMix.cs`) |
 | Sim→Unity bridge: fixed-tick `Simulation.Update`, `InputFrame` adapter, body/camera sync | `unity/Assets/Scripts/Presentation/MatchDriver.cs` + `HGO.Presentation.asmdef` |
 | Unity audio playback: PCM→`AudioClip` bank, voice pool, drains `Sim.Sounds` via `AudioMix.Resolve` | `unity/Assets/Scripts/Presentation/SimAudioPlayer.cs` |
-| Unity blockout pass: brush cubes, bot capsules, sim-driven view-model + muzzle flash, code-built uGUI HUD (incl. Tab scoreboard + mesh radar, vitals/weapon cards, arena-panel corner brackets on every panel, death overlay, procedural trauma vignette) + menu stack, pooled combat effects, crosshair profile + reticle, camera-feedback levels, match-setup rows, upgrade-cabinet overlay | `unity/Assets/Scripts/Presentation/` (`MapBlockout.cs`, `ActorViews.cs`, `ViewModelSync.cs`, `HudSync.cs`, `RadarGraphic.cs`, `TraumaGraphic.cs`, `MenuSync.cs`, `EffectsSync.cs`, `CrosshairSettings.cs`, `CameraFeedbackSettings.cs`, `UpgradeSync.cs`) |
+| Unity blockout pass: brush cubes, bot capsules + per-actor box head silhouettes, sim-driven view-model + muzzle flash, code-built uGUI HUD (incl. Tab scoreboard + mesh radar, vitals/weapon cards, arena-panel corner brackets on every panel, death overlay, procedural trauma vignette) + menu stack, pooled combat effects, crosshair profile + reticle, camera-feedback levels, match-setup rows, upgrade-cabinet overlay | `unity/Assets/Scripts/Presentation/` (`MapBlockout.cs`, `ActorViews.cs`, `ViewModelSync.cs`, `HudSync.cs`, `RadarGraphic.cs`, `TraumaGraphic.cs`, `MenuSync.cs`, `EffectsSync.cs`, `CrosshairSettings.cs`, `CameraFeedbackSettings.cs`, `UpgradeSync.cs`) |
 | Parity suite (shared) + Unity edit-mode tests | `unity/Assets/Tests/EditMode/` (`ParityChecks.cs`, `ParityTests.cs`, `HGO.Sim.Tests.asmdef`) |
 | Parity console harness + golden reports | `tools/parity/` (`Parity.csproj`, thin `Program.cs`, `goldens/`) |
 | Presentation compile gate (editor-free) | `tools/presentation-check/` (`PresentationCheck.csproj`, `UnityStubs.cs`, thin `Program.cs`) |
@@ -608,7 +624,7 @@ the next session knows whether GitHub is current.
   `name sha256` line per cue, captured by running the reference `--sfx-dump <dir>` and hashing
   each WAV. The parity suite regenerates the cues through the ported `AudioCatalog` and compares
   hashes (the WAVs are ~1.6 MB, so bytes are not committed).
-- **`ParityChecks.cs` is compiled by two projects** — the console harness (C# 9, no engine) and
+- **  `ParityChecks.cs` is compiled by two projects** — the console harness (C# 9, no engine) and
   Unity's `HGO.Sim.Tests`. Keep it free of engine, NUnit and C# 10+ syntax; after changing it run
   `tools/parity` and, once the editor exists, the edit-mode tests. Unity generates `.meta` files
   for `unity/Assets/Tests/EditMode/` on first open — commit them with the next editor change.
@@ -654,6 +670,16 @@ the next session knows whether GitHub is current.
   costs nothing visible at full health. Adding a new mesh API (`vh.AddUIVertexStream`, custom
   `UIVertex` fields, …) means extending `UnityStubs.cs` first or the presentation gate will not
   compile.
+- **`ActorViews` puts the body capsule and the head art in different spaces** — the root is the
+  actor (feet at `actor.Position`, yaw `LookRotation(DirFromAngles(yaw, 0))`), the `Body` child
+  is the Unity capsule primitive scaled as `(2 × Cfg.HalfWidth, HeadHeight / 2, 2 × Cfg.HalfWidth)`
+  and lifted `HeadHeight / 2` (the primitive is radius 0.5 / height 2, so its scale is diameter
+  and half-height), and `HeadArt` is an unscaled sibling lifted to `HeadHeight` with a baked
+  180° yaw so the reference's model-frame block coordinates can be copied as-is. Do not parent
+  the head blocks under the capsule: the non-uniform body scale squashes them and the crouch
+  crouches them instead of lowering them. The reference head art only exists for the GLB path
+  (`HasIntegratedCarbine`), which Unity cannot load at runtime — the port draws it on the
+  capsule instead, and the real rigs replace the whole view at the mesh pass.
 - **`ViewModelSync` rotation signs are unverified** — raylib rotates right-handed, Unity
   left-handed; each flourish/spring Euler component was negated port-side. If the first editor
   capture shows the flourish leaning the wrong way, flip the sign on the offending
@@ -695,8 +721,9 @@ the next session knows whether GitHub is current.
       overlay, `EffectsSync` tracers/particles/decals,
       `CrosshairSettings` profile + reticle graphic, `CameraFeedbackSettings`) — see the migration-state bullet; editor
       wiring is one GameObject + one viewmodel placeholder. What remains above blockout: real map
-      meshes and bot meshes, VFX polish (transparent/additive materials, muzzle flame lobes),
-      a styled options/settings screen, screenshot
+      meshes and the rigged bot meshes (the blockout capsules and their box head silhouettes are
+      placeholders, not the owner-supplied rigs), VFX polish (transparent/additive materials,
+      muzzle flame lobes), a styled options/settings screen, screenshot
       tooling, per-art viewmodel calibration, and the visual pass on the trauma vignette / radar /
       crosshair meshes (all three are compile-verified but have never been drawn in an editor);
       the kill-feed row sizing (fixed panel width, fixed name slots) is the one deliberate
