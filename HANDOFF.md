@@ -38,7 +38,11 @@
   the follow-up visual audit, and the tactical-soldier world-model swap with the refreshed
   README gallery (verification log below). The
   GitHub release asset for `v0.2.2` was
-  rebuilt in place (`gh release upload --clobber`) so the downloadable exe includes the menu fix.
+  rebuilt in place (`gh release upload --clobber`) so the downloadable exe includes the menu fix;
+  refreshed again on 2026-10-18 through the same procedure (from the post-audit `main`, verified
+  from a clean directory: headless `RESULT: PASS` plus a GPU capture that loads the tactical
+  soldier) so the download now carries the sniper/scope + decal fixes, the sky-ramp smoothing and
+  the tactical-soldier presentation, with a dated refresh note appended to the release body.
   Run `git log --oneline -5` for exact hashes.
 - **Verified state:** `-warnaserror` build clean; both headless CI gates print `RESULT: PASS`;
   the parity harness prints `PARITY: PASS` (including byte-exact replays of both gates through the
