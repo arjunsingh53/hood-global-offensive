@@ -54,13 +54,13 @@
   trauma ducking, Arena occlusion rays); the presentation compile gate
   (`tools/presentation-check`) builds clean; the single-file exe was re-verified from a clean
   directory.
-- **Push policy:** `origin/main` is synced with local `main` (checked after this push —
-  `git rev-list --count origin/main..main` = 0; previous sync point `77be640`, itself the handoff
-  note following the `76c8438` push). The current push was requested by the team on 2026-10-18
-  and carried the eleven commits held since `76c8438` — the actor head silhouettes, the
-  sniper/scope + decal fix, the all-map sweep record, the sky-ramp band smoothing, the
-  tactical-soldier world-model swap and the refreshed README gallery — with the full gate set
-  green. The sync point before `76c8438` was `acd6652` (2026-10-16).
+- **Push policy:** `origin/main` is synced with local `main` (checked after the `v0.2.3` release
+  push on 2026-10-18: `git rev-list --count origin/main..main` = 0). That push carried the
+  `0.2.3` release commit and pushed the annotated tag `v0.2.3`; the GitHub release was published
+  from the same commit. The same-day push before it (`4706ea5`) carried the actor head
+  silhouettes, the sniper/scope + decal fixes, the all-map sweep record, the sky-ramp smoothing,
+  the tactical-soldier swap and the refreshed gallery (previous sync points `f6494de` and
+  `77be640`/`76c8438`; before those, `acd6652`, 2026-10-16).
   The migration commits carried by that push (presentation bridge and its
   compile gate, edit-mode gate, audio synthesis port, `AudioMix` routing port, audio playback
   bridge, first presentation-blockout pass, the code-built front end, the Unity YAML
@@ -70,7 +70,7 @@
   scope/hook HUD pass, the top-bar + compass pass, the rotating radar scanner, the weapon-readout card,
   the biological vitals card + death overlay pass, the trauma vignette + arena-panel corner brackets
   pass, and the kill-feed arena-panel rows pass) are on GitHub as of that push. Work landing
-  after this push stays local until the team asks for another push;
+  after a push stays local until the team asks for another push;
   `git rev-list --count origin/main..main` shows how much is held.
   Pre-push gate for future work: `-warnaserror` build clean, both CI gates `RESULT: PASS`, `tools/parity`
   `PARITY: PASS`, `tools/presentation-check` build clean, and `tools/editmode-check` build clean.
