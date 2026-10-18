@@ -76,7 +76,7 @@ namespace HoodGlobalOffensive.Presentation
         Image _damageOverlay;
         TraumaGraphic? _trauma;
         RectTransform _damageWheel;
-        Text[] _killFeed;
+        FeedRow[] _killFeed;
         HookSquare? _hookLeft;
         HookSquare? _hookRight;
         Text? _stationTitle;
@@ -93,6 +93,28 @@ namespace HoodGlobalOffensive.Presentation
         {
             UpgradeStat.Health, UpgradeStat.Damage, UpgradeStat.Speed, UpgradeStat.Jump,
         };
+
+        /// <summary>
+        /// One kill-feed line (reference <c>Hud.DrawKillFeed</c>): an arena panel behind the
+        /// row whose brackets take the accent for player kills, then the killer name, the
+        /// <c>&gt;</c> separator, the weapon (or HEAD) and the victim, each with the
+        /// reference's own colour rule (killer amber for the local player, victim red when
+        /// it is the local player, weapon red on a headshot). The reference measures each
+        /// name and sizes the panel from the text; uGUI cannot measure before layout here,
+        /// so the panel is a fixed 470x37.5 canvas-pixel row with fixed name slots — the
+        /// documented blockout approximation for this row.
+        /// </summary>
+        sealed class FeedRow
+        {
+            public GameObject Root = null!;
+            public Image Border = null!;
+            public Image Fill = null!;
+            public CornerBrackets Brackets = null!;
+            public Text Killer = null!;
+            public Text Separator = null!;
+            public Text Weapon = null!;
+            public Text Victim = null!;
+        }
 
         sealed class ScoreRow
         {
@@ -1111,15 +1133,34 @@ namespace HoodGlobalOffensive.Presentation
                 if (age > 6.5f) continue;
                 float alpha = age > 5.5f ? U.Clamp01(6.5f - age) : 1f;
                 string weaponName = entry.Headshot ? "HEAD" : entry.Weapon.ToUpperInvariant();
-                Text row = _killFeed[line++];
-                row.gameObject.SetActive(true);
-                row.text = $"{entry.Killer}  [{weaponName}]  {entry.Victim}";
-                Color baseColor = entry.KillerIsPlayer ? Gold : Ink;
-                row.color = Fade(new Color(baseColor.r, baseColor.g, baseColor.b, alpha), op);
+                FeedRow row = _killFeed[line++];
+                row.Root.SetActive(true);
+
+                // Reference fades the whole row by its ageing alpha (opacity * alpha).
+                float rowOpacity = op * alpha;
+                row.Border.color = Fade(CardBorderColor, rowOpacity);
+                row.Fill.color = Fade(new Color(5f / 255f, 8f / 255f, 13f / 255f, 206f / 255f), rowOpacity);
+                row.Brackets.Set(
+                    entry.KillerIsPlayer
+                        ? AccentInk
+                        : new Color(236f / 255f, 240f / 255f, 244f / 255f, 120f / 255f),
+                    rowOpacity);
+
+                row.Killer.text = entry.Killer;
+                row.Killer.color = entry.KillerIsPlayer
+                    ? Fade(AccentInk, rowOpacity)
+                    : Fade(new Color(240f / 255f, 240f / 255f, 240f / 255f), rowOpacity);
+                row.Separator.color = Fade(new Color(236f / 255f, 240f / 255f, 244f / 255f), rowOpacity);
+                row.Weapon.text = weaponName;
+                row.Weapon.color = Fade(entry.Headshot ? Danger : AccentInk, rowOpacity);
+                row.Victim.text = entry.Victim;
+                row.Victim.color = entry.VictimIsPlayer
+                    ? Fade(Danger, rowOpacity)
+                    : Fade(new Color(200f / 255f, 200f / 255f, 200f / 255f), rowOpacity);
             }
             for (; line < FeedLines; line++)
             {
-                if (_killFeed[line].gameObject.activeSelf) _killFeed[line].gameObject.SetActive(false);
+                if (_killFeed[line].Root.activeSelf) _killFeed[line].Root.SetActive(false);
             }
 
             // Hitmarker (reference life is 0.12 s) --------------------------
@@ -1556,14 +1597,11 @@ namespace HoodGlobalOffensive.Presentation
                 new Vector2(146.5f, -210f), new Vector2(160f, 16f), 12, TextAnchor.MiddleRight, Faint);
             _radarRange.text = "RANGE 72";
 
-            // Kill feed (top-right) ------------------------------------------
-            _killFeed = new Text[FeedLines];
+            // Kill feed (top-right, reference DrawKillFeed; 27-unit rows at 1.5x) ---
+            _killFeed = new FeedRow[FeedLines];
             for (int i = 0; i < FeedLines; i++)
             {
-                Text row = MakeText(root, $"Feed {i}", AnchorTopRight,
-                    new Vector2(-20f, -20 - i * 27), new Vector2(540f, 26f), 18, TextAnchor.UpperRight, Ink);
-                row.gameObject.SetActive(false);
-                _killFeed[i] = row;
+                _killFeed[i] = BuildFeedRow(root, i);
             }
 
             // Crosshair + hitmarker (centre) ---------------------------------
@@ -1647,6 +1685,87 @@ namespace HoodGlobalOffensive.Presentation
         static readonly Vector2 AnchorTopRight = new Vector2(1f, 1f);
         static readonly Vector2 AnchorTopCenter = new Vector2(0.5f, 1f);
         static readonly Vector2 AnchorCenter = new Vector2(0.5f, 0.5f);
+
+        FeedRow BuildFeedRow(Transform parent, int index)
+        {
+            // Reference row pitch is 27 logical units at the 1.5x canvas scale; the panel
+            // is the reference's (content width + 18) x (rowHeight - 2) with a fixed
+            // width because uGUI cannot measure the names before layout.
+            const float PanelW = 470f;
+            const float PanelH = 37.5f;
+            const float Pitch = 40.5f;
+            FeedRow row = new FeedRow();
+
+            GameObject go = new GameObject($"Feed {index}");
+            go.AddComponent<CanvasRenderer>();
+            RectTransform rect = go.AddComponent<RectTransform>();
+            go.transform.SetParent(parent);
+            rect.anchorMin = new Vector2(1f, 1f);
+            rect.anchorMax = new Vector2(1f, 1f);
+            rect.pivot = new Vector2(1f, 1f);
+            rect.anchoredPosition = new Vector2(-22.5f, -(22.5f + index * Pitch));
+            rect.sizeDelta = new Vector2(PanelW, PanelH);
+            row.Root = go;
+
+            row.Border = FeedBox(go.transform, $"Feed {index} Border", -1f, -1f, PanelW + 2f, PanelH + 2f,
+                CardBorderColor);
+            row.Fill = FeedBox(go.transform, $"Feed {index} Fill", 0f, 0f, PanelW, PanelH,
+                new Color(5f / 255f, 8f / 255f, 13f / 255f, 206f / 255f));
+            row.Brackets = CornerBrackets.Build(go.transform, $"Feed {index}", 0f, 0f, PanelW, PanelH,
+                DefaultBracketColor, 1f);
+
+            row.Killer = FeedText(go.transform, $"Feed {index} Killer", 13.5f, 4.5f, 120f, 28.5f, 18,
+                TextAnchor.MiddleLeft, Ink);
+            row.Separator = FeedText(go.transform, $"Feed {index} Separator", 139.5f, 4.5f, 12f, 28.5f, 18,
+                TextAnchor.MiddleLeft, Ink);
+            row.Separator.text = ">";
+            row.Weapon = FeedText(go.transform, $"Feed {index} Weapon", 154.5f, 7.5f, 95f, 24f, 14,
+                TextAnchor.MiddleLeft, AccentInk);
+            row.Victim = FeedText(go.transform, $"Feed {index} Victim", 296.5f, 4.5f, 160f, 28.5f, 18,
+                TextAnchor.MiddleRight, Ink);
+
+            go.SetActive(false);
+            return row;
+        }
+
+        static Image FeedBox(Transform parent, string name, float dx, float dy, float w, float h, Color color)
+        {
+            GameObject go = new GameObject(name);
+            go.AddComponent<CanvasRenderer>();
+            RectTransform rect = go.AddComponent<RectTransform>();
+            go.transform.SetParent(parent);
+            rect.anchorMin = new Vector2(0f, 1f);
+            rect.anchorMax = new Vector2(0f, 1f);
+            rect.pivot = new Vector2(0f, 1f);
+            rect.anchoredPosition = new Vector2(dx, -dy);
+            rect.sizeDelta = new Vector2(w, h);
+            Image image = go.AddComponent<Image>();
+            image.color = color;
+            return image;
+        }
+
+        Text FeedText(Transform parent, string name, float dx, float dy, float w, float h,
+            int fontSize, TextAnchor alignment, Color color)
+        {
+            GameObject go = new GameObject(name);
+            go.AddComponent<CanvasRenderer>();
+            RectTransform rect = go.AddComponent<RectTransform>();
+            go.transform.SetParent(parent);
+            rect.anchorMin = new Vector2(0f, 1f);
+            rect.anchorMax = new Vector2(0f, 1f);
+            rect.pivot = new Vector2(0f, 1f);
+            rect.anchoredPosition = new Vector2(dx, -dy);
+            rect.sizeDelta = new Vector2(w, h);
+
+            Text text = go.AddComponent<Text>();
+            text.font = _font ?? Font.CreateDynamicFontFromOSFont("Arial", 24);
+            text.fontSize = fontSize;
+            text.alignment = alignment;
+            text.horizontalOverflow = HorizontalWrapMode.Overflow;
+            text.verticalOverflow = VerticalWrapMode.Overflow;
+            text.color = color;
+            return text;
+        }
 
         void ApplyRect(GameObject go, Vector2 anchor, Vector2 anchoredPosition, Vector2 size)
         {

@@ -49,10 +49,10 @@
   options port, the camera-feedback levels, the main-menu match-setup rows, the upgrade-cabinet
   overlay, the Tab scoreboard + pause/match-over parity fixes, the scenic menu backdrop, the
   scope/hook HUD pass, the top-bar + compass pass, the rotating radar scanner, the weapon-readout card,
-  the biological vitals card + death overlay pass, and the trauma vignette + arena-panel corner brackets
-  pass) are
-  **local only — 23 commits ahead of `origin/main`** — keep them local until the team asks
-  for another push.
+  the biological vitals card + death overlay pass, the trauma vignette + arena-panel corner brackets
+  pass, and the kill-feed arena-panel rows pass) are
+  **local only — 24 commits ahead of `origin/main`** — keep them local until the team asks
+  for another push (or the owner pushes them, see the sync note below).
   Pre-push gate for future work: `-warnaserror` build clean, both CI gates `RESULT: PASS`, `tools/parity`
   `PARITY: PASS`, `tools/presentation-check` build clean, and `tools/editmode-check` build clean.
   After a push, update this bullet with the new sync point.
@@ -210,7 +210,7 @@ behaviour questions.
     rotation-sign verification).
   - `HudSync.cs` — code-built uGUI blockout of the reference match HUD: health card
     (value/label/segment fill), ammo card (weapon, mag `00`, reserve `INF`), match timer,
-    score line, kill feed (6 lines, 6.5 s life), the settings-driven centre crosshair,
+    score line, kill feed (6 arena-panel rows, 6.5 s life), the settings-driven centre crosshair,
     hitmarker (0.12 s life, kill/headshot tint), damage flash + rotating directional arrow,
     the procedural low-health trauma vignette (`TraumaGraphic`), the arena-panel corner
     brackets on the cards, respawn notice and the match-result banner. Floating damage numbers are now ported too: the
@@ -316,10 +316,18 @@ behaviour questions.
     `(112, 205, 228, 180)`). Panel *outlines* were pulled back to the reference's
     neutral `(232, 240, 244, 74)` while doing this: the reference keeps the
     outline neutral and carries the state colour in the brackets alone, so the
-    vitals and top-bar borders no longer tint red/gold themselves. Still unported
-    from that helper: the per-entry kill-feed panels (`DrawKillFeed` draws an
-    arena panel behind each row with an accent for player kills) — the feed is
-    still plain text rows.
+    vitals and top-bar borders no longer tint red/gold themselves. The last
+    `DrawArenaPanel` caller, the **kill feed**, is ported too: each of the six
+    rows is now a `FeedRow` (panel border/fill + corner brackets taking the
+    accent for player kills, `236, 240, 244, 120` otherwise) carrying the
+    reference's four-colour text split — killer (amber when it is the local
+    player), the `>` separator, the weapon name (red on a headshot) and the
+    victim (red when the local player died, grey otherwise). Rows fade as a
+    whole with the reference's ageing alpha (`opacity × alpha`, 6.5 s life with
+    a 1 s fade-out). One documented approximation: the reference measures each
+    name and sizes the panel to the content (`total + 18`), which uGUI cannot do
+    before layout, so the row is a fixed 470 × 37.5 canvas-pixel panel with fixed
+    name slots on the reference's 27-unit (40.5 px) pitch.
   - `MenuSync.cs` — code-built uGUI front end and game-flow owner (main / pause / settings /
     crosshair options / match-over). It never changes sim rules: leaving the Playing screen
     disables the
@@ -417,6 +425,10 @@ behaviour questions.
   pass: `-warnaserror` build clean, both CI gates `RESULT: PASS`, `tools/parity`
   `PARITY: PASS`, `tools/presentation-check` build clean + `PRESENTATION: PASS` (now also
   type-touches `TraumaGraphic`), `tools/editmode-check` build clean + `EDITMODE: PASS`.
+  The kill-feed row pass afterwards changed only `HudSync.cs`, so only the affected gate was
+  rerun: `tools/presentation-check` build clean (`0` warnings/errors) + `PRESENTATION: PASS`;
+  the raylib build, the CI gates and the parity/edit-mode harnesses do not compile the
+  presentation layer and were not affected.
   Nothing about the vignette's actual pixels has been seen yet — uGUI mesh emission is
   compile-only here, so the first editor capture is the visual check.
 
@@ -682,9 +694,10 @@ the next session knows whether GitHub is current.
       wiring is one GameObject + one viewmodel placeholder. What remains above blockout: real map
       meshes and bot meshes, VFX polish (transparent/additive materials, muzzle flame lobes),
       a styled options/settings screen, screenshot
-      tooling, per-art viewmodel calibration, the kill-feed per-row arena panels, and the visual
-      pass on the trauma vignette / radar / crosshair meshes (all three are compile-verified but
-      have never been drawn in an editor).
+      tooling, per-art viewmodel calibration, and the visual pass on the trauma vignette / radar /
+      crosshair meshes (all three are compile-verified but have never been drawn in an editor);
+      the kill-feed row sizing (fixed panel width, fixed name slots) is the one deliberate
+      approximation to revisit against a real capture.
       Diff the remaining `Hud` draw calls in the reference (`src/UI/Hud.cs`) against
       `HudSync` before starting the next HUD pass — the information layer is ported, so what
       is left there is skin and polish.
