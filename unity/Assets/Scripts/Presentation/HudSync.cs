@@ -71,7 +71,7 @@ namespace HoodGlobalOffensive.Presentation
         Text? _radarTitle;
         Text? _radarRange;
         CrosshairGraphic _crosshair;
-        Text _hitmarker;
+        HitmarkerGraphic _hitmarker;
         Text? _hitmarkerLabel;
         DeathOverlay? _deathOverlay;
         Image _damageOverlay;
@@ -1185,14 +1185,10 @@ namespace HoodGlobalOffensive.Presentation
                 hitAlpha = hitFade;
             }
             _hitmarker.gameObject.SetActive(hitAlpha > 0f);
-            if (hitAlpha > 0f)
-            {
-                Color hitColor = sim.LastHitWasHeadshot
-                    ? new Color(255f / 255f, 86f / 255f, 70f / 255f)
-                    : new Color(245f / 255f, 245f / 245f, 245f / 245f);
-                _hitmarker.color = new Color(hitColor.r, hitColor.g, hitColor.b, hitAlpha);
-                _hitmarker.transform.localScale = new Vector3(hitScale, hitScale, 1f);
-            }
+            // The ticks own their geometry and colour (reference inner 6 / outer 14
+            // units, max(1, 1.35) stroke, 245 / 230 peak alpha), so the graphic
+            // receives the envelope and tints itself on a headshot.
+            _hitmarker.Sync(hitScale, hitFade, sim.LastHitWasHeadshot, hitAlpha > 0f);
             if (_hitmarkerLabel != null)
             {
                 bool showLabel = hitAlpha > 0f && (sim.LastHitWasKill || sim.LastHitWasHeadshot);
@@ -1201,13 +1197,15 @@ namespace HoodGlobalOffensive.Presentation
                 {
                     if (sim.LastHitWasKill)
                     {
-                        // y = 26 reference units x scale x 1.5.
+                        // Reference y is screen-down (cy + 26), so the canvas y
+                        // negates: -26 reference units x scale x 1.5. Kill alpha
+                        // is 230 x fade.
                         _hitmarkerLabel.text = "ELIMINATED";
                         _hitmarkerLabel.fontSize = 16;
                         _hitmarkerLabel.color = Fade(new Color(255f / 255f, 70f / 255f, 56f / 255f),
-                            hitFade);
+                            230f / 255f * hitFade);
                         _hitmarkerLabel.rectTransform.anchoredPosition =
-                            new Vector2(0f, 39f * hitScale);
+                            new Vector2(0f, -39f * hitScale);
                     }
                     else
                     {
@@ -1216,10 +1214,12 @@ namespace HoodGlobalOffensive.Presentation
                         float labelAlpha = hitFade * U.Clamp01((hitElapsed - 0.14f) / 0.28f);
                         _hitmarkerLabel.text = "HEADSHOT";
                         _hitmarkerLabel.fontSize = 15;
+                        // Reference y is screen-down (cy + 24): the canvas y
+                        // negates, and the peak alpha is 190 x fade x ease.
                         _hitmarkerLabel.color = Fade(new Color(255f / 255f, 104f / 255f, 82f / 255f),
-                            labelAlpha);
+                            190f / 255f * labelAlpha);
                         _hitmarkerLabel.rectTransform.anchoredPosition =
-                            new Vector2(0f, 36f * hitScale);
+                            new Vector2(0f, -36f * hitScale);
                     }
                 }
             }
@@ -1653,15 +1653,19 @@ namespace HoodGlobalOffensive.Presentation
 
             // Crosshair + hitmarker (centre) ---------------------------------
             _crosshair = CrosshairGraphic.Create(root, "Crosshair");
-            _hitmarker = MakeText(root, "Hitmarker", AnchorCenter,
-                Vector2.zero, new Vector2(48f, 56f), 34, TextAnchor.MiddleCenter, Ink);
-            _hitmarker.text = "×";
+            GameObject hitGo = new GameObject("Hitmarker");
+            hitGo.AddComponent<CanvasRenderer>();
+            hitGo.AddComponent<RectTransform>();
+            hitGo.transform.SetParent(root);
+            ApplyRect(hitGo, AnchorCenter, Vector2.zero, new Vector2(64f, 64f));
+            _hitmarker = hitGo.AddComponent<HitmarkerGraphic>();
             _hitmarker.gameObject.SetActive(false);
             // Reference DrawHitmarker labels: ELIMINATED on a kill (11px) or HEADSHOT
             // on a headshot (10px), drawn under the marker on the same envelope.
-            // y = 26 / 24 reference units x 1.5, font 11 / 10 x 1.5.
+            // Reference y is screen-down (cy + 26 / cy + 24), so the canvas y
+            // negates: y = -26 / -24 x 1.5, font 11 / 10 x 1.5.
             _hitmarkerLabel = MakeText(root, "Hitmarker Label", AnchorCenter,
-                new Vector2(0f, 39f), new Vector2(360f, 26f), 16, TextAnchor.MiddleCenter, Danger);
+                new Vector2(0f, -39f), new Vector2(360f, 26f), 16, TextAnchor.MiddleCenter, Danger);
             _hitmarkerLabel.gameObject.SetActive(false);
 
             // Damage / trauma overlays (full screen) --------------------------

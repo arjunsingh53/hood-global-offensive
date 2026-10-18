@@ -30,8 +30,8 @@
   later HUD passes (Tab scoreboard + pause/match-over parity, scenic menu backdrop, scope/hook
   centre zone, top bar + compass tape, rotating radar scanner, weapon-readout card, biological
   vitals card + death overlay, the trauma vignette + arena-panel corner brackets, the kill-feed
-  arena-panel rows, the per-actor box head silhouettes, and the hitmarker envelope + ELIMINATED /
-  HEADSHOT label). The
+  arena-panel rows, the per-actor box head silhouettes, and the hitmarker (drawn four-tick
+  marker, reference envelope, ELIMINATED / HEADSHOT labels under the crosshair). The
   GitHub release asset for `v0.2.2` was
   rebuilt in place (`gh release upload --clobber`) so the downloadable exe includes the menu fix.
   Run `git log --oneline -5` for exact hashes.
@@ -216,9 +216,10 @@ behaviour questions.
   - `HudSync.cs` — code-built uGUI blockout of the reference match HUD: health card
     (value/label/segment fill), ammo card (weapon, mag `00`, reserve `INF`), match timer,
     score line, kill feed (6 arena-panel rows, 6.5 s life), the settings-driven centre crosshair,
-    hitmarker (0.12 s life with the reference's attack/release scale envelope
-    0.80→1.18→0.86 and 0.68-power fade, headshot-only red tint, plus the ELIMINATED /
-    HEADSHOT label text on the same envelope), damage flash + rotating directional arrow,
+    hitmarker (`HitmarkerGraphic` draws the reference's four diagonal ticks — inner 6 /
+    outer 14 units, max(1, 1.35) stroke — on a 0.12 s life with the reference's
+    attack/release scale envelope 0.80→1.18→0.86 and 0.68-power fade, headshot-only red
+    tint, plus the ELIMINATED / HEADSHOT label text below the crosshair on the same damage flash + rotating directional arrow,
     the procedural low-health trauma vignette (`TraumaGraphic`), the arena-panel corner
     brackets on the cards, respawn notice and the match-result banner. Floating damage numbers are now ported too: the
     sim's player-dealt damage numbers are projected from their world hit point through the
@@ -457,6 +458,16 @@ behaviour questions.
   `tools/presentation-check` build clean + `PRESENTATION: PASS`, `tools/editmode-check`
   build clean + `EDITMODE: PASS`. Nothing about the label's pixels has been seen yet; it is
   compile-verified like the rest of the uGUI HUD.
+  The hitmarker tick-geometry pass added `HitmarkerGraphic.cs` plus edits to `HudSync.cs` and
+  a `tools/presentation-check/Program.cs` type marker — presentation-only, so per the note
+  above only the gates that compile it were rerun: `tools/presentation-check` build clean
+  (`0` warnings/errors) + `PRESENTATION: PASS` (`HitmarkerGraphic type resolved`), root
+  `-warnaserror` build clean, `tools/editmode-check` build clean + `EDITMODE: PASS`. It also
+  fixed two bugs the Hud-vs-HudSync diff had missed: the ELIMINATED / HEADSHOT labels
+  rendered *above* the crosshair (reference y is screen-down, uGUI is y-up — the hook
+  squares and station prompt carry the correct convention), and the marker and label alphas
+  peaked at 255 × fade instead of the reference's 230/245 (marker, plain/headshot), 230
+  (ELIMINATED) and 190 × fade (HEADSHOT).
   Nothing about the vignette's actual pixels has been seen yet — uGUI mesh emission is
   compile-only here, so the first editor capture is the visual check.
 
@@ -604,7 +615,7 @@ the next session knows whether GitHub is current.
 | Unity audio synthesis + mix routing port, cue manifest (engine-free) | `unity/Assets/Scripts/Sim/Audio/` (`WavGen.cs`, `AudioCatalog.cs`, `AudioMix.cs`) |
 | Sim→Unity bridge: fixed-tick `Simulation.Update`, `InputFrame` adapter, body/camera sync | `unity/Assets/Scripts/Presentation/MatchDriver.cs` + `HGO.Presentation.asmdef` |
 | Unity audio playback: PCM→`AudioClip` bank, voice pool, drains `Sim.Sounds` via `AudioMix.Resolve` | `unity/Assets/Scripts/Presentation/SimAudioPlayer.cs` |
-| Unity blockout pass: brush cubes, bot capsules + per-actor box head silhouettes, sim-driven view-model + muzzle flash, code-built uGUI HUD (incl. Tab scoreboard + mesh radar, vitals/weapon cards, arena-panel corner brackets on every panel, death overlay, procedural trauma vignette) + menu stack, pooled combat effects, crosshair profile + reticle, camera-feedback levels, match-setup rows, upgrade-cabinet overlay | `unity/Assets/Scripts/Presentation/` (`MapBlockout.cs`, `ActorViews.cs`, `ViewModelSync.cs`, `HudSync.cs`, `RadarGraphic.cs`, `TraumaGraphic.cs`, `MenuSync.cs`, `EffectsSync.cs`, `CrosshairSettings.cs`, `CameraFeedbackSettings.cs`, `UpgradeSync.cs`) |
+| Unity blockout pass: brush cubes, bot capsules + per-actor box head silhouettes, sim-driven view-model + muzzle flash, code-built uGUI HUD (incl. Tab scoreboard + mesh radar, vitals/weapon cards, arena-panel corner brackets on every panel, death overlay, procedural trauma vignette) + menu stack, pooled combat effects, crosshair profile + reticle, camera-feedback levels, match-setup rows, upgrade-cabinet overlay | `unity/Assets/Scripts/Presentation/` (`MapBlockout.cs`, `ActorViews.cs`, `ViewModelSync.cs`, `HudSync.cs`, `RadarGraphic.cs`, `TraumaGraphic.cs`, `HitmarkerGraphic.cs`, `MenuSync.cs`, `EffectsSync.cs`, `CrosshairSettings.cs`, `CameraFeedbackSettings.cs`, `UpgradeSync.cs`) |
 | Parity suite (shared) + Unity edit-mode tests | `unity/Assets/Tests/EditMode/` (`ParityChecks.cs`, `ParityTests.cs`, `HGO.Sim.Tests.asmdef`) |
 | Parity console harness + golden reports | `tools/parity/` (`Parity.csproj`, thin `Program.cs`, `goldens/`) |
 | Presentation compile gate (editor-free) | `tools/presentation-check/` (`PresentationCheck.csproj`, `UnityStubs.cs`, thin `Program.cs`) |
@@ -671,8 +682,12 @@ the next session knows whether GitHub is current.
   border image that is drawn 1 px outside its rect (`dx - 1`, `w + 2`), so pass the **inner**
   fill rect, not the border rect, or the brackets drift 1 px out. Bracket length is
   `min(12, min(w, h) × 0.24)` in those same units, matching `Hud.DrawArenaPanel`.
+- **Reference HUD coordinates are screen-down; uGUI is y-up** — anything drawn as `cy +  offset` in `src/UI/Hud.cs` must negate its `anchoredPosition.y` (hook squares `cy + 34`
+  → `-51`, station prompt `h×0.66` → `-180`, hitmarker labels `cy + 26 / +24` → `-39 / -36`,
+  all ×1.5). The hitmarker labels first shipped *above* the crosshair by copying the
+  reference offsets verbatim.
 - **Procedural HUD graphics are `MaskableGraphic`s that rebuild in `OnPopulateMesh`** —
-  `RadarGraphic`, `CrosshairGraphic` and `TraumaGraphic` each need a `CanvasRenderer` on their
+  `RadarGraphic`, `CrosshairGraphic`, `TraumaGraphic` and `HitmarkerGraphic` each need a `CanvasRenderer` on their
   GameObject (hand-added where the GameObject is built in code, exactly like `RadarGraphic`) and
   emit vertices in the rect's local 1920×1080 units; `TraumaGraphic` is dirtied every
   `LateUpdate` from the sim state and returns an empty mesh above the trauma threshold, so it
@@ -741,9 +756,10 @@ the next session knows whether GitHub is current.
       top-level `Hud.Draw` calls (radar, top bar, compass, kill feed, damage numbers,
       vitals, weapon readout, crosshair, hitmarker, hook status, station prompt, damage
       indicators, scope overlay, death overlay, trauma vignette) have a port. The last
-      information-layer gap — the hitmarker's animated envelope and its ELIMINATED /
-      HEADSHOT label text — is now ported; what is left on the HUD is skin and polish
-      (the marker is a `×` glyph rather than the reference's four drawn diagonal lines).
+      information-layer gap — the hitmarker's animated envelope, its ELIMINATED /
+      HEADSHOT labels and the marker's drawn four-tick geometry are now ported
+      (`HitmarkerGraphic`; labels below the crosshair at the reference alphas);
+      what is left on the HUD is skin and polish.
       Audio synthesis, `AudioMix` routing and the
       `SimAudioPlayer` playback bridge are already ported (`Sim/Audio/` + `Presentation/`), so audio
       is wired end to end bar a device to hear it. Every presentation change goes through
