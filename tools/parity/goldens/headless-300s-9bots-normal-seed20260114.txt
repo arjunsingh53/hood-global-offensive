@@ -19,7 +19,7 @@
  peak horizontal speed: 1800 units/s  (run speed 400)
  respawns handled     : 209
  kill feed entries    : 6
- tracers alive        : 2   decals 112
+ tracers alive        : 2   decals 71
 ---------------------------------------------------------
  LEADERBOARD
    BOT  Jonas      kills  30  deaths  18  acc  63.7%  mk=70

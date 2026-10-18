@@ -265,7 +265,9 @@ public static class ScreenshotCapture
             Vector3 to = actor.EyePosition - eye;
             float distance = to.Length();
             if (distance > 1700f) continue;
-            if (Vector3.Dot(forward, to / distance) < 0.55f) continue;
+            // Prefer an enemy near the middle of the frame: with a loose cone a
+            // capture could still stage against a wall that filled the view.
+            if (Vector3.Dot(forward, to / distance) < 0.8f) continue;
             if (!sim.Map.LineOfSight(eye, actor.EyePosition)) continue;
             return true;
         }

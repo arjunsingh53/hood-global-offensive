@@ -151,8 +151,17 @@ namespace HoodGlobalOffensive.Combat
             float aimScale = Def.HasZoom
                 ? U.Lerp(1f, Def.AimSpreadMultiplier, U.Clamp01(aimBlend))
                 : 1f;
+            float speedRatio = U.Clamp01(horizontalSpeed / Cfg.RunSpeed);
             float spread = (Def.SpreadIdle + Bloom) * aimScale;
-            if (!onGround) spread += Def.SpreadAir + Def.SpreadMove * U.Clamp01(horizontalSpeed / Cfg.RunSpeed);
+
+            // A magnified sight picture is pinpoint only while the shooter is
+            // planted: ground movement feeds a quadratic stability penalty at
+            // full zoom while the airborne case below keeps its explicit air +
+            // move terms. Hip-fire is unchanged.
+            if (onGround && Def.HasScope && aimBlend > 0f)
+                spread += Def.SpreadMove * speedRatio * speedRatio * U.Clamp01(aimBlend);
+
+            if (!onGround) spread += Def.SpreadAir + Def.SpreadMove * speedRatio;
             if (crouching && onGround) spread *= Def.SpreadCrouchScale;
             return spread;
         }
@@ -303,8 +312,11 @@ namespace HoodGlobalOffensive.Combat
             CycleTime = 1.2f, Automatic = false, Magazine = 5, ReloadTime = 2.2f,
             MoveScale = 0.85f, SpreadIdle = 5.5f, SpreadMove = 8f, SpreadAir = 22f,
             SpreadBloom = 3.5f, SpreadBloomMax = 9f, SpreadDecay = 8f,
-            RecoilKick = 8f, RecoilYawKick = 0.4f, RecoilRecoveryRate = 20f, RecoilRecoveryDelay = 0.38f,
-            VisualKick = 26f, ZoomFov = 18f, AimSpreadMultiplier = 0.25f,
+            // The scoped rifle is a precision tool: a planted shot resolves through
+            // the reticle (0.11 deg at full zoom, movement and bloom still widen
+            // follow-ups) and the punch is a firm nudge, not a screen throw.
+            RecoilKick = 2.5f, RecoilYawKick = 0.22f, RecoilRecoveryRate = 30f, RecoilRecoveryDelay = 0.28f,
+            VisualKick = 19f, ZoomFov = 18f, AimSpreadMultiplier = 0.02f,
             PenetrationPower = 2, PenetrationDamageScale = 0.85f,
             Tracer = 0xFFFFFADC, FireSound = "awp",
         };

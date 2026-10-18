@@ -717,11 +717,14 @@ namespace HoodGlobalOffensive.Presentation
         }
 
         /// <summary>
-        /// The cosmetic scope picture (reference <c>Hud.DrawScopeOverlay</c>): full
-        /// screen black with a 540-unit circular hole, thin cross lines, a faint
-        /// inner ring and a centre dot, all fading in with the zoom blend. One
-        /// canvas group drives the whole fade. The mask hole is approximated with
-        /// 36 horizontal strips per side, which never over-mask into the circle.
+        /// The cosmetic scope picture (reference <c>Hud.DrawScopeMask</c> +
+        /// <c>Hud.DrawScopeReticle</c>): full screen black with a 540-unit circular
+        /// hole and a duplex reticle — heavy posts on all four cardinals, a fine
+        /// crosshair with an open centre, a mil-dot drop ladder and the exact
+        /// centre pixel — plus segmented rings approximating the reference's rim
+        /// shadow, all fading in with the zoom blend. One canvas group drives the
+        /// whole fade. The mask hole is approximated with 36 horizontal strips per
+        /// side, which never over-mask into the circle.
         /// </summary>
         sealed class ScopeOverlay
         {
@@ -759,7 +762,7 @@ namespace HoodGlobalOffensive.Presentation
                     Group = root.AddComponent<CanvasGroup>(),
                 };
 
-                Color mask = new Color(0f, 0f, 0f, 230f / 255f);
+                Color mask = new Color(0f, 0f, 0f, 232f / 255f);
                 const float radius = 540f;
                 const float halfWidth = 960f;
                 const float stripHeight = 30f;
@@ -780,25 +783,44 @@ namespace HoodGlobalOffensive.Presentation
                         new Vector2(width, stripHeight + 0.5f), 0f, mask);
                 }
 
-                Color line = new Color(20f / 255f, 20f / 255f, 20f / 255f, 220f / 255f);
-                Rect(root.transform, "Line H", Vector2.zero, new Vector2(1920f, 3f), 0f, line);
-                Rect(root.transform, "Line V", Vector2.zero, new Vector2(3f, 1080f), 0f, line);
+                // Duplex reticle (reference Hud.DrawScopeReticle; radius 540).
+                const float thinStart = 237.6f;   // radius * 0.44
+                const float postStart = 523.8f;   // radius * 0.97
+                const float postWidth = 6.5f;
+                const float postCenter = (thinStart + postStart) * 0.5f;
+                const float postLength = postStart - thinStart;
+                Color post = new Color(10f / 255f, 11f / 255f, 13f / 255f, 225f / 255f);
+                Rect(root.transform, "Post L", new Vector2(-postCenter, 0f), new Vector2(postLength, postWidth), 0f, post);
+                Rect(root.transform, "Post R", new Vector2(postCenter, 0f), new Vector2(postLength, postWidth), 0f, post);
+                Rect(root.transform, "Post T", new Vector2(0f, postCenter), new Vector2(postWidth, postLength), 0f, post);
+                Rect(root.transform, "Post B", new Vector2(0f, -postCenter), new Vector2(postWidth, postLength), 0f, post);
 
-                const float ringRadius = 335f;
-                const int ringSegments = 40;
-                float segmentLength = 2f * MathF.PI * ringRadius / ringSegments + 2f;
-                Color ring = new Color(30f / 255f, 30f / 255f, 30f / 255f, 140f / 255f);
-                for (int i = 0; i < ringSegments; i++)
+                const float gap = 9f;
+                const float fineCenter = (gap + thinStart) * 0.5f;
+                const float fineLength = thinStart - gap;
+                Color fine = new Color(14f / 255f, 15f / 255f, 18f / 255f, 210f / 255f);
+                Rect(root.transform, "Fine L", new Vector2(-fineCenter, 0f), new Vector2(fineLength, 1.5f), 0f, fine);
+                Rect(root.transform, "Fine R", new Vector2(fineCenter, 0f), new Vector2(fineLength, 1.5f), 0f, fine);
+                Rect(root.transform, "Fine T", new Vector2(0f, fineCenter), new Vector2(1.5f, fineLength), 0f, fine);
+                Rect(root.transform, "Fine B", new Vector2(0f, -fineCenter), new Vector2(1.5f, fineLength), 0f, fine);
+
+                // Mil-dot drop ladder under the centre (reference step = radius * 0.085).
+                const float milStep = 45.9f;
+                Color mil = new Color(14f / 255f, 15f / 255f, 18f / 255f, 195f / 255f);
+                for (int i = 1; i <= 4; i++)
                 {
-                    float angle = i * (360f / ringSegments);
-                    float radians = angle * MathF.PI / 180f;
-                    Rect(root.transform, $"Ring {i}",
-                        new Vector2(MathF.Cos(radians) * ringRadius, MathF.Sin(radians) * ringRadius),
-                        new Vector2(3f, segmentLength), angle + 90f, ring);
+                    Rect(root.transform, $"Mil {i}", new Vector2(0f, -(gap + milStep * i)), new Vector2(4.4f, 4.4f), 0f, mil);
                 }
 
-                Rect(root.transform, "Dot", Vector2.zero, new Vector2(5f, 5f), 0f,
-                    new Color(240f / 255f, 240f / 255f, 240f / 255f, 230f / 255f));
+                // Segmented rings approximate the reference's rim shadow falloff.
+                AddRing(root.transform, 0.90f * radius, "Shadow A", 3f, new Color(4f / 255f, 5f / 255f, 7f / 255f, 25f / 255f));
+                AddRing(root.transform, 0.935f * radius, "Shadow B", 3f, new Color(4f / 255f, 5f / 255f, 7f / 255f, 35f / 255f));
+                AddRing(root.transform, 0.97f * radius, "Shadow C", 3f, new Color(4f / 255f, 5f / 255f, 7f / 255f, 50f / 255f));
+                AddRing(root.transform, radius - 2f, "Lip", 3f, new Color(6f / 255f, 7f / 255f, 9f / 255f, 150f / 255f));
+
+                // Exact centre pixel: the hitscan ray always resolves through it.
+                Rect(root.transform, "Centre pixel", Vector2.zero, new Vector2(2f, 2f), 0f,
+                    new Color(240f / 255f, 240f / 255f, 240f / 255f, 235f / 255f));
 
                 root.SetActive(false);
                 return overlay;
@@ -820,6 +842,20 @@ namespace HoodGlobalOffensive.Presentation
                 Image image = go.AddComponent<Image>();
                 image.color = color;
                 return image;
+            }
+
+            static void AddRing(Transform parent, float ringRadius, string name, float tick, Color color)
+            {
+                const int segments = 40;
+                float segmentLength = 2f * MathF.PI * ringRadius / segments + 2f;
+                for (int i = 0; i < segments; i++)
+                {
+                    float angle = i * (360f / segments);
+                    float radians = angle * MathF.PI / 180f;
+                    Rect(parent, $"{name} {i}",
+                        new Vector2(MathF.Cos(radians) * ringRadius, MathF.Sin(radians) * ringRadius),
+                        new Vector2(tick, segmentLength), angle + 90f, color);
+                }
             }
         }
 

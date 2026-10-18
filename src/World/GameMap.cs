@@ -21,6 +21,12 @@ public struct Brush
     public SurfaceKind Kind;
     /// <summary>Bullets can punch through thin penetrable cover for reduced damage.</summary>
     public bool Penetrable;
+    /// <summary>
+    /// Collision-only surface: the level never draws it, so impacts on it must
+    /// not leave visible marks. Used by the imported Industrial Zone's
+    /// containment rim, whose decals would otherwise hang in the sky.
+    /// </summary>
+    public bool Invisible;
 }
 
 /// <summary>Where an actor can spawn, plus the direction they face.</summary>

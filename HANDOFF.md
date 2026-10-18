@@ -32,8 +32,9 @@
   vitals card + death overlay, the trauma vignette + arena-panel corner brackets, the kill-feed
   arena-panel rows, the per-actor box head silhouettes, the hitmarker (drawn four-tick
   marker, reference envelope, ELIMINATED / HEADSHOT labels under the crosshair), the
-  main-menu reference skin (command surface, panelled setup rows, match-brief card), and the
-  centred pause/settings/match-over skin + crosshair-options panel port. The
+  main-menu reference skin (command surface, panelled setup rows, match-brief card), the
+  centred pause/settings/match-over skin + crosshair-options panel port, and the sniper-feel +
+  scope-reticle pass with the invisible-surface decal fix. The
   GitHub release asset for `v0.2.2` was
   rebuilt in place (`gh release upload --clobber`) so the downloadable exe includes the menu fix.
   Run `git log --oneline -5` for exact hashes.
@@ -518,6 +519,20 @@ behaviour questions.
   yet either — the shared row bank's per-screen layout, the centred-text leading offsets,
   the preview ring bars and the 1.75x preview scale are all compile-verified only; the first
   editor capture is the visual check (compare against `src/UI/Screens.cs`).
+  The sniper-feel + scope pass afterwards changed the reference end to end — the sniper's tuning
+  and the scoped ground-movement term in `Weapons`, the scope mask/reticle split in `Hud`, the
+  `--screenshot` staging cone — plus every port mirror (`Sim/Combat/Weapons.cs`, the
+  `Brush.Invisible` decal rule across `Sim/World` + `Sim/Sim/Simulation.cs`, the `HudSync`
+  reticle, the `MapBlockout` skip) — so the full gate set was rerun: `-warnaserror` build clean,
+  both CI gates `RESULT: PASS`, `tools/parity` `PARITY: PASS`, `tools/presentation-check` build
+  clean + `PRESENTATION: PASS`, `tools/editmode-check` build clean. Both headless goldens were
+  refreshed from reference runs per the documented procedure; only their decal-count line
+  changed (112 → 71 and 52) and every other line stayed byte-identical. Worth remembering: the
+  CI-gate robot pre-cancels its own `Punch` and never cycles a scope, so sniper tuning is
+  provably invisible to the gate replays — the decal rule is the only sim change the reports can
+  see. Reference pixels were verified with deterministic `--screenshot` captures (the new scope
+  reticle renders as designed; the floating sky specks are gone from the same seed/frame);
+  `HudSync` pixels remain compile-verified only, as usual.
 
 ## How to work on this repository
 
@@ -833,6 +848,11 @@ the next session knows whether GitHub is current.
   a true scoped ADS pose is possible but was out of scope.
 - **Cloud polish** (optional): the three high wisps at 23–26° elevation currently render like the
   lower banks; more distinct cirrus variant if the sky gets another pass.
+- **Industrial floor decals over terrain voids** (minor): impact decals land on the collision
+  floor, which sits exactly on the GLB pavement across most of the island, but a few voids have
+  lower decorative ground beneath — a mark in one of those hovers slightly above the visible
+  surface. Only the never-drawn containment rim rejects decals outright (`Brush.Invisible`); the
+  floor stays decalable because it matches the pavement everywhere else.
 - **Audio tuning by ear** — the cue set is mechanically verified (no silence, no clipping) but
   was never listened to on hardware by the development session; `--sfx-dump` + a real playback
   device is the way to A/B it.

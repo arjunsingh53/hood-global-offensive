@@ -34,6 +34,26 @@ project and byte-verified against this reference implementation by a parity harn
   Unity's Test Runner against the same checked-in goldens — so the port can be gated from inside
   the editor as soon as the project is first opened there.
 
+### Fixed
+
+- **Scoped sniper shots missed the reticle**: scoping multiplied the sniper's 5.5° idle cone by
+  0.25, leaving ~1.4° of scatter (about ±80 px at 18° zoom) on a still, fully-scoped shot, so
+  the rifle never looked aligned. A planted shot now resolves through the crosshair (~0.11°),
+  ground movement feeds a quadratic stability penalty into the magnified sight picture, and the
+  view punch drops from 8° to 2.5° with a faster recovery (0.28 s delay, 30°/s) so the rifle
+  keeps its weight without throwing the view. Mirrored in the Unity sim port for parity.
+- **Scope picture rebuilt** (`Hud.DrawScopeMask` / `Hud.DrawScopeReticle`, and `HudSync`): the
+  flat circle-and-cross became a duplex reticle — heavy posts, an open-centre fine crosshair, a
+  mil-dot drop ladder, a soft rim shadow and the exact centre pixel the hitscan ray resolves
+  through. The corner mask now draws before the peripheral HUD, so the corner anchors fade over
+  the tunnel instead of ghosting through it.
+- **Impact decals floated in the sky**: marks left on the Industrial Zone's collision-only
+  containment rim hung in mid-air for their full 12-second life. Collision-only surfaces now
+  carry `Brush.Invisible` and reject decals while keeping the spark and sound as boundary
+  feedback; decals on the floor and structures are unchanged.
+- **Screenshot staging tightened**: `--screenshot`'s "enemy in view" gate now requires the enemy
+  near frame centre, so captures stop staging against a wall that fills the view.
+
 ---
 
 ## [0.2.2] — 2026-10-16

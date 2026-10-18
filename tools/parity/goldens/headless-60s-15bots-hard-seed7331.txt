@@ -19,7 +19,7 @@
  peak horizontal speed: 1799 units/s  (run speed 400)
  respawns handled     : 154
  kill feed entries    : 6
- tracers alive        : 0   decals 112
+ tracers alive        : 0   decals 52
 ---------------------------------------------------------
  LEADERBOARD
    BOT  Hana       kills  16  deaths   8  acc  79.8%  mk=51

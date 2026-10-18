@@ -109,12 +109,14 @@ public static class IndustrialZoneLayout
 
         // Invisible outer containment follows the asset bounds so actors cannot
         // leave the island and walk over the sky. It replaces Crossfire's old
-        // perimeter walls; nothing here is rendered.
+        // perimeter walls; nothing here is rendered, and impacts on it must not
+        // leave decals (they would float against the sky for their whole life,
+        // which reads as debris stuck in mid-air).
         const float rim = 32f;
-        Add(brushes, -1325.5f - rim, -1325.5f, 0f, Cfg.WallHeight, -1142f - rim, 1142f + rim, SurfaceKind.Wall);
-        Add(brushes, 1325.5f, 1325.5f + rim, 0f, Cfg.WallHeight, -1142f - rim, 1142f + rim, SurfaceKind.Wall);
-        Add(brushes, -1325.5f, 1325.5f, 0f, Cfg.WallHeight, -1142f - rim, -1142f, SurfaceKind.Wall);
-        Add(brushes, -1325.5f, 1325.5f, 0f, Cfg.WallHeight, 1142f, 1142f + rim, SurfaceKind.Wall);
+        Add(brushes, -1325.5f - rim, -1325.5f, 0f, Cfg.WallHeight, -1142f - rim, 1142f + rim, SurfaceKind.Wall, invisible: true);
+        Add(brushes, 1325.5f, 1325.5f + rim, 0f, Cfg.WallHeight, -1142f - rim, 1142f + rim, SurfaceKind.Wall, invisible: true);
+        Add(brushes, -1325.5f, 1325.5f, 0f, Cfg.WallHeight, -1142f - rim, -1142f, SurfaceKind.Wall, invisible: true);
+        Add(brushes, -1325.5f, 1325.5f, 0f, Cfg.WallHeight, 1142f, 1142f + rim, SurfaceKind.Wall, invisible: true);
 
         foreach (Structure structure in Structures)
         {
@@ -158,7 +160,8 @@ public static class IndustrialZoneLayout
 
     private static SpawnPoint Spawn(float rawX, float rawZ, float yaw) => new(RawToWorld(rawX, rawZ), yaw);
 
-    private static void Add(List<Brush> brushes, float x0, float x1, float y0, float y1, float z0, float z1, SurfaceKind kind)
+    private static void Add(List<Brush> brushes, float x0, float x1, float y0, float y1, float z0, float z1,
+        SurfaceKind kind, bool invisible = false)
     {
         brushes.Add(new Brush
         {
@@ -166,6 +169,7 @@ public static class IndustrialZoneLayout
             Color = kind == SurfaceKind.Floor ? U.Rgb(45, 45, 45) : new Color(0, 0, 0, 0),
             Kind = kind,
             Penetrable = false,
+            Invisible = invisible,
         });
     }
 }

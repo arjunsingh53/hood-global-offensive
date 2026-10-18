@@ -25,6 +25,11 @@ public static class Hud
 
     public static void Draw(Simulation sim, Camera3D cam, int w, int h, CrosshairSettings crosshair)
     {
+        // The scope tunnel owns the world frame before any HUD layer draws:
+        // peripheral anchors then fade over black instead of ghosting through a
+        // translucent mask that was painted on top of them.
+        DrawScopeMask(sim, w, h);
+
         // Keep the reticle/impact layer completely independent of the corner
         // presentation.  A real calibrated sight or scope owns the protected
         // centre of the screen, while the player can still recover essential
@@ -45,7 +50,7 @@ public static class Hud
             DrawHookStatus(sim, w, h, peripheralOpacity);
             DrawStationPrompt(sim, w, h, peripheralOpacity);
             DrawDamageIndicators(sim, w, h);
-            DrawScopeOverlay(sim, w, h);
+            DrawScopeReticle(sim, w, h);
         }
         else
         {
@@ -249,16 +254,23 @@ public static class Hud
             w / 2, y + 20, 10, Fade(Ui.Accent, opacity));
     }
 
-    private static void DrawScopeOverlay(Simulation sim, int w, int h)
+    /// <summary>Blend of the magnified optic, 0 while stowed and 1 at full zoom.</summary>
+    private static float ScopeBlend(Player p) => U.Clamp01((p.ZoomBlend - 0.25f) / 0.75f);
+
+    /// <summary>
+    /// Blacks the world outside the scope circle. Drawn before the peripheral
+    /// HUD so those anchors fade over the tunnel instead of ghosting through it.
+    /// </summary>
+    private static void DrawScopeMask(Simulation sim, int w, int h)
     {
         Player p = sim.Player;
-        if (!p.Current.Def.HasScope) return;
-        if (p.ZoomBlend < 0.25f) return;
+        if (!p.Alive || !p.Current.Def.HasScope) return;
+        float t = ScopeBlend(p);
+        if (t <= 0f) return;
 
-        float t = U.Clamp01((p.ZoomBlend - 0.25f) / 0.75f);
         int cx = w / 2, cy = h / 2;
         float radius = h * 0.5f;
-        int alpha = (int)(230 * t);
+        int alpha = (int)(232 * t);
 
         // Black the corners to leave a circular scope.
         Raylib.DrawRectangle(0, 0, w, (int)(cy - radius), U.Rgba(0, 0, 0, alpha));
@@ -272,12 +284,65 @@ public static class Hud
             int rightEdge = (int)(cx + dx);
             if (rightEdge < w) Raylib.DrawRectangle(rightEdge, y, w - rightEdge, 1, U.Rgba(0, 0, 0, alpha));
         }
+    }
 
-        Color line = U.Rgba(20, 20, 20, (int)(220 * t));
-        Raylib.DrawLine(0, cy, w, cy, line);
-        Raylib.DrawLine(cx, 0, cx, h, line);
-        Raylib.DrawCircleLines(cx, cy, radius * 0.62f, U.Rgba(30, 30, 30, (int)(140 * t)));
-        Raylib.DrawCircle(cx, cy, 2f, U.Rgba(240, 240, 240, (int)(230 * t)));
+    /// <summary>
+    /// The duplex sight picture: a soft tube shadow inside the rim, heavy posts
+    /// on all four cardinals, a fine crosshair with an open centre, a mil-dot
+    /// drop ladder and the exact centre pixel the hitscan ray resolves through.
+    /// </summary>
+    private static void DrawScopeReticle(Simulation sim, int w, int h)
+    {
+        Player p = sim.Player;
+        if (!p.Current.Def.HasScope) return;
+        float t = ScopeBlend(p);
+        if (t <= 0f) return;
+
+        int cx = w / 2, cy = h / 2;
+        float radius = h * 0.5f;
+        float scale = radius / 540f;
+        var centre = new Vector2(cx, cy);
+
+        // Stacked translucent rings deepen the edge so the glass reads as a
+        // tube rather than a paper cut-out, then a crisp dark lip closes it.
+        for (int i = 0; i < 8; i++)
+        {
+            float inner = radius * (0.84f + i * 0.02f);
+            Raylib.DrawRing(centre, inner, radius, 0f, 360f, 96, U.Rgba(4, 5, 7, (int)(13 * t)));
+        }
+        Raylib.DrawRing(centre, radius - 1.5f * scale, radius, 0f, 360f, 96, U.Rgba(6, 7, 9, (int)(150 * t)));
+        Raylib.DrawCircleLines(cx, cy, radius * 0.995f, U.Rgba(236, 226, 205, (int)(26 * t)));
+
+        Color post = U.Rgba(10, 11, 13, (int)(225 * t));
+        Color fine = U.Rgba(14, 15, 18, (int)(210 * t));
+        float gap = 9f * scale;
+        float thinStart = radius * 0.44f;
+        float postStart = radius * 0.97f;
+
+        // Heavy duplex posts on the horizontals and verticals.
+        Raylib.DrawLineEx(new Vector2(cx - postStart, cy), new Vector2(cx - thinStart, cy), 6.5f * scale, post);
+        Raylib.DrawLineEx(new Vector2(cx + postStart, cy), new Vector2(cx + thinStart, cy), 6.5f * scale, post);
+        Raylib.DrawLineEx(new Vector2(cx, cy - postStart), new Vector2(cx, cy - thinStart), 6.5f * scale, post);
+        Raylib.DrawLineEx(new Vector2(cx, cy + postStart), new Vector2(cx, cy + thinStart), 6.5f * scale, post);
+
+        // Fine crosshair, deliberately open at the centre.
+        Raylib.DrawLineEx(new Vector2(cx - thinStart, cy), new Vector2(cx - gap, cy), 1.5f, fine);
+        Raylib.DrawLineEx(new Vector2(cx + gap, cy), new Vector2(cx + thinStart, cy), 1.5f, fine);
+        Raylib.DrawLineEx(new Vector2(cx, cy - thinStart), new Vector2(cx, cy - gap), 1.5f, fine);
+        Raylib.DrawLineEx(new Vector2(cx, cy + gap), new Vector2(cx, cy + thinStart), 1.5f, fine);
+
+        // Mil-dot drop ladder under the centre.
+        float step = radius * 0.085f;
+        for (int i = 1; i <= 4; i++)
+        {
+            float y = cy + gap + step * i;
+            if (y > cy + thinStart) break;
+            Raylib.DrawCircleV(new Vector2(cx, y), 2.2f * MathF.Max(1f, scale),
+                U.Rgba(14, 15, 18, (int)(195 * t)));
+        }
+
+        // Exact centre pixel: the hitscan ray always resolves through it.
+        Raylib.DrawRectangle(cx, cy, 1, 1, U.Rgba(240, 240, 240, (int)(235 * t)));
     }
 
     // ---------------------------------------------------------------- vitals

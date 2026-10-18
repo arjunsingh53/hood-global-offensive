@@ -514,6 +514,8 @@ public static class Renderer
     {
         foreach (Brush brush in map.Brushes)
         {
+            if (brush.Invisible) continue;
+
             Aabb box = brush.Box;
             Raylib.DrawCubeV(box.Center, box.Size, brush.Color);
             Raylib.DrawCubeWiresV(box.Center, box.Size, Shade(brush.Color, 0.62f));

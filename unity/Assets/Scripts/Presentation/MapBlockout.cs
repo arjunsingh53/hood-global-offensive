@@ -66,6 +66,10 @@ namespace HoodGlobalOffensive.Presentation
 
             foreach (Brush brush in sim.Map.Brushes)
             {
+                // Collision-only surfaces (e.g. the Industrial containment rim)
+                // stay invisible in the port exactly like the reference.
+                if (brush.Invisible) continue;
+
                 Vector3 size = MapBlockoutSize(brush.Box);
                 if (size.x <= 0f || size.y <= 0f || size.z <= 0f) continue;
 

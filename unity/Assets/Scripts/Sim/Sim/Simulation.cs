@@ -681,16 +681,25 @@ namespace HoodGlobalOffensive.Sim
                 });
             }
 
-            AddImpactDecal(new Decal
+            // Decals land only on surfaces the level actually draws. The
+            // imported Industrial Zone's containment walls are collision-only,
+            // so a mark pinned there would hang in the sky for its full life;
+            // those surfaces keep the spark and the sound as boundary feedback
+            // but never a decal.
+            bool visibleSurface = result.BrushIndex < 0 || !Map.Brushes[result.BrushIndex].Invisible;
+            if (visibleSurface)
             {
-                Position = result.Point + result.Normal * 0.4f,
-                Normal = result.Normal,
-                Size = VfxRand(3.2f, 5.4f),
-                Life = 12f,
-                MaxLife = 12f,
-                Color = U.Argb(38, 34, 30, 205),
-                Kind = DecalKind.SurfaceImpact,
-            });
+                AddImpactDecal(new Decal
+                {
+                    Position = result.Point + result.Normal * 0.4f,
+                    Normal = result.Normal,
+                    Size = VfxRand(3.2f, 5.4f),
+                    Life = 12f,
+                    MaxLife = 12f,
+                    Color = U.Argb(38, 34, 30, 205),
+                    Kind = DecalKind.SurfaceImpact,
+                });
+            }
 
             Emit("impact", result.Point, 0.55f, VfxRand(0.9f, 1.15f));
         }
