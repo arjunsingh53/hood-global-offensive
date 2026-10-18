@@ -47,11 +47,13 @@
   trauma ducking, Arena occlusion rays); the presentation compile gate
   (`tools/presentation-check`) builds clean; the single-file exe was re-verified from a clean
   directory.
-- **Push policy:** `origin/main` is synced with local `main` (checked after the 2026-10-18 owner
-  push: `git rev-list --count origin/main..main` = 0). That push was requested at `76c8438`
-  ("Port the kill-feed arena-panel rows") and carried every migration commit that had been held
-  local; this handoff note landed immediately after it. The previous sync point was `acd6652`
-  (2026-10-16).
+- **Push policy:** `origin/main` is synced with local `main` (checked after this push —
+  `git rev-list --count origin/main..main` = 0; previous sync point `77be640`, itself the handoff
+  note following the `76c8438` push). The current push was requested by the team on 2026-10-18
+  and carried the eleven commits held since `76c8438` — the actor head silhouettes, the
+  sniper/scope + decal fix, the all-map sweep record, the sky-ramp band smoothing, the
+  tactical-soldier world-model swap and the refreshed README gallery — with the full gate set
+  green. The sync point before `76c8438` was `acd6652` (2026-10-16).
   The migration commits carried by that push (presentation bridge and its
   compile gate, edit-mode gate, audio synthesis port, `AudioMix` routing port, audio playback
   bridge, first presentation-blockout pass, the code-built front end, the Unity YAML
@@ -60,9 +62,9 @@
   overlay, the Tab scoreboard + pause/match-over parity fixes, the scenic menu backdrop, the
   scope/hook HUD pass, the top-bar + compass pass, the rotating radar scanner, the weapon-readout card,
   the biological vitals card + death overlay pass, the trauma vignette + arena-panel corner brackets
-  pass, and the kill-feed arena-panel rows pass) are on GitHub as of that push. Work landed
-  after it (starting with the actor head silhouettes) stays local until the team asks for
-  another push; `git rev-list --count origin/main..main` shows how much is held.
+  pass, and the kill-feed arena-panel rows pass) are on GitHub as of that push. Work landing
+  after this push stays local until the team asks for another push;
+  `git rev-list --count origin/main..main` shows how much is held.
   Pre-push gate for future work: `-warnaserror` build clean, both CI gates `RESULT: PASS`, `tools/parity`
   `PARITY: PASS`, `tools/presentation-check` build clean, and `tools/editmode-check` build clean.
   After a push, update this bullet with the new sync point.
